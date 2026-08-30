@@ -58,7 +58,7 @@ let fakeNow = new Date('2026-09-01T10:00:00Z');
 const CFG = {
   intervals_days: [0, 1, 3, 7, 14, 30],
   on_error: 'drop_one_level',
-  active_set: { size_min: 8, size_max: 10, current_ratio: 0.6, current_word_age_days: 21 },
+  active_set: { size_min: 8, size_max: 10, current_ratio: 0.6, current_word_age_days: 21, intro_when_due_below: 3 },
   practice_after_queue_empty: true,
   practice_serve_cap_per_session: 2,
   decay: { enabled: false }
@@ -251,6 +251,24 @@ await test('Telemetry: τα λάθη αθροίζονται ανά κλάση κ
   const agg = errorCounts(store.activeProfile(store.loadState()));
   eq(agg.i['η'], 2, 'μετρητής η');
   eq(agg.i['υ'], 1, 'μετρητής υ');
+});
+
+await test('Οι νέοι στόχοι δεν σερβίρονται όλοι μαζί — το πολύ 3 τελετές στη σειρά', async () => {
+  const specs = [];
+  for (let i = 0; i < 7; i++) {
+    specs.push({ text: 'λεξη' + i, targets: [{ g: 'ε', start: 1, len: 1, cls: 'e', d: ['αι'] }] });
+  }
+  const { pid } = seed(specs);
+  engine.resetSession();
+  let introStreak = 0, maxStreak = 0;
+  for (let i = 0; i < 10; i++) {
+    const ch = engine.getNextChallenge(pid);
+    if (!ch) break;
+    if (ch.type === 'intro') { introStreak++; maxStreak = Math.max(maxStreak, introStreak); }
+    else introStreak = 0;
+    engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: ch.type, correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 0 });
+  }
+  assert(maxStreak <= 3, `${maxStreak} συνεχόμενες τελετές`);
 });
 
 await test('Χωρίς καμία λέξη το engine επιστρέφει null (το παιχνίδι το χειρίζεται)', async () => {

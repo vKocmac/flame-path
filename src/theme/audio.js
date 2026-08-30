@@ -132,6 +132,66 @@ export function whoosh() {
   for (let i = 0; i < 4; i++) setTimeout(() => crackle(1.4), 90 + i * 45);
 }
 
+// Η φλόγα δεν πιάνει: σύντομο, πνιχτό, καθόλου «ήχος αποτυχίας».
+// Πέφτει σε συχνότητα και σβήνει — σαν να σβήνει κερί.
+export function fizzle() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.6);
+
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1600, t);
+  lp.frequency.exponentialRampToValueAtTime(220, t + 0.34);
+
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.10, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+
+  src.connect(lp).connect(g).connect(master);
+  src.start(t);
+  src.stop(t + 0.5);
+}
+
+// Κουδούνισμα σπίθας — ζεστό, μικρό, χαρούμενο.
+export function chime(step = 0) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const notes = [880, 1108, 1318, 1760];
+  const f = notes[Math.min(step, notes.length - 1)];
+  for (const [mult, vol] of [[1, 0.09], [2, 0.035]]) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f * mult;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    o.connect(g).connect(master);
+    o.start(t);
+    o.stop(t + 0.5);
+  }
+}
+
+// Χαμηλός υπόκωφος χτύπος: ο εχθρός κάνει βήμα μπροστά.
+export function thud() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(120, t);
+  o.frequency.exponentialRampToValueAtTime(46, t + 0.22);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+  o.connect(g).connect(master);
+  o.start(t);
+  o.stop(t + 0.4);
+}
+
 export function setMuted(m) {
   muted = m;
   if (master) master.gain.value = m ? 0 : 1;

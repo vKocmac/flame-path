@@ -129,6 +129,21 @@ export function addWord(state, word) {
   saveState(state);
 }
 
+// Σπίθες: το διακοσμητικό νόμισμα. Μένουν για πάντα — «ποτέ δεν χάνει
+// όσα μάζεψε» (SPEC κεφ. 3). Δεν αγοράζουν τίποτα ουσιώδες.
+export function getSparks(state) {
+  return activeProfile(state)?.profile.sparks || 0;
+}
+
+export function addSparks(state, n) {
+  const p = activeProfile(state);
+  if (!p) return 0;
+  p.profile.sparks = (p.profile.sparks || 0) + n;
+  p.profile.updatedAt = now();
+  saveState(state);
+  return p.profile.sparks;
+}
+
 export function removeWord(state, wordId) {
   const p = activeProfile(state);
   p.words = p.words.filter((w) => w.id !== wordId);

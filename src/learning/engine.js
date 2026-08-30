@@ -19,7 +19,8 @@ function freshSession() {
     lastWordId: null,
     serveCounts: new Map(),
     practiceCounts: new Map(),
-    activeIds: null
+    activeIds: null,
+    skip: new Set()        // στόχοι που η σκηνή δεν μπορεί να παίξει τώρα
   };
 }
 
@@ -45,10 +46,12 @@ function shuffle(arr) {
 
 // Τύπος πρόκλησης: ο λιγότερο πρόσφατα χρησιμοποιημένος για τον στόχο.
 // gap απαιτεί distractors· χωρίς αυτά (π.χ. «ου») μένει η συναρμολόγηση.
+// Επιστρέφει null αν ο στόχος δεν παίζεται με κανέναν από τους ζητούμενους
+// τύπους — τότε ο καλών τον προσπερνά αντί να σερβίρει κάτι μη υποστηριζόμενο.
 function chooseType(target, types) {
-  let allowed = types.filter((tp) =>
+  const allowed = types.filter((tp) =>
     tp === 'assembly' || (tp === 'gap' && target.distractors.length > 0));
-  if (!allowed.length) allowed = ['assembly'];
+  if (!allowed.length) return null;
   const hist = target.challengeTypesUsed;
   let best = allowed[0], bestIdx = Infinity;
   for (const tp of allowed) {
@@ -75,11 +78,18 @@ export function getNextChallenge(profileId, { types = ['gap', 'assembly'] } = {}
   const p = state.profiles.find((x) => x.profile.id === profileId);
   if (!p) return null;
 
-  const pick = selectNext(p, cfg, clock(), session);
-  if (!pick) return null;
-  const { word, target, isPractice } = pick;
+  // Προσπερνάμε στόχους που δεν παίζονται με τους ζητούμενους τύπους
+  // (π.χ. «ου» όταν η σκηνή υποστηρίζει μόνο κενό γράφημα).
+  let word, target, isPractice, type;
+  for (let tries = 0; tries < 12; tries++) {
+    const pick = selectNext(p, cfg, clock(), session);
+    if (!pick) return null;
+    type = !pick.target.introduced ? 'intro' : chooseType(pick.target, types);
+    if (type) { ({ word, target, isPractice } = pick); break; }
+    session.skip.add(pick.target.id);
+  }
+  if (!type || !target) return null;
 
-  const type = !target.introduced ? 'intro' : chooseType(target, types);
   const ch = {
     challengeId: newId(),
     wordId: word.id,

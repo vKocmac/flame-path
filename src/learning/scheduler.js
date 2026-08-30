@@ -54,10 +54,19 @@ export function buildActiveSet(pairs, cfg, nowDate) {
 // Επιλογή επόμενου στόχου από το ενεργό σύνολο.
 // session: { activeIds, lastWordId, serveCounts, practiceCounts }
 export function selectNext(profileEntry, cfg, nowDate, session) {
-  const pairs = allPairs(profileEntry);
+  const skip = session.skip || new Set();
+  const pairs = allPairs(profileEntry).filter((x) => !skip.has(x.target.id));
   if (!pairs.length) return null;
 
-  const eligible = pairs.filter((x) => !x.target.introduced || isDue(x.target, nowDate));
+  // Νέος στόχος παρουσιάζεται μόνο όταν δεν στοιβάζονται ήδη πολλοί
+  // αναπάντητοι. Αλλιώς, με 7 νέους στόχους, το παιδί θα έβλεπε 7 τελετές
+  // στη σειρά πριν παίξει — και θα φορτωνόταν με άγνωστο υλικό μαζεμένο.
+  const due = pairs.filter((x) => x.target.introduced && isDue(x.target, nowDate));
+  const limit = cfg.active_set.intro_when_due_below ?? 3;
+  const allowIntro = due.length < limit;
+  let eligible = due;
+  if (allowIntro) eligible = [...pairs.filter((x) => !x.target.introduced), ...due];
+  if (!eligible.length) eligible = pairs.filter((x) => !x.target.introduced);
 
   if (eligible.length) {
     let pool = session.activeIds

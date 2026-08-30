@@ -5,7 +5,8 @@
     "size_min": 8,
     "size_max": 12,
     "current_ratio": 0.6,
-    "current_word_age_days": 21
+    "current_word_age_days": 21,
+    "intro_when_due_below": 3
   },
   "practice_after_queue_empty": true,
   "practice_serve_cap_per_session": 2,

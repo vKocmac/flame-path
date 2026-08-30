@@ -2,7 +2,9 @@
 
 import { NUM } from '../theme/palette.js';
 import * as audio from '../theme/audio.js';
+import * as engine from '../learning/engine.js';
 import TitleScene from './scenes/TitleScene.js';
+import BattleScene from './scenes/BattleScene.js';
 
 // Οι γραμματοσειρές πρέπει να είναι φορτωμένες ΠΡΙΝ ζωγραφίσει το Phaser
 // κείμενο — αλλιώς μετράει λάθος πλάτη και τα κεντραρίσματα χαλάνε.
@@ -23,7 +25,7 @@ function boot() {
       autoCenter: Phaser.Scale.CENTER_BOTH
     },
     render: { antialias: true },
-    scene: [TitleScene]
+    scene: [TitleScene, BattleScene]
   });
 
   // Ο browser δεν επιτρέπει ήχο πριν το πρώτο άγγιγμα του χρήστη.
@@ -39,10 +41,9 @@ function boot() {
   return game;
 }
 
+// Γραμματοσειρές ΚΑΙ Learning Engine έτοιμα πριν ανοίξει η πρώτη σκηνή.
+const ready = [engine.init().catch((e) => console.error('learning init', e))];
 if (document.fonts && document.fonts.load) {
-  Promise.all(fonts.map((f) => document.fonts.load(f, 'Ο Δρόμος αιεη')))
-    .catch(() => {})
-    .then(boot);
-} else {
-  boot();
+  ready.push(...fonts.map((f) => document.fonts.load(f, 'Ο Δρόμος αιεη')));
 }
+Promise.all(ready).catch(() => {}).then(boot);
