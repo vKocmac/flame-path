@@ -9,14 +9,19 @@ const root = document.getElementById('parent-root');
 let state = store.loadState();
 if (!store.activeProfile(state)) store.createProfile(state, 'Νίντζα');
 
-// --- Κρυφή είσοδος: 5 αγγίγματα στο #status μέσα σε 2" ---
+// Κρυφή είσοδος: 5 αγγίγματα στο ΦΕΓΓΑΡΙ (το καλεί η TitleScene μέσω
+// window.flameParent.open). Εφεδρικά, 5 αγγίγματα στην κάτω δεξιά γωνία —
+// χρήσιμο αν κάποτε το φεγγάρι φύγει από τη σκηνή.
 let taps = [];
-document.getElementById('status').addEventListener('click', () => {
-  const t = Date.now();
-  taps = taps.filter((x) => t - x < 2000);
-  taps.push(t);
-  if (taps.length >= 5) { taps = []; open(); }
-});
+const fallback = document.getElementById('status');
+if (fallback) {
+  fallback.addEventListener('click', () => {
+    const t = Date.now();
+    taps = taps.filter((x) => t - x < 2500);
+    taps.push(t);
+    if (taps.length >= 5) { taps = []; open(); }
+  });
+}
 
 function open() {
   root.classList.add('open');
