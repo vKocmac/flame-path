@@ -1,12 +1,16 @@
 // Αποθήκευση — local-first, sync-ready (ARCHITECTURE §7).
 // Όλα τα δεδομένα προόδου ζουν εδώ· κανένα άλλο module δεν αγγίζει localStorage.
 // Το PIN είναι ανά συσκευή (flame.device) και ΔΕΝ μπαίνει στο export.
+//
+// Schema v2: κάθε λέξη έχει ΛΙΣΤΑ στόχων (targets) — ένα ανά σημείο ελέγχου
+// (π.χ. «ωδείο»: ω + ει + ο). Η μονάδα που προγραμματίζει το Leitner είναι
+// ο ΣΤΟΧΟΣ, όχι η λέξη: κάθε στόχος έχει δικό του επίπεδο και ιστορικό.
 
 import { newId, now } from './ids.js';
 
-const STATE_KEY = 'flame.state.v1';
+const STATE_KEY = 'flame.state.v1'; // το κλειδί μένει ίδιο· η έκδοση ζει στο schemaVersion
 const DEVICE_KEY = 'flame.device.v1';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 function defaultState() {
   const t = now();
@@ -19,12 +23,58 @@ function defaultState() {
   };
 }
 
+// --- Μετάβαση schema v1 → v2 (μία λέξη είχε έναν στόχο ενσωματωμένο) ---
+
+function migrateWordV1(w) {
+  return {
+    id: w.id,
+    text: w.text,
+    targets: [{
+      id: newId(),
+      gap: w.gap,
+      grapheme: w.targetGrapheme,
+      confusionClass: w.confusionClass,
+      distractors: w.distractors,
+      level: w.level ?? 0,
+      attempts: w.attempts ?? 0,
+      successes: w.successes ?? 0,
+      errorHistory: w.errorHistory ?? [],
+      challengeTypesUsed: w.challengeTypesUsed ?? [],
+      lastSeenAt: w.lastSeenAt ?? null,
+      nextDueAt: w.nextDueAt ?? null,
+      introduced: w.introduced ?? false
+    }],
+    sentence: w.sentence ?? null,
+    audioWord: w.audioWord ?? null,
+    audioSentence: w.audioSentence ?? null,
+    addedAt: w.addedAt,
+    updatedAt: now()
+  };
+}
+
+function migrate(s) {
+  if (s.schemaVersion === 1) {
+    s.profiles.forEach((p) => { p.words = p.words.map(migrateWordV1); });
+    s.schemaVersion = 2;
+  }
+  return s;
+}
+
+function isKnownSchema(s) {
+  return s && (s.schemaVersion === 1 || s.schemaVersion === SCHEMA_VERSION)
+    && Array.isArray(s.profiles);
+}
+
 export function loadState() {
   try {
     const raw = localStorage.getItem(STATE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      if (s && s.schemaVersion === SCHEMA_VERSION && Array.isArray(s.profiles)) return s;
+      if (isKnownSchema(s)) {
+        const m = migrate(s);
+        if (s.schemaVersion !== SCHEMA_VERSION) saveState(m);
+        return m;
+      }
     }
   } catch (e) { /* κατεστραμμένο ή απρόσιτο — ξεκινάμε καθαρά */ }
   return defaultState();
@@ -48,18 +98,27 @@ export function activeProfile(state) {
   return state.profiles.find((p) => p.profile.id === state.activeProfileId) || null;
 }
 
-// Νέα λέξη με το πλήρες schema του ARCHITECTURE §5.
-export function newWord({ text, gap, targetGrapheme, confusionClass, distractors }) {
-  const t = now();
+// Νέος στόχος (σημείο ελέγχου) με πλήρες learning state.
+export function newTarget({ gap, grapheme, confusionClass, distractors }) {
   return {
     id: newId(),
-    text, gap, targetGrapheme, confusionClass, distractors,
-    sentence: null, audioWord: null, audioSentence: null,
-    addedAt: t, updatedAt: t,
+    gap, grapheme, confusionClass, distractors,
     level: 0, attempts: 0, successes: 0,
     errorHistory: [], challengeTypesUsed: [],
     lastSeenAt: null, nextDueAt: null,
     introduced: false
+  };
+}
+
+// Νέα λέξη: targets = [{gap, grapheme, confusionClass, distractors}, ...]
+export function newWord({ text, targets }) {
+  const t = now();
+  return {
+    id: newId(),
+    text,
+    targets: targets.map(newTarget),
+    sentence: null, audioWord: null, audioSentence: null,
+    addedAt: t, updatedAt: t
   };
 }
 
@@ -83,17 +142,18 @@ export function exportJSON(state) {
   return JSON.stringify({ ...state, exportedAt: now() }, null, 2);
 }
 
-// Επιστρέφει το νέο state ή πετάει Error με μήνυμα για τον γονέα.
+// Δέχεται v1 ή v2 αντίγραφο· επιστρέφει το νέο state ή πετάει Error.
 export function importJSON(text) {
   let data;
   try { data = JSON.parse(text); }
   catch (e) { throw new Error('Το αρχείο δεν είναι έγκυρο JSON.'); }
-  if (!data || data.schemaVersion !== SCHEMA_VERSION || !Array.isArray(data.profiles)) {
+  if (!isKnownSchema(data)) {
     throw new Error('Το αρχείο δεν είναι αντίγραφο από αυτό το παιχνίδι.');
   }
   delete data.exportedAt;
-  saveState(data);
-  return data;
+  const m = migrate(data);
+  saveState(m);
+  return m;
 }
 
 // --- Ρυθμίσεις συσκευής (PIN — μένει εκτός export) ---

@@ -64,9 +64,10 @@ const ch = learning.getNextChallenge(profileId, { types: ['gap', 'assembly'] });
 // {
 //   challengeId,            // μοναδικό ανά εμφάνιση
 //   wordId,
+//   targetId,               // ποιος στόχος (σημείο ελέγχου) της λέξης παίζει
 //   type: 'gap' | 'assembly' | 'intro',
 //   text: 'λιμάνι',          // πάντα η ΣΩΣΤΗ πλήρης μορφή
-//   gap: { start: 1, length: 1 },     // μόνο για gap/intro
+//   gap: { start: 1, length: 1 },     // το κενό ΤΟΥ στόχου (gap/intro)
 //   candidates: ['ι','η','υ','ει','οι'], // gap: σωστό+distractors, ανακατεμένα
 //   pieces: ['λ','ι','μ','ά','ν','ι'],  // assembly: ΜΟΝΟ γνήσια γραφήματα, ανακατεμένα
 //   isPractice: bool         // true = «προπόνηση», δεν επηρεάζει σχεδιασμό
@@ -75,7 +76,7 @@ const ch = learning.getNextChallenge(profileId, { types: ['gap', 'assembly'] });
 
 // Το Game αναφέρει το αποτέλεσμα — ΜΙΑ φορά ανά challenge:
 learning.reportResult({
-  challengeId, wordId, profileId,
+  challengeId, wordId, targetId, profileId,
   type,                    // 'gap' | 'assembly' | 'intro'
   correct,                 // αποτέλεσμα της ΠΡΩΤΗΣ προσπάθειας μόνο
   chosenGrapheme,          // το λάθος γράφημα που διάλεξε (null αν σωστό/intro)
@@ -95,20 +96,32 @@ learning.reportResult({
 
 ## 5. Μοντέλο δεδομένων
 
-### Λέξη (SPEC κεφ. 6)
+### Λέξη με πολλαπλούς στόχους (SPEC κεφ. 6 + απόφαση 30/08, schema v2)
+
+Μία λέξη έχει **λίστα στόχων** — ένα σημείο ελέγχου ανά «δύσκολο» γράφημα
+(π.χ. «ωδείο»: ω + ει + ο, «λιμάνι»: και τα δύο ι). **Η μονάδα που
+προγραμματίζει το Leitner είναι ο στόχος, όχι η λέξη**: κάθε στόχος έχει
+δικό του επίπεδο, ιστορικό και nextDueAt, γιατί το παιδί μπορεί να ξέρει
+το ένα σημείο και όχι το άλλο.
 
 ```js
+// Word:
 // {
 //   id,                    // crypto.randomUUID(), σταθερό για πάντα
-//   text: 'λιμάνι',
-//   gap: { start: 1, length: 1 },   // εύρος: υποστηρίζει διψήφια ('ει' = length 2)
-//   targetGrapheme: 'ι',
-//   confusionClass: 'i',   // κλειδί στον πίνακα κλάσεων (graphemes.js)
-//   distractors: ['η','υ','ει','οι'],
+//   text: 'λιμάνι',        // πάντα πεζά (το Parent Mode κανονικοποιεί)
+//   targets: [Target, ...],
 //   sentence: null,        // προαιρετικό παράδειγμα (Φάση 2 χρήση)
 //   audioWord: null,       // πεδία από τώρα, υλοποίηση Φάση 2
 //   audioSentence: null,
-//   addedAt, updatedAt,    // ISO timestamps
+//   addedAt, updatedAt     // ISO timestamps
+// }
+// Target (σημείο ελέγχου):
+// {
+//   id,
+//   gap: { start: 1, length: 1 },   // εύρος: υποστηρίζει διψήφια ('ει' = length 2)
+//   grapheme: 'ι',
+//   confusionClass: 'i',   // κλειδί στον πίνακα κλάσεων (graphemes.js)
+//   distractors: ['η','υ','ει','οι'],
 //   level: 0,              // Leitner 0–5
 //   attempts: 0, successes: 0,
 //   errorHistory: [],      // [{ grapheme:'η', type:'gap', at }] — ΠΟΤΕ δεν κλαδεύεται
@@ -118,6 +131,14 @@ learning.reportResult({
 //   introduced: false      // true μετά την τελετή περγαμηνής
 // }
 ```
+
+Κανόνες scheduler (δεσμεύουν το Βήμα 2):
+- Δύο στόχοι της ίδιας λέξης δεν εμφανίζονται ποτέ συνεχόμενα στο ίδιο session.
+- Η τελετή περγαμηνής (intro) γίνεται μία φορά ανά στόχο, με το δικό του
+  γράφημα τονισμένο.
+- Στη συναρμολόγηση (χτίζεται όλη η λέξη) το αποτέλεσμα πιστώνεται στον
+  στόχο για τον οποίο προγραμματίστηκε η πρόκληση.
+- Migration v1→v2 αυτόματο στο storage.js (load και import δέχονται και τα δύο).
 
 ### Προφίλ & co-op ετοιμότητα (κόστος ~μηδέν, μπαίνουν από τώρα)
 

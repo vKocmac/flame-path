@@ -46,6 +46,13 @@ function screen(html) {
   return wrap;
 }
 
+// Οι λέξεις της ορθογραφίας δουλεύονται σε πεζά. Το τελικό σίγμα
+// αποκαθίσταται αν ο γονιός έγραψε κεφαλαία (ΟΔΟΣ → οδος → οδός δεν
+// ανακτά τόνο, αλλά το ς ναι).
+function normalizeWord(raw) {
+  return raw.trim().toLowerCase().replace(/σ$/, 'ς');
+}
+
 // --- PIN ---
 
 function renderPinSetup() {
@@ -83,18 +90,27 @@ function renderPinEntry() {
 
 // --- Κύρια οθόνη ---
 
+// Απόδοση λέξης με ΟΛΟΥΣ τους στόχους έντονους: «λ<b>ι</b>μάν<b>ι</b>».
+function wordHTML(wd) {
+  const ranges = wd.targets
+    .map((t) => t.gap)
+    .sort((a, b) => a.start - b.start);
+  let html = '', pos = 0;
+  for (const r of ranges) {
+    html += wd.text.slice(pos, r.start) + '<b>' + wd.text.substr(r.start, r.length) + '</b>';
+    pos = r.start + r.length;
+  }
+  return html + wd.text.slice(pos);
+}
+
 function renderMain() {
   const p = store.activeProfile(state);
-  const words = p.words.map((wd) => {
-    const before = wd.text.slice(0, wd.gap.start);
-    const target = wd.text.substr(wd.gap.start, wd.gap.length);
-    const after = wd.text.slice(wd.gap.start + wd.gap.length);
-    return `<div class="pm-word" data-id="${wd.id}">
-      <span class="w">${before}<b>${target}</b>${after}</span>
-      <span class="meta">επ. ${wd.level}</span>
+  const words = p.words.map((wd) => `
+    <div class="pm-word" data-id="${wd.id}">
+      <span class="w">${wordHTML(wd)}</span>
+      <span class="meta">${wd.targets.length} ${wd.targets.length === 1 ? 'σημείο' : 'σημεία'} · επ. ${wd.targets.map((t) => t.level).join('/')}</span>
       <button class="del" aria-label="Διαγραφή">🗑</button>
-    </div>`;
-  }).join('') || '<p class="pm-note">Καμία λέξη ακόμα.</p>';
+    </div>`).join('') || '<p class="pm-note">Καμία λέξη ακόμα.</p>';
 
   const w = screen(`
     <h2>Λέξεις — ${p.profile.name}</h2>
@@ -152,59 +168,67 @@ function renderMain() {
   });
 }
 
-// Επιλογή γραφήματος-στόχου: η λέξη τεμαχίζεται σε γραφήματα (δίψηφα ενωμένα)
-// και ο γονιός αγγίζει αυτό που δυσκολεύει το παιδί.
+// Επιλογή στόχων: η λέξη τεμαχίζεται σε γραφήματα και ΠΡΟΕΠΙΛΕΓΟΝΤΑΙ όλα
+// όσα ανήκουν σε κλάση σύγχυσης. Ο γονιός αγγίζει για να αφαιρέσει ή να
+// προσθέσει σημεία — κάθε επιλεγμένο σημείο γίνεται ξεχωριστός στόχος.
 function renderPick(w) {
-  const text = w.querySelector('#word').value.trim();
+  const raw = w.querySelector('#word').value;
   const err = w.querySelector('#err');
   err.textContent = '';
+  const text = normalizeWord(raw);
   if (!text || text.includes(' ')) { err.textContent = 'Γράψε μία λέξη, χωρίς κενά.'; return; }
+  w.querySelector('#word').value = text;
 
   const units = splitGraphemes(text);
   let starts = [], pos = 0;
   units.forEach((u) => { starts.push(pos); pos += u.length; });
 
+  const selected = new Set();
+  units.forEach((u, i) => { if (classForGrapheme(u)) selected.add(i); });
+
   const pick = w.querySelector('#pick');
   pick.innerHTML = `
-    <p class="pm-note">Άγγιξε το σημείο που θέλεις να μάθει:</p>
-    <div class="pm-chips">${units.map((u, i) => `<button class="pm-chip" data-i="${i}">${u}</button>`).join('')}</div>
+    <p class="pm-note">Επιλεγμένα είναι τα σημεία που θα ελέγχονται — άγγιξε για να αλλάξεις:</p>
+    <div class="pm-chips">${units.map((u, i) => `<button class="pm-chip${selected.has(i) ? ' sel' : ''}" data-i="${i}">${u}</button>`).join('')}</div>
     <p class="pm-note" id="suggest"></p>
-    <button class="pm-btn primary" id="save" disabled>Αποθήκευση λέξης</button>`;
+    <button class="pm-btn primary" id="save">Αποθήκευση λέξης</button>`;
 
-  let sel = null;
+  const refresh = () => {
+    const parts = [...selected].sort((a, b) => a - b).map((i) => {
+      const g = units[i];
+      return `${g} → ${[g, ...distractorsFor(g)].join('/')}`;
+    });
+    pick.querySelector('#suggest').textContent = parts.length
+      ? `Σημεία ελέγχου: ${parts.join(' · ')}`
+      : 'Κανένα σημείο — διάλεξε τουλάχιστον ένα φωνήεν.';
+    pick.querySelector('#save').disabled = selected.size === 0;
+  };
+  refresh();
+
   pick.querySelectorAll('.pm-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
-      pick.querySelectorAll('.pm-chip').forEach((c) => c.classList.remove('sel'));
-      chip.classList.add('sel');
       const i = Number(chip.dataset.i);
       const g = units[i];
-      const cls = classForGrapheme(g);
-      const suggest = pick.querySelector('#suggest');
-      const save = pick.querySelector('#save');
-      if (!cls) {
-        sel = null;
-        suggest.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης της Φάσης 1 — διάλεξε φωνήεν (ι/η/υ/ει/οι, ο/ω, ε/αι, ου).`;
-        save.disabled = true;
-      } else {
-        sel = { i, g, cls };
-        const d = distractorsFor(g);
-        suggest.textContent = d.length
-          ? `Πιθανή σύγχυση: ${[g, ...d].join(' / ')}`
-          : `Το «${g}» δεν έχει εναλλακτικές — η λέξη θα παίζει μόνο σε συναρμολόγηση.`;
-        save.disabled = false;
+      if (!classForGrapheme(g)) {
+        err.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης της Φάσης 1 (ι/η/υ/ει/οι, ο/ω, ε/αι, ου).`;
+        return;
       }
+      err.textContent = '';
+      if (selected.has(i)) { selected.delete(i); chip.classList.remove('sel'); }
+      else { selected.add(i); chip.classList.add('sel'); }
+      refresh();
     });
   });
 
   pick.querySelector('#save').addEventListener('click', () => {
-    if (!sel) return;
-    store.addWord(state, store.newWord({
-      text,
-      gap: { start: starts[sel.i], length: sel.g.length },
-      targetGrapheme: sel.g,
-      confusionClass: sel.cls,
-      distractors: distractorsFor(sel.g)
+    if (selected.size === 0) return;
+    const targets = [...selected].sort((a, b) => a - b).map((i) => ({
+      gap: { start: starts[i], length: units[i].length },
+      grapheme: units[i],
+      confusionClass: classForGrapheme(units[i]),
+      distractors: distractorsFor(units[i])
     }));
+    store.addWord(state, store.newWord({ text, targets }));
     renderMain();
   });
 }
