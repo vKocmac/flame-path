@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flame-path — έλεγχοι Learning Engine</title>
+<style>
+  body { background: #141A33; color: #EDE9DC; font-family: 'Segoe UI', sans-serif;
+         max-width: 760px; margin: 0 auto; padding: 24px; }
+  h1 { color: #FFC857; font-size: 1.2rem; }
+  .t { padding: 8px 12px; border-radius: 8px; margin: 5px 0; font-size: .92rem; }
+  .ok { background: #12321F; color: #7BE0A3; }
+  .fail { background: #3A1220; color: #FF9DB0; }
+  .fail small { display: block; color: #E0778F; margin-top: 4px; }
+  #sum { font-weight: 700; margin: 16px 0; font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<h1>🔥 Έλεγχοι Learning Engine</h1>
+<div id="sum">Εκτελούνται…</div>
+<div id="out"></div>
+<script type="module">
+import * as store from './src/shared/storage.js';
+import * as engine from './src/learning/engine.js';
+import { errorCounts } from './src/learning/telemetry.js';
+import { splitGraphemes } from './src/shared/graphemes.js';
+
+const out = document.getElementById('out');
+const sum = document.getElementById('sum');
+const results = [];
+
+function assert(cond, msg) { if (!cond) throw new Error(msg); }
+function eq(a, b, msg) {
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    throw new Error(`${msg} — περίμενα ${JSON.stringify(b)}, πήρα ${JSON.stringify(a)}`);
+  }
+}
+
+async function test(name, fn) {
+  try { await fn(); results.push({ name, ok: true }); }
+  catch (e) { results.push({ name, ok: false, err: e.message }); }
+  render();
+}
+function render() {
+  out.innerHTML = results.map((r) =>
+    `<div class="t ${r.ok ? 'ok' : 'fail'}">${r.ok ? '✔' : '✘'} ${r.name}${r.ok ? '' : `<small>${r.err}</small>`}</div>`).join('');
+  const fails = results.filter((r) => !r.ok).length;
+  sum.textContent = fails === 0
+    ? `Όλα πράσινα — ${results.length}/${results.length}`
+    : `⚠ ${fails} αποτυχίες από ${results.length}`;
+  sum.style.color = fails === 0 ? '#7BE0A3' : '#FF9DB0';
+}
+
+// --- Υποδομή: πραγματικά δεδομένα στην άκρη, ψεύτικο ρολόι, δικό μας config ---
+const BACKUP = localStorage.getItem('flame.state.v1');
+
+let fakeNow = new Date('2026-09-01T10:00:00Z');
+const CFG = {
+  intervals_days: [0, 1, 3, 7, 14, 30],
+  on_error: 'drop_one_level',
+  active_set: { size_min: 8, size_max: 10, current_ratio: 0.6, current_word_age_days: 21 },
+  practice_after_queue_empty: true,
+  practice_serve_cap_per_session: 2,
+  decay: { enabled: false }
+};
+
+const OLD = '2026-07-01T00:00:00Z';  // «παλιά» λέξη (πέρα από 21 μέρες)
+const PAST = '2026-08-31T00:00:00Z'; // ληξιπρόθεσμο nextDueAt
+const FUTURE = '2026-09-20T00:00:00Z';
+
+// seed: φτιάχνει καθαρό state με λέξεις. Κάθε spec:
+// { text, targets: [{g, start, len, cls, d, level?, introduced?, due?, addedAt?}] }
+function seed(specs) {
+  localStorage.removeItem('flame.state.v1');
+  const s = store.loadState();
+  const entry = store.createProfile(s, 'Δοκιμή');
+  for (const sp of specs) {
+    const w = store.newWord({
+      text: sp.text,
+      targets: sp.targets.map((t) => ({
+        gap: { start: t.start, length: t.len },
+        grapheme: t.g,
+        confusionClass: t.cls,
+        distractors: t.d
+      }))
+    });
+    if (sp.addedAt) w.addedAt = sp.addedAt;
+    w.targets.forEach((tg, i) => {
+      const t = sp.targets[i];
+      if (t.level !== undefined) tg.level = t.level;
+      if (t.introduced !== undefined) tg.introduced = t.introduced;
+      if (t.due !== undefined) tg.nextDueAt = t.due;
+    });
+    store.addWord(s, w);
+  }
+  return { state: s, pid: entry.profile.id };
+}
+
+const iT = (over = {}) => ({ g: 'ι', start: 1, len: 1, cls: 'i', d: ['η', 'υ', 'ει', 'οι'], ...over });
+
+await engine.init({ config: CFG, clock: () => fakeNow });
+
+// ---------------------------------------------------------------- Τα tests --
+
+await test('Νέος στόχος: πρώτα τελετή περγαμηνής (intro), χωρίς επιλογές λάθους', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid);
+  eq(ch.type, 'intro', 'τύπος');
+  assert(!ch.candidates, 'το intro δεν έχει candidates');
+  eq(ch.text, 'λιμάνι', 'πάντα η σωστή μορφή');
+});
+
+await test('Μετά το intro ο στόχος γίνεται διαθέσιμος στο ίδιο session', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  engine.resetSession();
+  const ch1 = engine.getNextChallenge(pid);
+  engine.reportResult({ challengeId: ch1.challengeId, wordId: ch1.wordId, targetId: ch1.targetId, profileId: pid, type: 'intro', correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 0 });
+  const ch2 = engine.getNextChallenge(pid);
+  assert(ch2.type === 'gap' || ch2.type === 'assembly', `πήρα ${ch2.type}`);
+});
+
+await test('Σωστή απάντηση: επίπεδο +1, επανεμφάνιση σε 1 μέρα (επ. 1)', async () => {
+  const { pid, state } = seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid);
+  engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: ch.type, correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 900 });
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 1, 'επίπεδο');
+  eq(t.successes, 1, 'επιτυχίες');
+  const dueMs = new Date(t.nextDueAt) - fakeNow;
+  assert(Math.abs(dueMs - 86400000) < 5000, `διάστημα ${dueMs}ms αντί ~1 μέρας`);
+});
+
+await test('Λάθος: επίπεδο -1, καταγράφεται ΠΟΙΟ γράφημα διάλεξε, ξανά στο ίδιο session', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 1, introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap'] });
+  engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: 'gap', correct: false, chosenGrapheme: 'η', revealUsed: true, durationMs: 2100 });
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 0, 'επίπεδο');
+  eq(t.errorHistory[0].grapheme, 'η', 'λάθος γράφημα');
+  assert(new Date(t.nextDueAt) <= fakeNow, 'επίπεδο 0 → ξανά μέσα στο session');
+});
+
+await test('Invariant 6: δεύτερη αναφορά για το ίδιο challenge αγνοείται', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid);
+  const rep = { challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: ch.type, correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 0 };
+  eq(engine.reportResult(rep).ok, true, 'πρώτη αναφορά');
+  eq(engine.reportResult(rep).ok, false, 'δεύτερη αναφορά');
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.attempts, 1, 'μία μόνο προσπάθεια');
+});
+
+await test('Ποτέ δύο στόχοι της ίδιας λέξης συνεχόμενα', async () => {
+  const { pid } = seed([
+    { text: 'ωδείο', targets: [
+      { g: 'ω', start: 0, len: 1, cls: 'o', d: ['ο'], introduced: true, due: PAST },
+      { g: 'εί', start: 2, len: 2, cls: 'i', d: ['ί', 'ή', 'ύ', 'οί'], introduced: true, due: PAST }] },
+    { text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }
+  ]);
+  engine.resetSession();
+  let prev = null;
+  for (let i = 0; i < 6; i++) {
+    const ch = engine.getNextChallenge(pid);
+    assert(ch.wordId !== prev, `βήμα ${i}: ίδια λέξη δύο φορές`);
+    prev = ch.wordId;
+  }
+});
+
+await test('Μίγμα ενεργού συνόλου ~60% τρέχουσες / 40% παλιές (10 θέσεις → 6+4)', async () => {
+  const specs = [];
+  for (let i = 0; i < 12; i++) specs.push({ text: 'νεα' + i, targets: [{ g: 'ε', start: 1, len: 1, cls: 'e', d: ['αι'], level: 0, introduced: true, due: PAST }] });
+  for (let i = 0; i < 12; i++) specs.push({ text: 'παλια' + i, addedAt: OLD, targets: [{ g: 'ι', start: 3, len: 1, cls: 'i', d: ['η', 'υ'], level: 3, introduced: true, due: PAST }] });
+  const { pid } = seed(specs);
+  engine.resetSession();
+  const seen = new Set(); let cur = 0, rev = 0;
+  for (let i = 0; i < 10; i++) {
+    const ch = engine.getNextChallenge(pid);
+    if (seen.has(ch.targetId)) continue;
+    seen.add(ch.targetId);
+    if (ch.text.startsWith('νεα')) cur++; else rev++;
+  }
+  eq(cur, 6, 'τρέχουσες'); eq(rev, 4, 'παλιές');
+});
+
+await test('Άδεια ουρά → προπόνηση (isPractice) που ΔΕΝ αλλάζει επίπεδο/πρόγραμμα', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 4, introduced: true, due: FUTURE })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid);
+  eq(ch.isPractice, true, 'isPractice');
+  engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: ch.type, correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 0 });
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 4, 'επίπεδο αμετάβλητο');
+  eq(t.nextDueAt, FUTURE, 'πρόγραμμα αμετάβλητο');
+  eq(t.attempts, 1, 'αλλά το telemetry μετράει');
+});
+
+await test('Συναρμολόγηση: ΜΟΝΟ τα γνήσια γραφήματα, ποτέ σε σωστή σειρά', async () => {
+  const { pid } = seed([{ text: 'ωδείο', targets: [{ g: 'ω', start: 0, len: 1, cls: 'o', d: ['ο'], introduced: true, due: PAST }] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['assembly'] });
+  eq(ch.type, 'assembly', 'τύπος');
+  eq([...ch.pieces].sort(), [...splitGraphemes('ωδείο')].sort(), 'ίδιο σύνολο γραφημάτων');
+  assert(ch.pieces.join('') !== 'ωδείο', 'όχι έτοιμη σωστή σειρά');
+});
+
+await test('Κενό: υποψήφια = στόχος + όλα τα distractors, ανακατεμένα', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap'] });
+  eq([...ch.candidates].sort(), ['ει', 'η', 'ι', 'οι', 'υ'].sort(), 'σύνολο υποψηφίων');
+});
+
+await test('Στόχος χωρίς distractors (ου): το gap αποκλείεται, πάει σε συναρμολόγηση', async () => {
+  const { pid } = seed([{ text: 'που', targets: [{ g: 'ου', start: 1, len: 2, cls: 'u', d: [], introduced: true, due: PAST }] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap', 'assembly'] });
+  eq(ch.type, 'assembly', 'τύπος');
+});
+
+await test('Εναλλαγή τύπων: η ίδια λέξη δεν ξαναπέφτει στον ίδιο μηχανισμό', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch1 = engine.getNextChallenge(pid);
+  engine.reportResult({ challengeId: ch1.challengeId, wordId: ch1.wordId, targetId: ch1.targetId, profileId: pid, type: ch1.type, correct: false, chosenGrapheme: 'η', revealUsed: true, durationMs: 0 });
+  const ch2 = engine.getNextChallenge(pid);
+  assert(ch2.type !== ch1.type, `δύο φορές ${ch1.type}`);
+});
+
+await test('Διαστήματα ανά επίπεδο: επ. 3 → σωστό → επ. 4 → +14 μέρες', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 3, introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid);
+  engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: ch.type, correct: true, chosenGrapheme: null, revealUsed: false, durationMs: 0 });
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 4, 'επίπεδο');
+  const days = (new Date(t.nextDueAt) - fakeNow) / 86400000;
+  assert(Math.abs(days - 14) < 0.01, `${days} μέρες αντί 14`);
+});
+
+await test('Telemetry: τα λάθη αθροίζονται ανά κλάση και γράφημα', async () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  engine.resetSession();
+  for (let i = 0; i < 3; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'] });
+    engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid, type: 'gap', correct: false, chosenGrapheme: i < 2 ? 'η' : 'υ', revealUsed: true, durationMs: 0 });
+  }
+  const agg = errorCounts(store.activeProfile(store.loadState()));
+  eq(agg.i['η'], 2, 'μετρητής η');
+  eq(agg.i['υ'], 1, 'μετρητής υ');
+});
+
+await test('Χωρίς καμία λέξη το engine επιστρέφει null (το παιχνίδι το χειρίζεται)', async () => {
+  const { pid } = seed([]);
+  engine.resetSession();
+  eq(engine.getNextChallenge(pid), null, 'null');
+});
+
+// --- Επαναφορά πραγματικών δεδομένων ---
+if (BACKUP === null) localStorage.removeItem('flame.state.v1');
+else localStorage.setItem('flame.state.v1', BACKUP);
+</script>
+</body>
+</html>
