@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141A33">
+<title>Ο Δρόμος της Φλόγας</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/img/icon-192.png">
+<link rel="apple-touch-icon" href="assets/img/icon-192.png">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<style>
+  :root {
+    --night: #141A33; --night-high: #232A4D; --shadow: #0B0E1F;
+    --lantern: #FFC857; --flame: #FF7A1A; --flame-core: #FFE8A3;
+    --flame-deep: #E8491D; --parchment: #F6EAD2; --ink: #2B2117;
+    --spirit: #57C7B8; --smoke: #7C86A0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: linear-gradient(#1B2140 0%, var(--night) 55%, #0E1226 100%);
+    color: var(--flame-core);
+    font-family: 'Comfortaa', 'Segoe UI', sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .star { position: fixed; width: 3px; height: 3px; border-radius: 50%;
+          background: #C9CFEA; opacity: .7; }
+  .mtn { position: fixed; bottom: 0; left: 0; width: 100%; height: 34%; }
+  .mtn.far { background: var(--night-high);
+    clip-path: polygon(0 100%,0 55%,12% 30%,24% 60%,38% 20%,52% 65%,66% 35%,80% 70%,92% 45%,100% 60%,100% 100%); }
+  .mtn.near { height: 24%; background: var(--shadow);
+    clip-path: polygon(0 100%,0 45%,15% 70%,30% 30%,48% 75%,64% 40%,82% 68%,100% 38%,100% 100%); }
+  .stage { position: relative; text-align: center; padding: 0 24px; }
+  .flame-mark { width: 96px; margin-bottom: 18px;
+    filter: drop-shadow(0 0 24px rgba(255,122,26,.45)); }
+  h1 { font-weight: 700; font-size: clamp(1.8rem, 6vw, 3rem);
+    color: var(--flame-core); letter-spacing: .02em;
+    text-shadow: 0 0 30px rgba(255,122,26,.35); }
+  .word-check { display: inline-block; margin-top: 26px;
+    background: var(--parchment); color: var(--ink); border-radius: 12px;
+    padding: 8px 26px; font-family: 'Andika', 'Segoe UI', sans-serif;
+    font-size: 1.6rem; box-shadow: 0 4px 24px rgba(0,0,0,.45); }
+  .word-check b { color: var(--flame-deep); }
+  .status { position: fixed; bottom: 12px; width: 100%; text-align: center;
+    font-size: .72rem; color: var(--smoke); letter-spacing: .06em; }
+</style>
+</head>
+<body>
+  <div class="star" style="top:12%;left:16%"></div>
+  <div class="star" style="top:20%;left:32%"></div>
+  <div class="star" style="top:9%;left:52%"></div>
+  <div class="star" style="top:24%;left:70%"></div>
+  <div class="star" style="top:14%;left:86%"></div>
+  <div class="mtn far"></div>
+  <div class="mtn near"></div>
+
+  <div class="stage">
+    <img class="flame-mark" src="assets/img/flame.png" alt="">
+    <h1>Ο Δρόμος της Φλόγας</h1>
+    <!-- Οπτικός έλεγχος Βήματος 0: η Andika αποδίδει ελληνικά; -->
+    <div class="word-check">λ<b>ι</b>μάνι</div>
+  </div>
+
+  <div class="status" id="status">…</div>
+
+  <script src="vendor/phaser.min.js"></script>
+  <script>
+    // Βήμα 0: μόνο έλεγχοι κελύφους — καθόλου παιχνίδι ακόμα.
+    const status = document.getElementById('status');
+    const parts = [];
+    parts.push(window.Phaser ? 'Phaser ' + Phaser.VERSION : 'Phaser: ΔΕΝ φορτώθηκε');
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        const ready = () => { parts.push('offline έτοιμο'); render(); };
+        if (reg.active) ready();
+        else reg.addEventListener('updatefound', () => {
+          reg.installing.addEventListener('statechange', function () {
+            if (this.state === 'activated') ready();
+          });
+        });
+      }).catch(() => { parts.push('offline: σφάλμα'); render(); });
+    } else {
+      parts.push('χωρίς service worker');
+    }
+
+    function render() { status.textContent = 'v0 · κέλυφος · ' + parts.join(' · '); }
+    render();
+  </script>
+</body>
+</html>
