@@ -9,6 +9,7 @@
 <link rel="icon" href="assets/img/icon-192.png">
 <link rel="apple-touch-icon" href="assets/img/icon-192.png">
 <link rel="stylesheet" href="assets/fonts/fonts.css">
+<link rel="stylesheet" href="src/parent/parent.css">
 <style>
   :root {
     --night: #141A33; --night-high: #232A4D; --shadow: #0B0E1F;
@@ -65,8 +66,10 @@
   </div>
 
   <div class="status" id="status">…</div>
+  <div id="parent-root"></div>
 
   <script src="vendor/phaser.min.js"></script>
+  <script type="module" src="src/parent/parent.js"></script>
   <script>
     // Βήμα 0: μόνο έλεγχοι κελύφους — καθόλου παιχνίδι ακόμα.
     const status = document.getElementById('status');

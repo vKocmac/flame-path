@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v0.1.1';
+const VERSION = 'flame-v0.2.0';
 
 const CORE = [
   './',
@@ -16,7 +16,12 @@ const CORE = [
   './assets/fonts/comfortaa-700-latin.woff2',
   './assets/img/icon-192.png',
   './assets/img/icon-512.png',
-  './assets/img/flame.png'
+  './assets/img/flame.png',
+  './src/shared/ids.js',
+  './src/shared/graphemes.js',
+  './src/shared/storage.js',
+  './src/parent/parent.js',
+  './src/parent/parent.css'
 ];
 
 self.addEventListener('install', (e) => {
