@@ -35,6 +35,7 @@ const KNOCKBACK = 96;                          // σωστό → η γραμμή
 const SLOW_FACTOR = .4, SLOW_MS = 400;         // σωστό → «ανασαίνει» το παιδί
 const HASTE_FACTOR = 1.6, HASTE_MS = 800;      // λάθος → πραγματική συνέπεια
 const ERROR_STEP = 58;                         // λάθος → ορατό βήμα μπροστά
+const WORDS_PER_LEVEL = 5;                     // πόσες λέξεις καίει ο πάπυρος
 
 // Shadow Focus (BRANCH-SCOPE §8): το φρένο. Όταν ο εχθρός είναι κοντά ΚΑΙ η
 // λέξη είναι νέα ή δύσκολη, η πίεση παγώνει για λίγο. Χωρίς αυτό, ο δράκος
@@ -117,7 +118,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.cameras.main.fadeIn(420, 0xFF, 0x7A, 0x1A);
     this.spawnWave();
-    this.time.delayedCall(500, () => this.nextChallenge());
+    this.time.delayedCall(500, () => this.openLevel());
   }
 
   buildBackdrop() {
@@ -800,67 +801,165 @@ export default class BattleScene extends Phaser.Scene {
 
   // -------------------------------------------------------------- οι ροές
 
-  nextChallenge() {
-    this.clearOrbs();
-    const ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
-    if (!ch) { this.showNoWords(); return; }
+  // Έναρξη συνεδρίας: ΟΛΕΣ οι νέες λέξεις μαζεύονται μία φορά και τις καίει
+  // ο Μάστερ Γου σε μία σκηνή. Δεν περνούν πια μία-μία μπροστά από το παιδί
+  // — αυτό έμοιαζε με λέξεις που «κάηκαν» χωρίς λόγο, και πρόδιδε την
+  // ορθογραφία τους χωρίς να τη ζητήσει κανείς.
+  // Ένα ΛΕΒΕΛ = τα κύματα μέχρι να κατέβει ο ίδιος ο Μάστερ Γου. Ο πάπυρος
+  // στην αρχή του λεβελ δείχνει μόνο τις λέξεις ΑΥΤΟΥ του λεβελ — όχι όλες.
+  // Όταν τον νικήσεις, ανοίγει νέο λεβελ με νέο πάπυρο.
+  openLevel() {
+    const words = [];
+    let held = null;
+    for (let i = 0; i < WORDS_PER_LEVEL; i++) {
+      const ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
+      if (!ch) break;
+      if (ch.type !== 'intro') { held = ch; break; }
+      if (!words.includes(ch.text)) words.push(ch.text);
+      this.consumeIntro(ch);
+    }
+    if (words.length) this.burnScroll(words, () => this.startChallenge(held));
+    else this.startChallenge(held);
+  }
+
+  // Η τελετή γίνεται στη σκηνή του παπύρου, όχι στη μάχη: εδώ απλώς
+  // δηλώνουμε στο Learning Engine ότι ο στόχος παρουσιάστηκε.
+  consumeIntro(ch) {
+    this.hardTargets.add(ch.targetId);
+    engine.reportResult({
+      challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId,
+      profileId: this.profileId, type: 'intro', correct: true,
+      chosenGrapheme: null, revealUsed: false, durationMs: 0
+    });
+  }
+
+  startChallenge(ch) {
+    if (!ch) { this.nextChallenge(); return; }
     this.current = ch;
     this.reported = false;
     this.revealed = false;
     this.startedAt = performance.now();
-    if (ch.type === 'intro') this.showIntro(ch);
-    else this.showGap(ch);
+    this.showGap(ch);
   }
 
-  // Τελετή περγαμηνής: πρώτη έκθεση, ΧΩΡΙΣ δυνατότητα λάθους.
-  showIntro(ch) {
-    this.busy = true;
-    this.label.setText(TXT.newTechnique).setAlpha(0);
-    this.showScroll();
-    this.tweens.add({ targets: this.label, alpha: 1, duration: 300, delay: 120 });
-
-    const center = this.layoutWord(ch.text, ch.gap, { revealed: true });
-    this.gapText.setColor(HEX.flameDeep);
-    const halo = this.add.image(center.x, center.y, 'glow-flame')
-      .setScale(.75).setAlpha(.5).setBlendMode(Phaser.BlendModes.ADD).setDepth(21);
-    this.wordParts.push(halo);
-    if (!this.calm) {
-      this.tweens.add({ targets: halo, alpha: .85, scale: .95,
-        duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  nextChallenge() {
+    this.clearOrbs();
+    let ch = null;
+    // Αν εμφανιστεί νέος στόχος στη μέση της συνεδρίας, τον περνάμε σιωπηλά:
+    // η παρουσίασή του έγινε ήδη στον πάπυρο της αρχής.
+    for (let i = 0; i < 10; i++) {
+      ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
+      if (!ch || ch.type !== 'intro') break;
+      this.consumeIntro(ch);
     }
+    if (!ch) { this.showNoWords(); return; }
+    this.startChallenge(ch);
+  }
 
-    const hint = this.add.text(W / 2, 246, TXT.sealHint, {
-      fontFamily: FONT.ui, fontSize: '20px', color: HEX.smoke
-    }).setOrigin(.5).setDepth(21);
-    this.wordParts.push(hint);
+  // ------------------------------------------- η σκηνή του καμένου παπύρου
 
-    // Η τελετή ΔΕΝ ζητά άγγιγμα στην περγαμηνή. Κλείνει μόνη της και οι
-    // φούσκες βγαίνουν αμέσως μετά — το παιδί δεν πρέπει ποτέ να μείνει
-    // να κοιτάζει μια οθόνη χωρίς επιλογές. Το άγγιγμα απλώς προσπερνά.
-    let sealed = false;
-    const seal = () => {
-      if (sealed) return;
-      sealed = true;
-      audio.chime(2);
-      this.sealBurst(center.x, center.y);
-      this.hardTargets.add(ch.targetId);   // νέα λέξη = δικαιούται Shadow Focus
-      this.tweens.add({ targets: halo, scale: 2.2, alpha: 0, duration: 420, ease: 'Quad.easeOut' });
-      engine.reportResult({
-        challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId,
-        profileId: this.profileId, type: 'intro', correct: true,
-        chosenGrapheme: null, revealUsed: false,
-        durationMs: Math.round(performance.now() - this.startedAt)
+  // Ο Μάστερ Γου ξεδιπλώνει τον πάπυρο με τις λέξεις της ημέρας, τον
+  // πυρπολεί και τα γράμματα γίνονται καπνός. Αυτός τις έκλεψε — γι' αυτό
+  // λείπουν γράμματα μέσα στη μάχη.
+  burnScroll(words, done) {
+    this.busy = true;
+    const shown = words.slice(0, 8);
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(30).setAlpha(0);
+    const cx = W / 2 - 90, cy = 330;                 // αριστερά, ο μάγος δεξιά
+    const w2 = 230, h2 = 46 + shown.length * 25;
+
+    const paper = this.add.graphics().setDepth(31);
+    paper.fillStyle(NUM.parchment, 1);
+    paper.fillRoundedRect(-w2, -h2, w2 * 2, h2 * 2, 14);
+    paper.lineStyle(3, shade(NUM.parchment, .72), .8);
+    paper.strokeRoundedRect(-w2, -h2, w2 * 2, h2 * 2, 14);
+    paper.setPosition(cx, cy).setScale(.2).setAlpha(0);
+
+    const lines = shown.map((w, i) => this.add.text(
+      cx, cy - (shown.length - 1) * 25 + i * 50, w,
+      { fontFamily: FONT.word, fontSize: '34px', color: HEX.ink }
+    ).setOrigin(.5).setDepth(32).setAlpha(0));
+
+    const m = this.master;
+    const home = { x: m.x, baseY: m.baseY, depth: m.depth, scale: m.scale };
+
+    this.tweens.add({ targets: veil, alpha: .72, duration: 420 });
+    this.tweens.add({ targets: paper, alpha: 1, scale: 1, duration: 520, ease: 'Back.easeOut' });
+    lines.forEach((t, i) => this.tweens.add({ targets: t, alpha: 1, duration: 300, delay: 520 + i * 150 }));
+
+    // 1. Ο μάγος έρχεται στην ΑΚΡΗ του παπύρου, όχι από πάνω του.
+    //    Οι λέξεις φαίνονται λίγο — ελάχιστα παραπάνω από μια ματιά.
+    const enterAt = 900 + shown.length * 150;
+    this.time.delayedCall(enterAt, () => {
+      audio.poof();
+      this.smokePuff(m.x, m.y, 22);
+      m.setDepth(33).setScale(1.15);
+      m.x = cx + 420;
+      m.baseY = cy + 10;
+      this.tweens.add({ targets: m, x: cx + 330, duration: 620, ease: 'Quad.easeOut' });
+    });
+
+    // 2. Σηκώνει το χέρι και πυρπολεί τον πάπυρο
+    this.time.delayedCall(enterAt + 780, () => {
+      this.tweens.add({ targets: m.arm, x: -78, scaleX: 2.1, duration: 420, ease: 'Quad.easeOut' });
+      this.tweens.add({ targets: m.eyes, alpha: .3, duration: 220, yoyo: true, repeat: 3 });
+    });
+
+    this.time.delayedCall(enterAt + 1200, () => {
+      audio.whoosh();
+      this.cameras.main.shake(300, .004);
+      const jet = this.add.particles(cx + 285, cy, 'spark', {
+        speed: { min: 160, max: 420 }, angle: { min: 168, max: 192 },
+        scale: { start: 1.3, end: 0 }, alpha: { start: 1, end: 0 },
+        lifespan: { min: 420, max: 760 }, blendMode: 'ADD',
+        tint: [NUM.flameCore, NUM.flame, NUM.flameDeep], emitting: false
+      }).setDepth(34);
+      jet.explode(70);
+      this.time.delayedCall(1400, () => jet.destroy());
+
+      // 3. Τα γράμματα καίγονται και γίνονται καπνός
+      lines.forEach((t, i) => {
+        this.time.delayedCall(120 + i * 130, () => {
+          const burn = this.add.particles(t.x, t.y, 'spark', {
+            speed: { min: 30, max: 130 }, angle: { min: 250, max: 290 },
+            scale: { start: 1, end: 0 }, alpha: { start: .8, end: 0 },
+            lifespan: { min: 500, max: 950 }, tint: [NUM.flame, NUM.smoke], emitting: false
+          }).setDepth(34);
+          burn.explode(22);
+          this.time.delayedCall(1200, () => burn.destroy());
+          this.tweens.add({ targets: t, alpha: 0, y: t.y - 26, duration: 620, ease: 'Quad.easeOut' });
+        });
       });
-      this.time.delayedCall(420, () => {
-        this.hideScroll(() => { this.busy = false; this.nextChallenge(); });
+      this.tweens.add({
+        targets: paper, alpha: 0, scaleY: .06, y: cy + 40,
+        duration: 900, delay: 300 + shown.length * 130, ease: 'Quad.easeIn'
       });
-    };
+    });
 
-    const zone = this.add.zone(center.x, center.y, Math.max(this.gapText.width + 40, 80), 110)
-      .setOrigin(.5).setDepth(23).setInteractive({ useHandCursor: true });
-    this.wordParts.push(zone);
-    zone.once('pointerdown', seal);
-    this.time.delayedCall(1700, seal);
+    // 4. Σβήνει και επιστρέφει στο πόστο του· αρχίζει η μάχη
+    const endAt = enterAt + 2400 + shown.length * 130;
+    this.time.delayedCall(endAt, () => {
+      audio.poof();
+      this.smokePuff(m.x, m.y, 26);
+      this.tweens.add({
+        targets: m, alpha: 0, duration: 340,
+        onComplete: () => {
+          m.setDepth(home.depth).setScale(home.scale);
+          m.x = home.x;
+          m.baseY = home.baseY;
+          m.arm.setPosition(-44, -6).setScale(1);
+          this.tweens.add({ targets: m, alpha: .92, duration: 420 });
+        }
+      });
+      this.tweens.add({ targets: veil, alpha: 0, duration: 520,
+        onComplete: () => {
+          veil.destroy();
+          paper.destroy();
+          lines.forEach((t) => t.destroy());
+          this.busy = false;
+          done();
+        } });
+    });
   }
 
   showGap(ch) {
@@ -1064,10 +1163,15 @@ export default class BattleScene extends Phaser.Scene {
     this.pushBackLine();
 
     // Η σωστή λέξη μένει ολόκληρη για μια ανάσα, μετά επόμενη πρόκληση
+    const bossCleared = this.wave % BOSS_EVERY === 0;
     this.time.delayedCall(820, () => {
       this.hideScroll(() => {
         if (!this.enemies.length) {
-          this.time.delayedCall(420, () => { this.spawnWave(); this.nextChallenge(); });
+          this.time.delayedCall(420, () => {
+            this.spawnWave();
+            // Νίκησες τον Μάστερ Γου → τέλος λεβελ, νέος πάπυρος με νέες λέξεις
+            if (bossCleared) this.openLevel(); else this.nextChallenge();
+          });
         } else {
           this.nextChallenge();
         }
@@ -1235,20 +1339,11 @@ export default class BattleScene extends Phaser.Scene {
     this.time.delayedCall(340, () => this.revealCorrect());
   }
 
-  // Το σωστό γράφημα φωτίζεται στη θέση του — πρόσκληση, όχι επίπληξη.
+  // Μετά το λάθος το παιδί ξαναπροσπαθεί — ΧΩΡΙΣ να του δείξουμε ποιο είναι
+  // το σωστό. Η φούσκα που πάλλεται πρόδιδε την ορθογραφία· δεν ήταν
+  // βοήθεια, ήταν απάντηση. Οι υπόλοιπες φούσκες μένουν ενεργές όπως ήταν.
   revealCorrect() {
     this.revealed = true;
-    const ch = this.current;
-    const right = ch.text.substr(ch.gap.start, ch.gap.length);
-    const orb = this.orbs.find((o) => o.getData('grapheme') === right && o.active);
-    if (!orb) { this.busy = false; return; }
-    orb.setAlpha(1).setScale(1);
-    orb.setInteractive({ useHandCursor: true });
-    const glow = orb.getData('glow');
-    this.tweens.add({
-      targets: glow, alpha: 1, scale: 1.05, duration: 600,
-      yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
-    });
     this.busy = false;
   }
 
