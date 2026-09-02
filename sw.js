@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v0.9.0';
+const VERSION = 'flame-v1.0.0';
 
 const CORE = [
   './',
@@ -51,22 +51,50 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Ο κώδικας αλλάζει, τα βαριά αρχεία όχι. Δύο στρατηγικές:
+//
+//   ΚΩΔΙΚΑΣ (html, js, json)  → network-first. Όταν υπάρχει δίκτυο παίρνει
+//     πάντα το φρέσκο από το GitHub, αλλιώς πέφτει στην cache. Έτσι η
+//     συσκευή δεν κολλάει ποτέ σε παλιά έκδοση χωρίς εκκαθάριση browser.
+//   ΥΠΟΛΟΙΠΑ (γραμματοσειρές, phaser, εικόνες) → cache-first. Δεν αλλάζουν
+//     ποτέ και ζυγίζουν· δεν έχει νόημα να ξανακατεβαίνουν.
+const CODE = /\.(?:html|js|json)$/i;
+
+function isCode(url) {
+  return url.origin === self.location.origin &&
+    (CODE.test(url.pathname) || url.pathname.endsWith('/'));
+}
+
+function put(request, res) {
+  if (res.ok && new URL(request.url).origin === self.location.origin) {
+    const copy = res.clone();
+    caches.open(VERSION).then((c) => c.put(request, copy));
+  }
+  return res;
+}
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  if (isCode(url)) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => put(e.request, res))
+        .catch(() => caches.match(e.request, { ignoreSearch: true })
+          .then((hit) => hit || (e.request.mode === 'navigate'
+            ? caches.match('./index.html')
+            : Response.error())))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
-      return fetch(e.request).then((res) => {
-        // Ό,τι κατέβηκε επιτυχώς από το δικό μας origin μπαίνει στην cache.
-        if (res.ok && new URL(e.request.url).origin === self.location.origin) {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => {
-        if (e.request.mode === 'navigate') return caches.match('./index.html');
-        return Response.error();
-      });
+      return fetch(e.request)
+        .then((res) => put(e.request, res))
+        .catch(() => Response.error());
     })
   );
 });

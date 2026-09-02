@@ -14,7 +14,9 @@
 <link rel="stylesheet" href="src/parent/parent.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; background: #0B0E1F; }
+  /* 100dvh, όχι 100vh: το vh αγνοεί τις μπάρες του browser στο κινητό και
+     αφήνει το παιχνίδι να «κρέμεται» έξω από την ορατή περιοχή. */
+  html, body { height: 100%; height: 100dvh; overflow: hidden; background: #0B0E1F; }
   body {
     -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -23,17 +25,24 @@
   #game { position: fixed; inset: 0; }
   #game canvas { display: block; }
 
-  /* Το παιχνίδι παίζεται πλαγιαστά (DESIGN: landscape-first) */
+  /* Το παιχνίδι ΠΡΟΤΕΙΝΕΙ πλάγια θέση — δεν την επιβάλλει. Τα μενού και η
+     εισαγωγή λέξεων είναι πιο εύκολα με το κινητό όρθιο, οπότε η υπόδειξη
+     είναι μια λωρίδα που δεν πιάνει την οθόνη και δεν δέχεται αγγίγματα. */
   #rotate {
-    display: none; position: fixed; inset: 0; z-index: 90;
-    background: #141A33; color: #EDE9DC;
-    font-family: 'Comfortaa', 'Segoe UI', sans-serif;
-    flex-direction: column; align-items: center; justify-content: center;
-    gap: 18px; text-align: center; padding: 32px;
+    display: none; position: fixed; z-index: 90;
+    left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom));
+    pointer-events: none;
+    color: #EDE9DC; font-family: 'Comfortaa', 'Segoe UI', sans-serif;
+    align-items: center; justify-content: center; gap: 10px;
+    text-align: center; padding: 10px 16px;
   }
-  #rotate .icon { font-size: 3rem; color: #FFC857; animation: tilt 2.4s ease-in-out infinite; }
-  #rotate h2 { font-size: 1.25rem; font-weight: 700; color: #FFE8A3; }
-  #rotate p { font-size: .92rem; color: #7C86A0; max-width: 26ch; line-height: 1.6; }
+  #rotate .pill {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(20, 26, 51, .88); border: 1px solid rgba(124, 134, 160, .35);
+    border-radius: 999px; padding: 9px 16px;
+  }
+  #rotate .icon { font-size: 1.2rem; color: #FFC857; animation: tilt 2.4s ease-in-out infinite; }
+  #rotate p { font-size: .82rem; color: #C9CFEA; }
   @keyframes tilt { 0%, 60%, 100% { transform: rotate(0); } 80% { transform: rotate(-90deg); } }
   @media (prefers-reduced-motion: reduce) { #rotate .icon { animation: none; } }
   @media (orientation: portrait) { #rotate { display: flex; } }
@@ -49,9 +58,10 @@
   <div id="game"></div>
 
   <div id="rotate">
-    <div class="icon">▯</div>
-    <h2>Γύρισε τη συσκευή σου</h2>
-    <p>Ο Δρόμος της Φλόγας παίζεται πλαγιαστά.</p>
+    <div class="pill">
+      <span class="icon">▯</span>
+      <p>Γύρισε το κινητό στο πλάι για τη μάχη</p>
+    </div>
   </div>
 
   <div id="status"></div>
@@ -71,7 +81,31 @@
           .then((rs) => rs.forEach((r) => r.unregister()));
         if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
       } else {
-        window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+        window.addEventListener('load', async () => {
+          // updateViaCache:'none' → το ίδιο το sw.js δεν σερβίρεται ποτέ από
+          // την HTTP cache του browser. Χωρίς αυτό, η συσκευή μπορεί να μη
+          // δει καθόλου τη νέα έκδοση για ώρες.
+          const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+
+          // Νέα έκδοση στο GitHub → φορτώνεται ΜΟΝΗ ΤΗΣ, χωρίς να χρειάζεται
+          // ο χρήστης να καθαρίσει τον browser. Ο νέος service worker παίρνει
+          // αμέσως τον έλεγχο (skipWaiting/claim) και η σελίδα ανανεώνεται
+          // μία φορά. Το `reloaded` αποτρέπει βρόχο ανανεώσεων.
+          let reloaded = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloaded) return;
+            reloaded = true;
+            location.reload();
+          });
+
+          // Έλεγχος για νέα έκδοση σε κάθε άνοιγμα και κάθε επιστροφή στην
+          // εφαρμογή — όχι μόνο στην πρώτη φόρτωση.
+          const check = () => reg.update().catch(() => {});
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') check();
+          });
+          setTimeout(check, 3000);
+        });
       }
     }
   </script>
