@@ -34,6 +34,7 @@ const SPARKS_PER_KILL = 3;
 const KNOCKBACK = 96;                          // σωστό → η γραμμή σπρώχνεται πίσω
 const SLOW_FACTOR = .4, SLOW_MS = 400;         // σωστό → «ανασαίνει» το παιδί
 const HASTE_FACTOR = 1.6, HASTE_MS = 800;      // λάθος → πραγματική συνέπεια
+const ERROR_STEP = 58;                         // λάθος → ορατό βήμα μπροστά
 
 // Shadow Focus (BRANCH-SCOPE §8): το φρένο. Όταν ο εχθρός είναι κοντά ΚΑΙ η
 // λέξη είναι νέα ή δύσκολη, η πίεση παγώνει για λίγο. Χωρίς αυτό, ο δράκος
@@ -1170,18 +1171,68 @@ export default class BattleScene extends Phaser.Scene {
     smoke.explode(14);
     this.time.delayedCall(1100, () => smoke.destroy());
 
-    // Μικρή υποχώρηση του νίντζα + ελαφρύ camera pulse: συνέπεια που τη
-    // νιώθεις, χωρίς ούτε ένα κόκκινο pixel.
-    this.ninja.frozen = true;
+    // Η ΠΡΟΣΠΑΘΕΙΑ φαίνεται: ο νίντζα αρπάζει και το λάθος γράμμα, μαζεύεται
+    // και το εκτοξεύει — αλλά η βολή είναι τζούφια. Ξεφουσκώνει στη μέση του
+    // δρόμου και γίνεται καπνός. Αποτυχημένη εκτόξευση, όχι τιμωρία.
     this.tweens.add({
-      targets: this.ninja, x: NINJA_X - 26, duration: 150, yoyo: true,
-      ease: 'Quad.easeOut', onComplete: () => { this.ninja.frozen = false; }
+      targets: orb, x: this.ninja.x + 48, y: this.ninja.y - 78, scale: .4,
+      duration: 260, ease: 'Quad.easeIn', onComplete: () => this.dudShot()
     });
-    this.cameras.main.shake(170, .0024);
+    this.tweens.add({ targets: this.hand, alpha: .45, scale: .75, duration: 260 });
+  }
 
-    if (this.enemies.length) audio.thud();
+  // Η τζούφια βολή: μικρό μάζεμα, αδύναμη γκρίζα βολή που ξεφουσκώνει.
+  dudShot() {
+    this.ninja.frozen = true;
+    const target = this.frontEnemy();
+    const reach = this.ninja.x + ((target ? target.x : W) - this.ninja.x) * .34;
+
+    this.tweens.add({
+      targets: this.ninja, x: NINJA_X - 10, angle: 5, duration: 170, ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.tweens.add({ targets: this.ninja, x: NINJA_X, angle: -5, duration: 110 });
+        this.tweens.add({ targets: this.hand, alpha: 0, scale: .5, duration: 160 });
+
+        const bolt = this.add.image(this.ninja.x + 56, this.ninja.y - 78, 'flame')
+          .setScale(.34).setAngle(96).setDepth(14).setTint(NUM.smoke);
+        this.tweens.add({
+          targets: bolt, x: reach, y: bolt.y + 36, scale: .12, alpha: 0,
+          duration: 330, ease: 'Quad.easeOut',
+          onComplete: () => {
+            const puff = this.add.particles(bolt.x, bolt.y, 'spark', {
+              speed: { min: 15, max: 60 }, angle: { min: 240, max: 300 },
+              scale: { start: .9, end: 0 }, alpha: { start: .5, end: 0 },
+              lifespan: { min: 400, max: 800 }, tint: NUM.smoke, emitting: false
+            }).setDepth(15);
+            puff.explode(14);
+            this.time.delayedCall(1000, () => puff.destroy());
+            bolt.destroy();
+            this.ninja.setAngle(0);
+            this.ninja.frozen = false;
+            this.enemyGainsGround();
+          }
+        });
+      }
+    });
+  }
+
+  // Ο αντίπαλος κερδίζει έδαφος: ΟΡΑΤΟ επιθετικό βήμα μπροστά, όχι μόνο
+  // αόρατη επιτάχυνση. Το βήμα φαίνεται· η επιτάχυνση το συνοδεύει.
+  enemyGainsGround() {
+    if (this.enemies.length) {
+      audio.thud();
+      this.enemies.forEach((e, i) => {
+        this.tweens.add({
+          targets: e, x: e.x - ERROR_STEP, duration: 260, delay: i * 40, ease: 'Back.easeOut'
+        });
+        if (e.head) {
+          this.tweens.add({ targets: e.head, angle: -8, duration: 180, yoyo: true, delay: i * 40 });
+        }
+      });
+    }
+    this.cameras.main.shake(190, .0028);
     this.pace(HASTE_FACTOR, HASTE_MS);
-    this.time.delayedCall(400, () => this.revealCorrect());
+    this.time.delayedCall(340, () => this.revealCorrect());
   }
 
   // Το σωστό γράφημα φωτίζεται στη θέση του — πρόσκληση, όχι επίπληξη.
@@ -1227,50 +1278,41 @@ export default class BattleScene extends Phaser.Scene {
       return p;
     };
 
-    // 1. Χτυπά το χέρι στο έδαφος και τον καταπίνει ο καπνός
-    smokeAt(this.ninja.x, LINE_Y - 30, 34, 900);
-    this.tweens.add({
-      targets: this.ninja, alpha: 0, scaleY: 1.0, y: LINE_Y + 10,
-      duration: 200, ease: 'Quad.easeIn'
-    });
-    this.tweens.add({ targets: this.hand, alpha: 0, duration: 160 });
+    // 1. Χτυπά το χέρι στο έδαφος. Πυκνή ομίχλη σκεπάζει ΟΛΟ το πεδίο — δεν
+    //    βλέπει τίποτα ούτε ο παίκτης. Η περγαμηνή μένει καθαρή από πάνω.
+    for (let i = 0; i < 5; i++) {
+      this.time.delayedCall(i * 90, () => smokeAt(NINJA_X + i * 130, LINE_Y - 40, 30, 1600));
+    }
+    if (!this.fog) {
+      this.fog = this.add.rectangle(W / 2, H / 2, W, H, NUM.smoke).setDepth(17).setAlpha(0);
+    }
+    this.fog.setAlpha(0);
+    this.tweens.add({ targets: this.fog, alpha: .92, duration: 420, ease: 'Quad.easeOut' });
+    this.tweens.add({ targets: this.ninja, alpha: 0, y: LINE_Y + 10, duration: 260, ease: 'Quad.easeIn' });
+    this.tweens.add({ targets: this.hand, alpha: 0, duration: 200 });
 
-    // 2. Οι εχθροί μπαίνουν στον άδειο καπνό και μετά ψάχνουν δεξιά-αριστερά
-    this.time.delayedCall(280, () => {
+    // 2. ΜΕΣΑ στην ομίχλη, κρυμμένοι, οι κακοί υποχωρούν — τον έχασαν.
+    this.time.delayedCall(560, () => {
       this.enemies.forEach((e, i) => {
+        e.setAngle(0);
         this.tweens.add({
-          targets: e, x: e.x - 46, duration: 320, delay: i * 60, ease: 'Quad.easeOut',
-          onComplete: () => {
-            this.tweens.add({
-              targets: e, angle: 9, duration: 220, yoyo: true, repeat: 1,
-              ease: 'Sine.easeInOut', onComplete: () => e.setAngle(0)
-            });
-          }
+          targets: e, x: SPAWN_X + i * ENEMY_GAP, duration: 700, ease: 'Quad.easeInOut'
         });
       });
+      // ο νίντζα ξαναπαίρνει θέση αθέατος, σκυφτός
+      this.ninja.setX(NINJA_X).setY(LINE_Y + 24).setScale(1.3, .76).setAlpha(1);
     });
 
-    // 3. Ξεπροβάλλει σκυφτός μέσα από νέο καπνό και σηκώνεται αργά
-    this.time.delayedCall(1100, () => {
-      audio.poof();
-      smokeAt(NINJA_X, LINE_Y - 26, 26, 800);
-      this.ninja.setX(NINJA_X).setY(LINE_Y + 26).setScale(1.3, .74).setAlpha(0);
-      this.tweens.add({ targets: this.ninja, alpha: 1, duration: 260 });
+    // 3. Η ομίχλη σπάει και ο νίντζα φαίνεται καθαρά, σηκώνεται αργά.
+    this.time.delayedCall(1500, () => {
+      this.tweens.add({ targets: this.fog, alpha: 0, duration: 620, ease: 'Quad.easeIn' });
       this.tweens.add({
         targets: this.ninja, y: LINE_Y, scaleY: 1.3,
-        duration: 520, delay: 120, ease: 'Back.easeOut',
+        duration: 620, delay: 200, ease: 'Back.easeOut',
         onComplete: () => { this.ninja.frozen = false; }
       });
-      // η φλόγα ξανανάβει στη χούφτα
-      this.tweens.add({ targets: this.hand, alpha: .9, scale: .8, duration: 300, delay: 320,
-        yoyo: true, hold: 200 });
-    });
-
-    // 4. Τον έχασαν: γυρίζουν πίσω να ψάξουν από την αρχή
-    this.time.delayedCall(1500, () => {
-      this.enemies.forEach((e, i) => {
-        this.tweens.add({ targets: e, x: SPAWN_X + i * ENEMY_GAP, duration: 620, ease: 'Quad.easeInOut' });
-      });
+      this.tweens.add({ targets: this.hand, alpha: .9, scale: .8, duration: 320, delay: 520,
+        yoyo: true, hold: 220 });
     });
 
     if (!this.regroupShown) {
@@ -1278,11 +1320,11 @@ export default class BattleScene extends Phaser.Scene {
       const msg = this.add.text(W / 2, 300, TXT.regroup, {
         fontFamily: FONT.ui, fontSize: '24px', color: HEX.lantern
       }).setOrigin(.5).setDepth(30).setAlpha(0);
-      this.tweens.add({ targets: msg, alpha: 1, duration: 300, delay: 1200, yoyo: true, hold: 1400,
+      this.tweens.add({ targets: msg, alpha: 1, duration: 300, delay: 2200, yoyo: true, hold: 1300,
         onComplete: () => msg.destroy() });
-      this.time.delayedCall(3400, () => { this.busy = false; });
+      this.time.delayedCall(4200, () => { this.busy = false; });
     } else {
-      this.time.delayedCall(2200, () => { this.busy = false; });
+      this.time.delayedCall(2500, () => { this.busy = false; });
     }
   }
 

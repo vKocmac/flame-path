@@ -65,8 +65,15 @@ function goFullscreen(game) {
   // Μόνο σε συσκευή αφής ΚΑΙ μόνο πλαγιαστά: όρθιο το θέλουμε κανονικό,
   // γιατί εκεί γίνονται τα μενού και η εισαγωγή λέξεων.
   if (!coarse || !landscape) return;
+  // Καλούμε απευθείας το DOM API ώστε να πιάσουμε ΚΑΙ την ασύγχρονη απόρριψη
+  // (π.χ. μέσα σε iframe χωρίς άδεια) — αλλιώς πετάει σφάλμα στην κονσόλα.
   try {
-    if (!game.scale.isFullscreen) game.scale.startFullscreen();
+    if (document.fullscreenElement) return;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    const p = req.call(el, { navigationUI: 'hide' });
+    if (p && p.catch) p.catch(() => { /* δεν επιτρέπεται — συνεχίζουμε κανονικά */ });
   } catch (e) { /* δεν υποστηρίζεται — συνεχίζουμε κανονικά */ }
 }
 
