@@ -14,16 +14,17 @@ import * as audio from '../../theme/audio.js';
 import * as store from '../../shared/storage.js';
 import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
-import { archetype } from '../enemies.js';
+import { archetype, dragonStage, waveComposition } from '../enemies.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
 const LINE_Y = 640;          // η γραμμή του εδάφους όπου πατούν οι μορφές
 const NINJA_X = 220;
-// Και οι τρεις εχθροί πρέπει να χωρούν στην οθόνη (πλάτος 1280): ο πίσω
-// στο 1236, όχι έξω από το κάδρο.
-const SPAWN_X = 1000;
-const ENEMY_GAP = 118;
+// Και οι τρεις εχθροί πρέπει να χωρούν στην οθόνη (πλάτος 1280). Ο πίσω
+// είναι ο δράκος, που πιάνει ~115px δεξιά από το κέντρο του: στο 1156
+// φτάνει ως το 1271, μέσα στο κάδρο.
+const SPAWN_X = 880;
+const ENEMY_GAP = 124;
 const RETREAT_X = NINJA_X + 190;
 const SPARKS_PER_KILL = 3;
 
@@ -33,6 +34,14 @@ const SPARKS_PER_KILL = 3;
 const KNOCKBACK = 96;                          // σωστό → η γραμμή σπρώχνεται πίσω
 const SLOW_FACTOR = .4, SLOW_MS = 400;         // σωστό → «ανασαίνει» το παιδί
 const HASTE_FACTOR = 1.6, HASTE_MS = 800;      // λάθος → πραγματική συνέπεια
+
+// Shadow Focus (BRANCH-SCOPE §8): το φρένο. Όταν ο εχθρός είναι κοντά ΚΑΙ η
+// λέξη είναι νέα ή δύσκολη, η πίεση παγώνει για λίγο. Χωρίς αυτό, ο δράκος
+// μαθαίνει στο παιδί να μαντεύει γρήγορα αντί να σκέφτεται.
+const FOCUS_DIST = 190;      // πόσο κοντά πρέπει να φτάσει για να ενεργοποιηθεί
+const FOCUS_MS = 1800;
+
+const COMBO_BRIGHT = 3, COMBO_TRAIL = 6, COMBO_ZOOM = 9;
 
 export default class BattleScene extends Phaser.Scene {
   constructor() { super('Battle'); }
@@ -44,8 +53,13 @@ export default class BattleScene extends Phaser.Scene {
     this.enemies = [];
     this.orbs = [];
     this.regroupShown = false;
+    this.combo = 0;
+    this.focusUntil = 0;
+    this.focusedFor = null;
+    this.hardTargets = new Set();   // νέοι ή λαθεμένοι στόχοι αυτής της session
 
     this.buildBackdrop();
+    this.master = this.buildMaster();
     this.ninja = this.makeNinja(NINJA_X, LINE_Y);
     this.buildScroll();
     this.buildHUD();
@@ -104,10 +118,118 @@ export default class BattleScene extends Phaser.Scene {
     return c;
   }
 
+  // ------------------------------------------------------------ Μάστερ Γου
+  //
+  // Ο κακός. Αιωρείται ψηλά, δεν πατάει ΠΟΤΕ στο χώμα και ΔΕΝ ΜΙΛΑΕΙ ΠΟΤΕ.
+  // Αυτός κλέβει τα γράμματα από τις λέξεις — γι' αυτό η περγαμηνή έχει κενό.
+  // Σε αυτό το branch είναι παρουσία, όχι στόχος: δεν χτυπιέται ακόμα.
+  buildMaster() {
+    const c = this.add.container(1108, 214).setDepth(10).setAlpha(.92);
+    c.baseY = 214;
+
+    const aura = this.add.image(0, 0, 'glow-moon')
+      .setScale(1.9).setAlpha(.13).setTint(NUM.smoke)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    c.add(aura);
+
+    // Ο μανδύας: τρία κρεμαστά κομμάτια που ταλαντεύονται με καθυστέρηση
+    c.robe = [];
+    [[-30, 1], [0, 1.18], [28, .9]].forEach(([dx, sc], i) => {
+      const g = this.add.graphics();
+      g.fillStyle(NUM.shadow, .96);
+      g.fillPoints([
+        new Phaser.Geom.Point(-20 * sc, 0),
+        new Phaser.Geom.Point(20 * sc, 0),
+        new Phaser.Geom.Point(10 * sc, 96 * sc),
+        new Phaser.Geom.Point(-14 * sc, 88 * sc)
+      ], true);
+      g.setPosition(dx, 6);
+      c.add(g);
+      c.robe.push(g);
+    });
+
+    // Ώμοι και κεφάλι με κουκούλα
+    const bodyG = this.add.graphics();
+    bodyG.fillStyle(NUM.shadow, 1);
+    bodyG.fillRoundedRect(-40, -34, 80, 56, 16);
+    bodyG.fillPoints([                                   // κουκούλα
+      new Phaser.Geom.Point(-30, -34),
+      new Phaser.Geom.Point(0, -92),
+      new Phaser.Geom.Point(30, -34)
+    ], true);
+    bodyG.fillCircle(0, -50, 24);
+    c.add(bodyG);
+
+    // Δύο λεπτές σχισμές αντί για μάτια — τίποτα φιλικό
+    const eyes = this.add.graphics();
+    eyes.fillStyle(NUM.spirit, .95);
+    eyes.fillRoundedRect(-17, -56, 13, 4, 2);
+    eyes.fillRoundedRect(4, -56, 13, 4, 2);
+    c.add(eyes);
+    c.eyes = eyes;
+
+    // Το μακρύ μούσι: αλυσίδα τμημάτων. Το σώμα κινείται πρώτο, το μούσι
+    // ακολουθεί — η καθυστέρηση είναι όλο το κόλπο.
+    c.beard = [];
+    for (let i = 0; i < 6; i++) {
+      const w = 26 - i * 3;
+      const b = this.add.ellipse(0, -34 + i * 17, w, 20 - i * 1.6, NUM.smoke)
+        .setAlpha(.9 - i * .07);
+      b.baseX = 0;
+      b.baseY = -34 + i * 17;
+      c.add(b);
+      c.beard.push(b);
+    }
+
+    // Το χέρι που αρπάζει
+    const arm = this.add.ellipse(-44, -6, 26, 16, NUM.shadow).setAlpha(.98);
+    c.add(arm);
+    c.arm = arm;
+    return c;
+  }
+
+  // Η κλοπή: ο Μάστερ Γου ρουφάει το γράφημα από την περγαμηνή. Αυτό, και
+  // όχι μια «άσκηση», είναι ο λόγος που λείπει το γράμμα.
+  stealLetter(center) {
+    const m = this.master;
+    if (!m || !center) return;
+    audio.poof();
+    this.tweens.add({ targets: m.arm, x: -62, scaleX: 1.5, duration: 280,
+      yoyo: true, hold: 320, ease: 'Quad.easeOut' });
+    this.tweens.add({ targets: m.eyes, alpha: .35, duration: 200, yoyo: true, repeat: 1 });
+
+    for (let i = 0; i < 12; i++) {
+      const w = this.add.image(center.x + Phaser.Math.Between(-14, 14), center.y, 'spark')
+        .setScale(.7).setTint(NUM.smoke).setAlpha(.85).setDepth(24);
+      this.tweens.add({
+        targets: w, x: m.x - 40, y: m.y, scale: .2, alpha: 0,
+        duration: 520 + i * 26, delay: i * 18, ease: 'Quad.easeIn',
+        onComplete: () => w.destroy()
+      });
+    }
+  }
+
   makeEnemy(x, archId = 'smoke', sizeScale = 1) {
     const arch = archetype(archId);
     const size = arch.size * sizeScale;
     const c = this.add.container(x, LINE_Y).setDepth(11);
+
+    // Η κατάσταση μάχης ζει πάνω στο container ώστε το update() να μη
+    // χρειάζεται παράλληλο πίνακα.
+    c.arch = arch;
+    c.hp = arch.hp;
+    c.maxHp = arch.hp;
+    c.speed = arch.speed;
+    c.mult = 1;        // τρέχων πολλαπλασιαστής ταχύτητας
+    c.multMs = 0;      // πόσα ms του απομένουν πριν επιστρέψει στο 1
+    c.size = size;
+
+    if (arch.draw === 'dragon') this.drawDragon(c, size);
+    else this.drawSmoke(c, size);
+    return c;
+  }
+
+  drawSmoke(c, size) {
     const glow = this.add.image(0, -34 * size, 'glow-moon')
       .setScale(.7 * size).setAlpha(.10);
     const g = this.add.graphics();
@@ -138,25 +260,146 @@ export default class BattleScene extends Phaser.Scene {
         delay: Phaser.Math.Between(0, 700)
       });
     }
+  }
 
-    // Η κατάσταση μάχης του εχθρού. Ζει πάνω στο container ώστε το update()
-    // να μη χρειάζεται παράλληλο πίνακα.
-    c.arch = arch;
-    c.hp = arch.hp;
-    c.speed = arch.speed;
-    c.mult = 1;        // τρέχων πολλαπλασιαστής ταχύτητας
-    c.multMs = 0;      // πόσα ms του απομένουν πριν επιστρέψει στο 1
-    return c;
+  // Ο δράκος. Χτισμένος σε ΤΜΗΜΑΤΑ που κυματίζουν με καθυστέρηση το ένα από
+  // το άλλο (animateEnemies) — έτσι διαβάζεται φιδίσιος και όχι σαν σακούλα
+  // που αναπνέει. Το χρώμα του αλλάζει ανά στάδιο και η φλόγα του παίρνει
+  // το ίδιο χρώμα.
+  drawDragon(c, size) {
+    const st = dragonStage(this.wave || 1);
+    const body = NUM[st.body];
+    c.fire = NUM[st.fire];
+    c.stageName = st.name;
+
+    const glow = this.add.image(0, -74 * size, 'glow-moon')
+      .setScale(1.7 * size).setAlpha(.20).setTint(body)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    c.add(glow);
+    c.hpGlow = glow;
+
+    // Φτερά πίσω από το σώμα, στο χρώμα του δράκου αλλά πιο σβηστά ώστε να
+    // διαβάζονται πάνω στον νυχτερινό ουρανό. Χτυπούν αργά και βαριά.
+    const wing = (dir, sc, alpha) => {
+      const g = this.add.graphics();
+      g.fillStyle(body, alpha);
+      g.fillPoints([
+        new Phaser.Geom.Point(0, 0),
+        new Phaser.Geom.Point(26 * size * dir, -104 * size),
+        new Phaser.Geom.Point(86 * size * dir, -96 * size),
+        new Phaser.Geom.Point(74 * size * dir, -34 * size),
+        new Phaser.Geom.Point(40 * size * dir, -4 * size)
+      ], true);
+      g.setPosition(0, -112 * size);
+      g.setScale(sc);
+      c.add(g);
+      if (!this.calm) {
+        this.tweens.add({
+          targets: g, scaleY: sc * .45, duration: 760,
+          yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
+      }
+      return g;
+    };
+    c.wings = [wing(1, 1, .5), wing(-1, .8, .3)];
+
+    // Πόδια — για να πατάει στη γραμμή του εδάφους
+    const legs = this.add.graphics();
+    legs.fillStyle(body, .85);
+    legs.fillRoundedRect(-32 * size, -54 * size, 24 * size, 54 * size, 8 * size);
+    legs.fillRoundedRect(26 * size, -50 * size, 24 * size, 50 * size, 8 * size);
+    c.add(legs);
+
+    // Ο δράκος στέκεται ΟΡΘΙΟΣ: η ουρά χαμηλά δεξιά, το σώμα στη μέση, ο
+    // λαιμός ανεβαίνει αριστερά. Έτσι είναι επιβλητικός χωρίς να πιάνει μισή
+    // οθόνη σε πλάτος. Τα τμήματα κυματίζουν με καθυστέρηση το ένα από το
+    // άλλο (animateEnemies) — φιδίσιος, όχι σακούλα που αναπνέει.
+    const segs = [
+      { x: 116, y: -38, w: 26, h: 14 },   // άκρη ουράς
+      { x: 92,  y: -48, w: 42, h: 26 },
+      { x: 62,  y: -62, w: 60, h: 44 },
+      { x: 26,  y: -74, w: 86, h: 66 },   // καπούλια
+      { x: -12, y: -84, w: 98, h: 76 },   // κορμός
+      { x: -42, y: -110, w: 64, h: 62 },  // ώμοι
+      { x: -56, y: -148, w: 50, h: 48 },  // λαιμός
+      { x: -66, y: -182, w: 44, h: 42 }
+    ];
+    c.segs = [];
+    segs.forEach((s, i) => {
+      const g = this.add.graphics();
+      g.fillStyle(body, 1);
+      if (i === 0) {
+        g.fillPoints([                                     // μυτερή άκρη ουράς
+          new Phaser.Geom.Point(22 * size, -2 * size),
+          new Phaser.Geom.Point(-12 * size, -s.h * .6 * size),
+          new Phaser.Geom.Point(-12 * size, s.h * .6 * size)
+        ], true);
+      } else {
+        g.fillEllipse(0, 0, s.w * size, s.h * size);
+      }
+      // Αγκάθια στη ράχη — αυτό είναι που τον κάνει δράκο και όχι πουλί.
+      if (i > 0 && i < segs.length) {
+        const spike = (7 + s.h * .22) * size;
+        g.fillPoints([
+          new Phaser.Geom.Point(-7 * size, -s.h * .42 * size),
+          new Phaser.Geom.Point(1 * size, -s.h * .5 * size - spike),
+          new Phaser.Geom.Point(8 * size, -s.h * .40 * size)
+        ], true);
+      }
+      g.setPosition(s.x * size, s.y * size);
+      g.baseY = s.y * size;
+      c.add(g);
+      c.segs.push(g);
+    });
+
+    // Το κεφάλι — ξεχωριστό, ώστε να ανασηκώνεται πριν βγάλει φωτιά.
+    const head = this.add.container(-80 * size, -214 * size);
+    const hg = this.add.graphics();
+    hg.fillStyle(body, 1);
+    hg.fillEllipse(0, 0, 68 * size, 48 * size);            // κρανίο
+    hg.fillPoints([                                        // μουσούδα προς τα αριστερά
+      new Phaser.Geom.Point(-24 * size, -10 * size),
+      new Phaser.Geom.Point(-76 * size, 12 * size),
+      new Phaser.Geom.Point(-22 * size, 26 * size)
+    ], true);
+    hg.fillPoints([                                        // σαγόνι
+      new Phaser.Geom.Point(-26 * size, 16 * size),
+      new Phaser.Geom.Point(-58 * size, 28 * size),
+      new Phaser.Geom.Point(-16 * size, 28 * size)
+    ], true);
+    hg.fillPoints([                                        // κέρατα προς τα πίσω
+      new Phaser.Geom.Point(10 * size, -12 * size),
+      new Phaser.Geom.Point(46 * size, -44 * size),
+      new Phaser.Geom.Point(24 * size, -6 * size)
+    ], true);
+    hg.fillPoints([
+      new Phaser.Geom.Point(4 * size, -14 * size),
+      new Phaser.Geom.Point(24 * size, -46 * size),
+      new Phaser.Geom.Point(16 * size, -10 * size)
+    ], true);
+    const eyeGlow = this.add.image(-14 * size, -4 * size, 'glow-flame')
+      .setScale(.34 * size).setAlpha(.9).setTint(c.fire)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const eye = this.add.circle(-14 * size, -4 * size, 5 * size, c.fire);
+    head.add([hg, eyeGlow, eye]);
+    head.baseX = -80 * size;
+    head.baseY = -214 * size;
+    c.add(head);
+    c.head = head;
+
+    // Πότε θα βγάλει την πρώτη προειδοποιητική φλόγα
+    c.nextBreathAt = this.time.now + Phaser.Math.Between(2600, 5200);
   }
 
   spawnWave() {
     this.wave = (this.wave || 0) + 1;
-    for (let i = 0; i < 3; i++) {
-      const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, 'smoke', 1.3 - i * .06);
+    const comp = waveComposition(this.wave);
+    comp.forEach((archId, i) => {
+      const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, archId, 1.22 - i * .05);
       e.setAlpha(0);
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
       this.enemies.push(e);
-    }
+    });
   }
 
   frontEnemy() { return this.enemies[0] || null; }
@@ -166,11 +409,18 @@ export default class BattleScene extends Phaser.Scene {
     this.enemies.forEach((e) => { e.mult = factor; e.multMs = ms; });
   }
 
-  // Η πίεση του χρόνου. Τρέχει ΜΟΝΟ όσο το παιδί μπορεί πραγματικά να
-  // απαντήσει: στα animation, στην τελετή περγαμηνής και στην ανασύνταξη
-  // (busy) οι εχθροί παγώνουν, ώστε να μην κλέβεται χρόνος από τον παίκτη.
   update(time, delta) {
+    // Η ζωή της σκηνής τρέχει ΠΑΝΤΑ — και στα animation και στην τελετή.
+    // Τίποτα δεν επιτρέπεται να μοιάζει με ακίνητη ζωγραφιά.
+    this.animateEnemies(time);
+    this.animateNinja(time);
+    this.animateMaster(time);
+
+    // Η πίεση του χρόνου, αντίθετα, τρέχει ΜΟΝΟ όσο το παιδί μπορεί
+    // πραγματικά να απαντήσει — αλλιώς του κλέβεται χρόνος.
     if (this.busy || !this.current || !this.enemies.length) return;
+    if (this.checkShadowFocus(time)) return;
+
     const dt = delta / 1000;
     for (const e of this.enemies) {
       if (e.multMs > 0) {
@@ -180,6 +430,108 @@ export default class BattleScene extends Phaser.Scene {
       e.x -= e.speed * e.mult * dt;
     }
     if (this.enemies[0].x <= RETREAT_X) this.regroup();
+  }
+
+  // Shadow Focus — προστατευτικό, όχι «εύκολο». Παγώνει την πίεση όταν ο
+  // εχθρός είναι κοντά ΚΑΙ η λέξη είναι νέα ή δύσκολη. Μία φορά ανά
+  // πρόκληση: δεν είναι ασπίδα, είναι ανάσα.
+  checkShadowFocus(time) {
+    if (time < this.focusUntil) return true;
+    const ch = this.current;
+    if (!ch || this.focusedFor === ch.challengeId) return false;
+    const front = this.enemies[0];
+    if (!front || front.x - this.ninja.x > FOCUS_DIST) return false;
+    // «Δύσκολη» την κρίνει η ΣΚΗΝΗ από όσα είδε η ίδια σήμερα — δεν ρωτάμε
+    // το Learning Engine, γιατί το συμβόλαιο των δύο κλήσεων δεν αγγίζεται.
+    if (!this.hardTargets.has(ch.targetId)) return false;
+
+    this.focusedFor = ch.challengeId;
+    this.focusUntil = time + FOCUS_MS;
+    if (!this.focusVeil) {
+      this.focusVeil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow)
+        .setDepth(18).setAlpha(0);
+    }
+    this.tweens.add({
+      targets: this.focusVeil, alpha: .34, duration: 260,
+      yoyo: true, hold: FOCUS_MS - 520, ease: 'Quad.easeOut'
+    });
+    return true;
+  }
+
+  // ------------------------------------------------------- η ζωή της σκηνής
+
+  animateEnemies(time) {
+    for (const e of this.enemies) {
+      if (!e.segs) continue;
+      // Κύμα που ταξιδεύει από το κεφάλι προς την ουρά: κάθε τμήμα
+      // καθυστερεί λίγο σε σχέση με το προηγούμενο.
+      e.segs.forEach((s, i) => {
+        const amp = (i === 0 ? 11 : i < 3 ? 8 : 4) * e.size;   // η ουρά κουνιέται πιο πολύ
+        s.y = s.baseY + Math.sin(time * .0034 + i * .72) * amp;
+      });
+      if (e.head && !e.breathing) {
+        const n = e.segs.length;
+        e.head.y = e.head.baseY + Math.sin(time * .0034 + n * .72) * 5 * e.size;
+        e.head.x = e.head.baseX + Math.sin(time * .0027 + n * .5) * 3 * e.size;
+      }
+      if (e.nextBreathAt && time > e.nextBreathAt) this.dragonBreath(e, time);
+    }
+  }
+
+  // Προειδοποίηση πριν επιτεθεί: ανασηκώνει το κεφάλι και βγάζει φωτιά.
+  dragonBreath(e, time) {
+    e.breathing = true;
+    e.nextBreathAt = time + Phaser.Math.Between(4200, 7000);
+    audio.roar();
+    this.tweens.add({
+      targets: e.head, y: e.head.baseY - 26 * e.size, angle: -12,
+      duration: 260, ease: 'Quad.easeOut',
+      onComplete: () => {
+        const jet = this.add.particles(e.x + e.head.baseX - 54 * e.size,
+          e.y + e.head.baseY + 8 * e.size, 'spark', {
+          speed: { min: 90, max: 260 }, angle: { min: 160, max: 200 },
+          scale: { start: .9, end: 0 }, alpha: { start: .95, end: 0 },
+          lifespan: { min: 320, max: 620 }, blendMode: 'ADD',
+          tint: [e.fire, NUM.flame], emitting: false
+        }).setDepth(12);
+        jet.explode(26);
+        this.time.delayedCall(900, () => jet.destroy());
+        this.tweens.add({
+          targets: e.head, y: e.head.baseY, angle: 0,
+          duration: 420, ease: 'Quad.easeIn',
+          onComplete: () => { e.breathing = false; }
+        });
+      }
+    });
+  }
+
+  // Ο νίντζα ΔΕΝ είναι ζωγραφιά: αιωρείται, το σώμα ταλαντεύεται ελάχιστα
+  // και η κορδέλα ακολουθεί με καθυστέρηση (secondary motion).
+  animateNinja(time) {
+    if (this.calm || !this.ninja || this.ninja.frozen) return;
+    const n = this.ninja;
+    n.y = LINE_Y + Math.sin(time * .0016) * 3.2;
+    n.scaleY = 1.3 + Math.sin(time * .0016 + 1.1) * .012;
+    n.angle = Math.sin(time * .0011) * 1.1;
+    if (this.hand) {
+      this.hand.y = n.y - 78 + Math.sin(time * .0016 + .5) * 3.2;
+    }
+  }
+
+  // Ο Μάστερ Γου αιωρείται ψηλά. Το μούσι και ο μανδύας ακολουθούν το σώμα
+  // με καθυστέρηση — αυτή η καθυστέρηση είναι που τον κάνει ζωντανό.
+  animateMaster(time) {
+    const m = this.master;
+    if (!m || this.calm) return;
+    m.y = m.baseY + Math.sin(time * .0009) * 12;
+    m.angle = Math.sin(time * .0007) * 2.2;
+    m.beard.forEach((b, i) => {
+      b.x = b.baseX + Math.sin(time * .0013 - i * .55) * (2 + i * 1.6);
+      b.y = b.baseY + Math.sin(time * .0011 - i * .45) * (1 + i * .5);
+    });
+    m.robe.forEach((r, i) => {
+      r.angle = Math.sin(time * .001 - i * .7) * (3 + i * 2);
+    });
   }
 
   // ----------------------------------------------------------- η περγαμηνή
@@ -287,12 +639,16 @@ export default class BattleScene extends Phaser.Scene {
     }).setOrigin(.5).setDepth(21);
     this.wordParts.push(hint);
 
-    const zone = this.add.zone(center.x, center.y, Math.max(this.gapText.width + 40, 80), 110)
-      .setOrigin(.5).setDepth(23).setInteractive({ useHandCursor: true });
-    this.wordParts.push(zone);
-    zone.once('pointerdown', () => {
+    // Η τελετή ΔΕΝ ζητά άγγιγμα στην περγαμηνή. Κλείνει μόνη της και οι
+    // φούσκες βγαίνουν αμέσως μετά — το παιδί δεν πρέπει ποτέ να μείνει
+    // να κοιτάζει μια οθόνη χωρίς επιλογές. Το άγγιγμα απλώς προσπερνά.
+    let sealed = false;
+    const seal = () => {
+      if (sealed) return;
+      sealed = true;
       audio.chime(2);
       this.sealBurst(center.x, center.y);
+      this.hardTargets.add(ch.targetId);   // νέα λέξη = δικαιούται Shadow Focus
       this.tweens.add({ targets: halo, scale: 2.2, alpha: 0, duration: 420, ease: 'Quad.easeOut' });
       engine.reportResult({
         challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId,
@@ -303,15 +659,23 @@ export default class BattleScene extends Phaser.Scene {
       this.time.delayedCall(420, () => {
         this.hideScroll(() => { this.busy = false; this.nextChallenge(); });
       });
-    });
+    };
+
+    const zone = this.add.zone(center.x, center.y, Math.max(this.gapText.width + 40, 80), 110)
+      .setOrigin(.5).setDepth(23).setInteractive({ useHandCursor: true });
+    this.wordParts.push(zone);
+    zone.once('pointerdown', seal);
+    this.time.delayedCall(1700, seal);
   }
 
   showGap(ch) {
     this.busy = false;
     this.label.setAlpha(0);
     this.showScroll();
-    this.layoutWord(ch.text, ch.gap, { revealed: false });
+    const center = this.layoutWord(ch.text, ch.gap, { revealed: false });
     this.spawnOrbs(ch.candidates);
+    // Ο Μάστερ Γου μόλις άρπαξε αυτό το γράμμα — να γιατί λείπει.
+    this.time.delayedCall(120, () => this.stealLetter(center));
   }
 
   // Τα γραφήματα αιωρούνται ΕΠΙΤΟΠΟΥ (±6px): ζωντανή σκηνή, ακίνητος
@@ -322,7 +686,9 @@ export default class BattleScene extends Phaser.Scene {
     const startX = W / 2 - (spread * (n - 1)) / 2;
     candidates.forEach((cand, i) => {
       const x = startX + i * spread;
-      const y = 372 + Math.sin(i * 1.1) * 22;
+      // Πιο ψηλά από την κορυφή του δράκου (~392): οι φούσκες δεν πρέπει
+      // ποτέ να μπερδεύονται με τη σιλουέτα του εχθρού.
+      const y = 326 + Math.sin(i * 1.1) * 20;
       const orb = this.add.container(x, y).setDepth(25);
       const glow = this.add.image(0, 0, 'glow-flame').setScale(.72).setAlpha(.6)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -374,6 +740,12 @@ export default class BattleScene extends Phaser.Scene {
       });
     }
 
+    // Combo: μόνο ΠΡΟΣΘΕΤΕΙ. Όταν σπάει, σβήνει σιωπηλά — κανένας μετρητής,
+    // κανένα «έχασες το combo», κανένας ήχος. Αλλιώς είναι τιμωρητικό UI
+    // από την πίσω πόρτα (SPEC κεφ. 3).
+    if (correct) this.combo += 1;
+    else { this.combo = 0; this.hardTargets.add(ch.targetId); }
+
     if (correct) this.castFlame(orb);
     else this.flameFails(orb);
   }
@@ -405,8 +777,31 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: this.hand, alpha: .9, scale: 1.1, duration: 300 });
   }
 
+  // Βάρος στην επίθεση (BRANCH-SCOPE §5): ο νίντζα τραβιέται πίσω και η
+  // φλόγα φουσκώνει στη χούφτα του για ~320ms πριν φύγει. Χωρίς αυτό το
+  // μάζεμα, το χτύπημα δεν «βαραίνει» — απλώς συμβαίνει.
   chargeAndFire() {
-    this.tweens.add({ targets: this.ninja, angle: -7, duration: 130, yoyo: true, ease: 'Quad.easeOut' });
+    this.ninja.frozen = true;
+    const bright = this.combo >= COMBO_BRIGHT;   // 3 σωστά: πιο φωτεινή φλόγα
+    this.tweens.add({
+      targets: this.ninja, x: NINJA_X - 18, angle: 8,
+      duration: 320, ease: 'Quad.easeOut'
+    });
+    this.tweens.add({
+      targets: this.hand, scale: bright ? 1.55 : 1.2, alpha: bright ? 1 : .9,
+      duration: 320, ease: 'Quad.easeOut',
+      onComplete: () => this.fireBolt()
+    });
+  }
+
+  fireBolt() {
+    this.tweens.add({
+      targets: this.ninja, x: NINJA_X, angle: -11, duration: 140, ease: 'Back.easeOut',
+      onComplete: () => {
+        this.ninja.setAngle(0);
+        this.ninja.frozen = false;
+      }
+    });
     const target = this.frontEnemy();
     const tx = target ? target.x : W + 60;
 
@@ -419,6 +814,18 @@ export default class BattleScene extends Phaser.Scene {
     });
     trail.setFrequency(18, 1);
     trail.start();
+
+    // 6 σωστά στη σειρά: ίχνος σκιάς πίσω από την επίθεση
+    let shadow = null;
+    if (this.combo >= COMBO_TRAIL) {
+      shadow = this.add.particles(0, 0, 'spark', {
+        speed: { min: 4, max: 22 }, scale: { start: 1.5, end: 0 },
+        alpha: { start: .4, end: 0 }, lifespan: 620,
+        tint: NUM.shadow, follow: bolt
+      }).setDepth(13);
+      shadow.setFrequency(26, 1);
+      shadow.start();
+    }
     this.tweens.add({ targets: this.hand, alpha: 0, scale: .5, duration: 200 });
 
     this.tweens.add({
@@ -426,7 +833,13 @@ export default class BattleScene extends Phaser.Scene {
       onComplete: () => {
         bolt.destroy();
         trail.stop();
+        if (shadow) { shadow.stop(); this.time.delayedCall(700, () => shadow.destroy()); }
         this.time.delayedCall(500, () => trail.destroy());
+        // 9 σωστά στη σειρά: η κάμερα «σκύβει» για μισό δευτερόλεπτο
+        if (this.combo >= COMBO_ZOOM) {
+          this.cameras.main.zoomTo(1.035, 240, 'Quad.easeOut', true);
+          this.time.delayedCall(500, () => this.cameras.main.zoomTo(1, 320, 'Quad.easeInOut', true));
+        }
         this.hitFrontEnemy();
       }
     });
@@ -469,15 +882,25 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // Χτυπήθηκε αλλά άντεξε: τράνταγμα και σπίθες, χωρίς θάνατο.
+  // Η αντοχή που απομένει φαίνεται ως ΛΑΜΨΗ ΠΟΥ ΣΒΗΝΕΙ — ποτέ ως μπάρα ζωής.
   flinchEnemy(e) {
     this.tweens.add({
       targets: e, scaleX: e.scaleX * 1.12, scaleY: e.scaleY * .9,
       duration: 110, yoyo: true, ease: 'Quad.easeOut'
     });
+    if (e.hpGlow) {
+      this.tweens.add({
+        targets: e.hpGlow, alpha: .20 * (e.hp / e.maxHp),
+        duration: 400, ease: 'Quad.easeOut'
+      });
+    }
+    if (e.head) {
+      this.tweens.add({ targets: e.head, angle: 14, duration: 120, yoyo: true });
+    }
     const hit = this.add.particles(e.x, e.y - 44, 'spark', {
       speed: { min: 40, max: 150 }, scale: { start: .6, end: 0 },
       alpha: { start: .9, end: 0 }, lifespan: { min: 260, max: 520 },
-      blendMode: 'ADD', tint: [NUM.flameCore, NUM.flame], emitting: false
+      blendMode: 'ADD', tint: [NUM.flameCore, e.fire || NUM.flame], emitting: false
     }).setDepth(15);
     hit.explode(16);
     this.time.delayedCall(800, () => hit.destroy());
@@ -538,6 +961,15 @@ export default class BattleScene extends Phaser.Scene {
     smoke.explode(14);
     this.time.delayedCall(1100, () => smoke.destroy());
 
+    // Μικρή υποχώρηση του νίντζα + ελαφρύ camera pulse: συνέπεια που τη
+    // νιώθεις, χωρίς ούτε ένα κόκκινο pixel.
+    this.ninja.frozen = true;
+    this.tweens.add({
+      targets: this.ninja, x: NINJA_X - 26, duration: 150, yoyo: true,
+      ease: 'Quad.easeOut', onComplete: () => { this.ninja.frozen = false; }
+    });
+    this.cameras.main.shake(170, .0024);
+
     if (this.enemies.length) audio.thud();
     this.pace(HASTE_FACTOR, HASTE_MS);
     this.time.delayedCall(400, () => this.revealCorrect());
@@ -567,24 +999,69 @@ export default class BattleScene extends Phaser.Scene {
   // Πλέον μπορεί να συμβεί σκέτα από τον χρόνο, χωρίς κανένα λάθος του παιδιού
   // — και η αργή σκέψη δεν είναι λάθος. Την αποκάλυψη την κάνει μόνο το
   // flameFails(), δηλαδή μόνο ύστερα από πραγματικό ορθογραφικό λάθος.
+  // Καπνογόνο. Ο νίντζα ΔΕΝ τους διώχνει και δεν τους χτυπά — κρύβεται.
+  // Για μισό δευτερόλεπτο η οθόνη δεν έχει καθόλου ήρωα· αυτό είναι όλο το
+  // νόημα. Οι εχθροί προχωρούν στον άδειο καπνό, σταματούν και ψάχνουν.
   regroup() {
     this.busy = true;
     this.pace(1, 0);
-    const puff = this.add.particles(this.ninja.x, this.ninja.y - 50, 'spark', {
-      speed: { min: 40, max: 160 }, scale: { start: 1.1, end: 0 },
-      alpha: { start: .55, end: 0 }, lifespan: 700, tint: NUM.smoke, emitting: false
-    }).setDepth(16);
-    puff.explode(26);
-    this.time.delayedCall(1200, () => puff.destroy());
+    this.ninja.frozen = true;
+    audio.poof();
 
-    this.tweens.add({ targets: this.ninja, x: NINJA_X - 70, alpha: .2, duration: 220, ease: 'Quad.easeIn',
-      onComplete: () => {
-        this.ninja.setX(NINJA_X);
-        this.tweens.add({ targets: this.ninja, alpha: 1, duration: 300 });
-      } });
+    const smokeAt = (x, y, n, life) => {
+      const p = this.add.particles(x, y, 'spark', {
+        speed: { min: 30, max: 170 }, scale: { start: 1.5, end: 0 },
+        alpha: { start: .6, end: 0 }, lifespan: life, tint: NUM.smoke, emitting: false
+      }).setDepth(16);
+      p.explode(n);
+      this.time.delayedCall(life + 500, () => p.destroy());
+      return p;
+    };
 
-    this.enemies.forEach((e, i) => {
-      this.tweens.add({ targets: e, x: SPAWN_X + i * ENEMY_GAP, duration: 520, ease: 'Quad.easeInOut' });
+    // 1. Χτυπά το χέρι στο έδαφος και τον καταπίνει ο καπνός
+    smokeAt(this.ninja.x, LINE_Y - 30, 34, 900);
+    this.tweens.add({
+      targets: this.ninja, alpha: 0, scaleY: 1.0, y: LINE_Y + 10,
+      duration: 200, ease: 'Quad.easeIn'
+    });
+    this.tweens.add({ targets: this.hand, alpha: 0, duration: 160 });
+
+    // 2. Οι εχθροί μπαίνουν στον άδειο καπνό και μετά ψάχνουν δεξιά-αριστερά
+    this.time.delayedCall(280, () => {
+      this.enemies.forEach((e, i) => {
+        this.tweens.add({
+          targets: e, x: e.x - 46, duration: 320, delay: i * 60, ease: 'Quad.easeOut',
+          onComplete: () => {
+            this.tweens.add({
+              targets: e, angle: 9, duration: 220, yoyo: true, repeat: 1,
+              ease: 'Sine.easeInOut', onComplete: () => e.setAngle(0)
+            });
+          }
+        });
+      });
+    });
+
+    // 3. Ξεπροβάλλει σκυφτός μέσα από νέο καπνό και σηκώνεται αργά
+    this.time.delayedCall(1100, () => {
+      audio.poof();
+      smokeAt(NINJA_X, LINE_Y - 26, 26, 800);
+      this.ninja.setX(NINJA_X).setY(LINE_Y + 26).setScale(1.3, .74).setAlpha(0);
+      this.tweens.add({ targets: this.ninja, alpha: 1, duration: 260 });
+      this.tweens.add({
+        targets: this.ninja, y: LINE_Y, scaleY: 1.3,
+        duration: 520, delay: 120, ease: 'Back.easeOut',
+        onComplete: () => { this.ninja.frozen = false; }
+      });
+      // η φλόγα ξανανάβει στη χούφτα
+      this.tweens.add({ targets: this.hand, alpha: .9, scale: .8, duration: 300, delay: 320,
+        yoyo: true, hold: 200 });
+    });
+
+    // 4. Τον έχασαν: γυρίζουν πίσω να ψάξουν από την αρχή
+    this.time.delayedCall(1500, () => {
+      this.enemies.forEach((e, i) => {
+        this.tweens.add({ targets: e, x: SPAWN_X + i * ENEMY_GAP, duration: 620, ease: 'Quad.easeInOut' });
+      });
     });
 
     if (!this.regroupShown) {
@@ -592,11 +1069,11 @@ export default class BattleScene extends Phaser.Scene {
       const msg = this.add.text(W / 2, 300, TXT.regroup, {
         fontFamily: FONT.ui, fontSize: '24px', color: HEX.lantern
       }).setOrigin(.5).setDepth(30).setAlpha(0);
-      this.tweens.add({ targets: msg, alpha: 1, duration: 300, yoyo: true, hold: 1500,
+      this.tweens.add({ targets: msg, alpha: 1, duration: 300, delay: 1200, yoyo: true, hold: 1400,
         onComplete: () => msg.destroy() });
-      this.time.delayedCall(2400, () => { this.busy = false; });
+      this.time.delayedCall(3400, () => { this.busy = false; });
     } else {
-      this.time.delayedCall(620, () => { this.busy = false; });
+      this.time.delayedCall(2200, () => { this.busy = false; });
     }
   }
 
@@ -645,17 +1122,31 @@ export default class BattleScene extends Phaser.Scene {
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Title'));
     });
 
-    const icon = this.add.text(94, 34, '♪', {
-      fontFamily: FONT.ui, fontSize: '26px', color: HEX.smoke
-    }).setOrigin(.5).setAlpha(audio.muted ? .35 : .55).setDepth(46)
-      .setInteractive({ useHandCursor: true });
-    const bar = this.add.rectangle(94, 34, 28, 2, NUM.smoke)
-      .setAngle(-40).setAlpha(audio.muted ? .7 : 0).setDepth(47);
-    icon.on('pointerdown', () => {
-      const m = audio.toggleMute();
-      bar.setAlpha(m ? .7 : 0);
-      icon.setAlpha(m ? .35 : .55);
-    });
+    // Δύο ΑΝΕΞΑΡΤΗΤΟΙ διακόπτες ήχου (BRANCH-SCOPE §7): μουσική/ambience
+    // αριστερά, εφέ δεξιά. Όχι ένα master mute που κλείνει τα πάντα.
+    const toggleBtn = (x, makeIcon, isOn, flip) => {
+      const icon = makeIcon(x);
+      icon.setDepth(46).setInteractive({ useHandCursor: true });
+      const bar = this.add.rectangle(x, 34, 28, 2, NUM.smoke)
+        .setAngle(-40).setAlpha(isOn() ? 0 : .7).setDepth(47);
+      const paint = () => {
+        const on = isOn();
+        bar.setAlpha(on ? 0 : .7);
+        icon.setAlpha(on ? .6 : .3);
+      };
+      paint();
+      icon.on('pointerdown', () => { flip(); paint(); });
+    };
+
+    toggleBtn(94,
+      (x) => this.add.text(x, 34, '♪', {
+        fontFamily: FONT.ui, fontSize: '26px', color: HEX.smoke
+      }).setOrigin(.5),
+      () => audio.musicOn, () => audio.toggleMusic());
+
+    toggleBtn(142,
+      (x) => this.add.image(x, 34, 'spark').setScale(1.15).setTint(NUM.smoke),
+      () => audio.fxOn, () => audio.toggleFx());
 
     this.sparkIcon = this.add.image(W - 96, 36, 'spark')
       .setScale(1.1).setBlendMode(Phaser.BlendModes.ADD).setDepth(46);

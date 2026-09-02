@@ -2,11 +2,31 @@
 // Λόγοι: μηδέν βάρος στο offline πακέτο, μηδέν θέμα αδειών, πλήρης έλεγχος.
 // Οι browsers δεν επιτρέπουν ήχο πριν το πρώτο άγγιγμα — γι' αυτό unlock().
 
+// Δύο ΑΝΕΞΑΡΤΗΤΑ κανάλια (BRANCH-SCOPE §7 / HYPER-NOTE §11):
+//   music — το νυχτερινό ambience (και η μουσική, όταν μπει)
+//   fx    — whoosh, τσιτσίρισμα, κουδούνισμα, χτύποι
+// Όχι ένα master mute που τα κλείνει όλα μαζί. Η προτίμηση θυμάται.
 let ctx = null;
 let master = null;
+let musicGain = null;
+let fxGain = null;
 let ambienceOn = false;
 let crackleTimer = null;
 export let muted = false;
+
+const PREF_KEY = 'flame.audio.v1';
+export let musicOn = true;
+export let fxOn = true;
+try {
+  const p = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
+  if (typeof p.music === 'boolean') musicOn = p.music;
+  if (typeof p.fx === 'boolean') fxOn = p.fx;
+} catch (e) { /* απρόσιτο localStorage — μένουμε στα προεπιλεγμένα */ }
+
+function savePrefs() {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify({ music: musicOn, fx: fxOn })); }
+  catch (e) { /* δεν είναι κρίσιμο */ }
+}
 
 function noiseBuffer(seconds = 2) {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -31,6 +51,12 @@ export function unlock() {
   master = ctx.createGain();
   master.gain.value = muted ? 0 : 1;
   master.connect(ctx.destination);
+  musicGain = ctx.createGain();
+  musicGain.gain.value = musicOn ? 1 : 0;
+  musicGain.connect(master);
+  fxGain = ctx.createGain();
+  fxGain.gain.value = fxOn ? 1 : 0;
+  fxGain.connect(master);
 }
 
 // Νυχτερινό αεράκι: φιλτραρισμένος θόρυβος με αργή αναπνοή.
@@ -60,14 +86,14 @@ function startWind() {
   lfo2Gain.gain.value = 140;
   lfo2.connect(lfo2Gain).connect(lp.frequency);
 
-  src.connect(lp).connect(gain).connect(master);
+  src.connect(lp).connect(gain).connect(musicGain);
   src.start();
   lfo.start();
   lfo2.start();
 }
 
 // Ένα «κρακ» φωτιάς.
-function crackle(volume = 1) {
+function crackle(volume = 1, dest = null) {
   if (!ctx) return;
   const t = ctx.currentTime;
   const src = ctx.createBufferSource();
@@ -84,7 +110,7 @@ function crackle(volume = 1) {
   g.gain.exponentialRampToValueAtTime(peak, t + 0.006);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09 + Math.random() * 0.14);
 
-  src.connect(bp).connect(g).connect(master);
+  src.connect(bp).connect(g).connect(dest || musicGain);
   src.start(t);
   src.stop(t + 0.4);
 }
@@ -126,10 +152,10 @@ export function whoosh() {
   g.gain.exponentialRampToValueAtTime(0.22, t + 0.05);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
 
-  src.connect(bp).connect(g).connect(master);
+  src.connect(bp).connect(g).connect(fxGain);
   src.start(t);
   src.stop(t + 0.6);
-  for (let i = 0; i < 4; i++) setTimeout(() => crackle(1.4), 90 + i * 45);
+  for (let i = 0; i < 4; i++) setTimeout(() => crackle(1.4, fxGain), 90 + i * 45);
 }
 
 // Η φλόγα δεν πιάνει: σύντομο, πνιχτό, καθόλου «ήχος αποτυχίας».
@@ -150,7 +176,7 @@ export function fizzle() {
   g.gain.exponentialRampToValueAtTime(0.10, t + 0.03);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
 
-  src.connect(lp).connect(g).connect(master);
+  src.connect(lp).connect(g).connect(fxGain);
   src.start(t);
   src.stop(t + 0.5);
 }
@@ -169,7 +195,7 @@ export function chime(step = 0) {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-    o.connect(g).connect(master);
+    o.connect(g).connect(fxGain);
     o.start(t);
     o.stop(t + 0.5);
   }
@@ -187,10 +213,71 @@ export function thud() {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
-  o.connect(g).connect(master);
+  o.connect(g).connect(fxGain);
   o.start(t);
   o.stop(t + 0.4);
 }
+
+// Ένας βαθύς, μαλακός «γδούπος» καπνού: ο Μάστερ Γου εμφανίζεται/χάνεται.
+export function poof() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.5);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(900, t);
+  lp.frequency.exponentialRampToValueAtTime(160, t + 0.4);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.13, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  src.connect(lp).connect(g).connect(fxGain);
+  src.start(t);
+  src.stop(t + 0.6);
+}
+
+// Βρυχηθμός δράκου: χαμηλό πριόνι με αργό vibrato.
+export function roar() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(78, t);
+  o.frequency.exponentialRampToValueAtTime(52, t + 0.55);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 11;
+  const lfoG = ctx.createGain();
+  lfoG.gain.value = 6;
+  lfo.connect(lfoG).connect(o.frequency);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 620;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.12, t + 0.08);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+  o.connect(lp).connect(g).connect(fxGain);
+  o.start(t); lfo.start(t);
+  o.stop(t + 0.8); lfo.stop(t + 0.8);
+}
+
+export function setMusic(on) {
+  musicOn = on;
+  if (musicGain) musicGain.gain.value = on ? 1 : 0;
+  savePrefs();
+  return musicOn;
+}
+
+export function setFx(on) {
+  fxOn = on;
+  if (fxGain) fxGain.gain.value = on ? 1 : 0;
+  savePrefs();
+  return fxOn;
+}
+
+export function toggleMusic() { return setMusic(!musicOn); }
+export function toggleFx() { return setFx(!fxOn); }
 
 export function setMuted(m) {
   muted = m;
