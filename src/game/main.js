@@ -31,12 +31,17 @@ function boot() {
   // Ο browser δεν επιτρέπει ήχο πριν το πρώτο άγγιγμα του χρήστη.
   const unlock = () => {
     audio.startAmbience();
-    goFullscreen(game);
     window.removeEventListener('pointerdown', unlock);
     window.removeEventListener('keydown', unlock);
   };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
+
+  // Η πλήρης οθόνη ΔΕΝ μπορεί να μπει σε μία μόνο ευκαιρία: το παιχνίδι
+  // ξεκινά συχνά όρθιο, όπου δεν τη θέλουμε. Ο browser επιτρέπει το αίτημα
+  // μόνο μέσα σε χειρονομία χρήστη, οπότε δοκιμάζουμε σε ΚΑΘΕ άγγιγμα μέχρι
+  // να πετύχει — δηλαδή στο πρώτο άγγιγμα αφού γυρίσει η συσκευή πλαγίως.
+  window.addEventListener('pointerdown', () => goFullscreen(), { capture: true });
 
   // Το κινητό κρατά μπάρα διεύθυνσης και μενού ακόμα και πλαγιαστά, οπότε η
   // ωφέλιμη οθόνη μικραίνει — και μικραίνει κι άλλο μετά από εναλλαγή
@@ -58,7 +63,7 @@ function boot() {
 // διεύθυνσης και το μενού στο Android. Επιτρέπεται μόνο μέσα σε χειρονομία
 // χρήστη, γι' αυτό ζει μαζί με το ξεκλείδωμα του ήχου. Σε iPhone δεν
 // υποστηρίζεται — το catch το αγνοεί σιωπηλά.
-function goFullscreen(game) {
+function goFullscreen() {
   if (!window.matchMedia) return;
   const coarse = window.matchMedia('(pointer: coarse)').matches;
   const landscape = window.matchMedia('(orientation: landscape)').matches;
