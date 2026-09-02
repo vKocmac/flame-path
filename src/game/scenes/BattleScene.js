@@ -4,8 +4,8 @@
 //  1. Ποτέ δεν σχηματίζεται λάθος μορφή λέξης στην οθόνη. Η περγαμηνή
 //     δείχνει το γράμμα ΜΟΝΟ όταν είναι το σωστό.
 //  2. Νέος στόχος περνά πρώτα από την τελετή περγαμηνής (intro).
-//  3. Λάθος = καπνός, ένα βήμα του εχθρού, αμέσως δεύτερη ευκαιρία.
-//     Ποτέ κόκκινο, ποτέ «ΛΑΘΟΣ», καμία απώλεια.
+//  3. Λάθος = καπνός, προσωρινή επιτάχυνση του εχθρού, αμέσως δεύτερη
+//     ευκαιρία. Ποτέ κόκκινο, ποτέ «ΛΑΘΟΣ», καμία απώλεια.
 //  6. Ένα αποτέλεσμα ανά πρόκληση, από την ΠΡΩΤΗ προσπάθεια.
 
 import { NUM, HEX, FONT } from '../../theme/palette.js';
@@ -14,6 +14,7 @@ import * as audio from '../../theme/audio.js';
 import * as store from '../../shared/storage.js';
 import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
+import { archetype } from '../enemies.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
@@ -23,12 +24,15 @@ const NINJA_X = 220;
 // στο 1236, όχι έξω από το κάδρο.
 const SPAWN_X = 1000;
 const ENEMY_GAP = 118;
-// Το βήμα του λάθους είναι μεγαλύτερο από την απόσταση των εχθρών, ώστε
-// η πίεση να χτίζεται σιγά όταν το παιδί δυσκολεύεται: κάθε λάθος φέρνει
-// τη γραμμή 170 κοντύτερα, κάθε νίκη τη σπρώχνει 118 πίσω (καθαρό -52).
-const ENEMY_STEP = 170;
 const RETREAT_X = NINJA_X + 190;
 const SPARKS_PER_KILL = 3;
+
+// Πίεση χρόνου (BRANCH-SCOPE §1). Οι εχθροί ΔΕΝ κάνουν βήμα στο λάθος:
+// πλησιάζουν συνεχώς με βάση τον χρόνο. Η ταχύτητά τους ορίζεται ανά
+// αρχέτυπο στο enemies.js· εδώ ζουν μόνο οι προσωρινές διαφοροποιήσεις.
+const KNOCKBACK = 96;                          // σωστό → η γραμμή σπρώχνεται πίσω
+const SLOW_FACTOR = .4, SLOW_MS = 400;         // σωστό → «ανασαίνει» το παιδί
+const HASTE_FACTOR = 1.6, HASTE_MS = 800;      // λάθος → πραγματική συνέπεια
 
 export default class BattleScene extends Phaser.Scene {
   constructor() { super('Battle'); }
@@ -100,7 +104,9 @@ export default class BattleScene extends Phaser.Scene {
     return c;
   }
 
-  makeEnemy(x, size = 1) {
+  makeEnemy(x, archId = 'smoke', sizeScale = 1) {
+    const arch = archetype(archId);
+    const size = arch.size * sizeScale;
     const c = this.add.container(x, LINE_Y).setDepth(11);
     const glow = this.add.image(0, -34 * size, 'glow-moon')
       .setScale(.7 * size).setAlpha(.10);
@@ -132,13 +138,21 @@ export default class BattleScene extends Phaser.Scene {
         delay: Phaser.Math.Between(0, 700)
       });
     }
+
+    // Η κατάσταση μάχης του εχθρού. Ζει πάνω στο container ώστε το update()
+    // να μη χρειάζεται παράλληλο πίνακα.
+    c.arch = arch;
+    c.hp = arch.hp;
+    c.speed = arch.speed;
+    c.mult = 1;        // τρέχων πολλαπλασιαστής ταχύτητας
+    c.multMs = 0;      // πόσα ms του απομένουν πριν επιστρέψει στο 1
     return c;
   }
 
   spawnWave() {
     this.wave = (this.wave || 0) + 1;
     for (let i = 0; i < 3; i++) {
-      const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, 1.3 - i * .06);
+      const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, 'smoke', 1.3 - i * .06);
       e.setAlpha(0);
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
       this.enemies.push(e);
@@ -146,6 +160,27 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   frontEnemy() { return this.enemies[0] || null; }
+
+  // Προσωρινή αλλαγή ρυθμού σε ΟΛΗ τη γραμμή — κρατά τον σχηματισμό.
+  pace(factor, ms) {
+    this.enemies.forEach((e) => { e.mult = factor; e.multMs = ms; });
+  }
+
+  // Η πίεση του χρόνου. Τρέχει ΜΟΝΟ όσο το παιδί μπορεί πραγματικά να
+  // απαντήσει: στα animation, στην τελετή περγαμηνής και στην ανασύνταξη
+  // (busy) οι εχθροί παγώνουν, ώστε να μην κλέβεται χρόνος από τον παίκτη.
+  update(time, delta) {
+    if (this.busy || !this.current || !this.enemies.length) return;
+    const dt = delta / 1000;
+    for (const e of this.enemies) {
+      if (e.multMs > 0) {
+        e.multMs -= delta;
+        if (e.multMs <= 0) { e.mult = 1; e.multMs = 0; }
+      }
+      e.x -= e.speed * e.mult * dt;
+    }
+    if (this.enemies[0].x <= RETREAT_X) this.regroup();
+  }
 
   // ----------------------------------------------------------- η περγαμηνή
 
@@ -392,14 +427,64 @@ export default class BattleScene extends Phaser.Scene {
         bolt.destroy();
         trail.stop();
         this.time.delayedCall(500, () => trail.destroy());
-        this.killFrontEnemy();
+        this.hitFrontEnemy();
       }
     });
   }
 
-  killFrontEnemy() {
-    const e = this.enemies.shift();
+  // Ένα σωστό χτύπημα. Οι ανθεκτικοί εχθροί (αρχέτυπα με hp > 1) δεν πέφτουν
+  // με τη μία — τραντάζονται και μένουν όρθιοι.
+  hitFrontEnemy() {
+    const e = this.enemies[0];
     if (e) {
+      e.hp -= 1;
+      if (e.hp > 0) this.flinchEnemy(e);
+      else { this.enemies.shift(); this.killEnemy(e); }
+    }
+    this.pushBackLine();
+
+    // Η σωστή λέξη μένει ολόκληρη για μια ανάσα, μετά επόμενη πρόκληση
+    this.time.delayedCall(820, () => {
+      this.hideScroll(() => {
+        if (!this.enemies.length) {
+          this.time.delayedCall(420, () => { this.spawnWave(); this.nextChallenge(); });
+        } else {
+          this.nextChallenge();
+        }
+      });
+    });
+  }
+
+  // Κάθε νίκη σπρώχνει ΟΛΗ τη γραμμή πίσω (ποτέ πέρα από τη θέση εκκίνησής
+  // της) και την επιβραδύνει για μια ανάσα.
+  pushBackLine() {
+    this.enemies.forEach((en, i) => {
+      const cap = SPAWN_X + i * ENEMY_GAP;
+      this.tweens.add({
+        targets: en, x: Math.min(en.x + KNOCKBACK, cap),
+        duration: 260, ease: 'Quad.easeOut'
+      });
+    });
+    this.pace(SLOW_FACTOR, SLOW_MS);
+  }
+
+  // Χτυπήθηκε αλλά άντεξε: τράνταγμα και σπίθες, χωρίς θάνατο.
+  flinchEnemy(e) {
+    this.tweens.add({
+      targets: e, scaleX: e.scaleX * 1.12, scaleY: e.scaleY * .9,
+      duration: 110, yoyo: true, ease: 'Quad.easeOut'
+    });
+    const hit = this.add.particles(e.x, e.y - 44, 'spark', {
+      speed: { min: 40, max: 150 }, scale: { start: .6, end: 0 },
+      alpha: { start: .9, end: 0 }, lifespan: { min: 260, max: 520 },
+      blendMode: 'ADD', tint: [NUM.flameCore, NUM.flame], emitting: false
+    }).setDepth(15);
+    hit.explode(16);
+    this.time.delayedCall(800, () => hit.destroy());
+  }
+
+  killEnemy(e) {
+    {
       const burst = this.add.particles(e.x, e.y - 44, 'spark', {
         speed: { min: 60, max: 260 }, scale: { start: .8, end: 0 },
         alpha: { start: 1, end: 0 }, lifespan: { min: 420, max: 900 },
@@ -413,17 +498,6 @@ export default class BattleScene extends Phaser.Scene {
         duration: 480, ease: 'Quad.easeOut', onComplete: () => e.destroy() });
       this.collectSparks(e.x, e.y - 44);
     }
-
-    // Η σωστή λέξη μένει ολόκληρη για μια ανάσα, μετά επόμενη πρόκληση
-    this.time.delayedCall(820, () => {
-      this.hideScroll(() => {
-        if (!this.enemies.length) {
-          this.time.delayedCall(420, () => { this.spawnWave(); this.nextChallenge(); });
-        } else {
-          this.nextChallenge();
-        }
-      });
-    });
   }
 
   collectSparks(x, y) {
@@ -448,7 +522,7 @@ export default class BattleScene extends Phaser.Scene {
   // --------------------------------------------------------------- λάθος
 
   // Η φλόγα δεν πιάνει. Καθόλου κόκκινο, καθόλου «ΛΑΘΟΣ», καμία απώλεια —
-  // ο εχθρός απλώς κάνει ένα βήμα και το σωστό γράφημα φωτίζεται.
+  // ο εχθρός απλώς επιταχύνει για λίγο και το σωστό γράφημα φωτίζεται.
   flameFails(orb) {
     audio.fizzle();
     const glow = orb.getData('glow');
@@ -464,24 +538,9 @@ export default class BattleScene extends Phaser.Scene {
     smoke.explode(14);
     this.time.delayedCall(1100, () => smoke.destroy());
 
-    this.time.delayedCall(400, () => this.enemyStepForward());
-  }
-
-  enemyStepForward() {
-    const e = this.frontEnemy();
-    if (!e) { this.revealCorrect(); return; }
-    audio.thud();
-    // Προχωράει ΟΛΗ η γραμμή, κρατώντας τον σχηματισμό της — αλλιώς κάθε
-    // νίκη θα μηδένιζε την πρόοδό τους και δεν θα πλησίαζαν ποτέ.
-    this.enemies.forEach((en, i) => {
-      this.tweens.add({
-        targets: en, x: en.x - ENEMY_STEP, duration: 340, ease: 'Quad.easeOut',
-        onComplete: i === 0 ? () => {
-          if (en.x <= RETREAT_X) this.regroup();
-          else this.revealCorrect();
-        } : undefined
-      });
-    });
+    if (this.enemies.length) audio.thud();
+    this.pace(HASTE_FACTOR, HASTE_MS);
+    this.time.delayedCall(400, () => this.revealCorrect());
   }
 
   // Το σωστό γράφημα φωτίζεται στη θέση του — πρόσκληση, όχι επίπληξη.
@@ -503,8 +562,14 @@ export default class BattleScene extends Phaser.Scene {
 
   // Ο νίντζα υποχωρεί σε ασφαλές σημείο και το κύμα ξαναρχίζει.
   // Δεν χάνεται τίποτα — ούτε σπίθες, ούτε πρόοδος.
+  //
+  // ΠΡΟΣΟΧΗ (BRANCH-SCOPE §1): η ανασύνταξη ΔΕΝ αποκαλύπτει το σωστό γράφημα.
+  // Πλέον μπορεί να συμβεί σκέτα από τον χρόνο, χωρίς κανένα λάθος του παιδιού
+  // — και η αργή σκέψη δεν είναι λάθος. Την αποκάλυψη την κάνει μόνο το
+  // flameFails(), δηλαδή μόνο ύστερα από πραγματικό ορθογραφικό λάθος.
   regroup() {
     this.busy = true;
+    this.pace(1, 0);
     const puff = this.add.particles(this.ninja.x, this.ninja.y - 50, 'spark', {
       speed: { min: 40, max: 160 }, scale: { start: 1.1, end: 0 },
       alpha: { start: .55, end: 0 }, lifespan: 700, tint: NUM.smoke, emitting: false
@@ -529,9 +594,9 @@ export default class BattleScene extends Phaser.Scene {
       }).setOrigin(.5).setDepth(30).setAlpha(0);
       this.tweens.add({ targets: msg, alpha: 1, duration: 300, yoyo: true, hold: 1500,
         onComplete: () => msg.destroy() });
-      this.time.delayedCall(2400, () => this.revealCorrect());
+      this.time.delayedCall(2400, () => { this.busy = false; });
     } else {
-      this.time.delayedCall(620, () => this.revealCorrect());
+      this.time.delayedCall(620, () => { this.busy = false; });
     }
   }
 
