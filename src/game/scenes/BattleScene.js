@@ -14,7 +14,7 @@ import * as audio from '../../theme/audio.js';
 import * as store from '../../shared/storage.js';
 import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
-import { archetype, dragonStage, waveComposition } from '../enemies.js';
+import { archetype, dragonStage, waveComposition, BOSS_EVERY } from '../enemies.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
@@ -42,6 +42,43 @@ const FOCUS_DIST = 190;      // πόσο κοντά πρέπει να φτάσε
 const FOCUS_MS = 1800;
 
 const COMBO_BRIGHT = 3, COMBO_TRAIL = 6, COMBO_ZOOM = 9;
+
+/**
+ * Σκουραίνει (f < 1) ή φωτίζει (f > 1) ένα χρώμα της παλέτας. Χρησιμεύει
+ * για σκιές και φωτισμένες ακμές μέσα στο ίδιο σχήμα, ώστε οι μορφές να
+ * έχουν όγκο και όχι να είναι επίπεδοι λεκέδες.
+ * @param {number} hex
+ * @param {number} f
+ */
+/**
+ * Περίγραμμα γύρω από μια «ραχοκοκαλιά»: για κάθε σημείο βρίσκει την κάθετη
+ * στη διαδρομή και βγάζει τα δύο χείλη. Έτσι ένα σχήμα λυγίζει σαν σώμα ή
+ * σαν τρίχα, αντί να είναι κολλημένα κυκλάκια.
+ * @param {{cx:number,cy:number,r:number}[]} pts
+ */
+function ribbonOutline(pts) {
+  const n = pts.length;
+  const up = [], lo = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const a = pts[Math.max(i - 1, 0)];
+    const b = pts[Math.min(i + 1, n - 1)];
+    let tx = b.cx - a.cx, ty = b.cy - a.cy;
+    const len = Math.hypot(tx, ty) || 1;
+    tx /= len; ty /= len;
+    up.push(new Phaser.Geom.Point(p.cx - ty * p.r, p.cy + tx * p.r));
+    lo.push(new Phaser.Geom.Point(p.cx + ty * p.r, p.cy - tx * p.r));
+  }
+  return up.concat(lo.reverse());
+}
+
+function shade(hex, f) {
+  const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  const r = cl(((hex >> 16) & 255) * f);
+  const g = cl(((hex >> 8) & 255) * f);
+  const b = cl((hex & 255) * f);
+  return (r << 16) | (g << 8) | b;
+}
 
 export default class BattleScene extends Phaser.Scene {
   constructor() { super('Battle'); }
@@ -128,9 +165,12 @@ export default class BattleScene extends Phaser.Scene {
     c.baseY = 214;
 
     const aura = this.add.image(0, 0, 'glow-moon')
-      .setScale(1.9).setAlpha(.13).setTint(NUM.smoke)
+      .setScale(1.9).setAlpha(.13).setTint(NUM.spirit)
       .setBlendMode(Phaser.BlendModes.ADD);
     c.add(aura);
+    c.hpGlow = aura;        // στη μάχη η αύρα του σβήνει με κάθε χτύπημα
+    c.auraBase = .13;
+    c.fire = NUM.spirit;
 
     // Ο μανδύας: τρία κρεμαστά κομμάτια που ταλαντεύονται με καθυστέρηση
     c.robe = [];
@@ -158,6 +198,15 @@ export default class BattleScene extends Phaser.Scene {
       new Phaser.Geom.Point(30, -34)
     ], true);
     bodyG.fillCircle(0, -50, 24);
+    // Λίγες γραμμές για όγκο: φως στην ακμή της κουκούλας, ζώνη, χέρια
+    bodyG.lineStyle(2.4, shade(NUM.nightHigh, 1.5), .55);
+    bodyG.lineBetween(-27, -38, -2, -86);
+    bodyG.lineStyle(2, shade(NUM.nightHigh, 1.2), .4);
+    bodyG.lineBetween(2, -86, 27, -38);
+    bodyG.fillStyle(shade(NUM.nightHigh, .8), .9);
+    bodyG.fillRoundedRect(-40, -6, 80, 9, 4);              // ζώνη
+    bodyG.fillStyle(NUM.night, 1);
+    bodyG.fillEllipse(0, -50, 34, 30);                     // σκοτεινό πρόσωπο
     c.add(bodyG);
 
     // Δύο λεπτές σχισμές αντί για μάτια — τίποτα φιλικό
@@ -168,18 +217,21 @@ export default class BattleScene extends Phaser.Scene {
     c.add(eyes);
     c.eyes = eyes;
 
-    // Το μακρύ μούσι: αλυσίδα τμημάτων. Το σώμα κινείται πρώτο, το μούσι
-    // ακολουθεί — η καθυστέρηση είναι όλο το κόλπο.
-    c.beard = [];
-    for (let i = 0; i < 6; i++) {
-      const w = 26 - i * 3;
-      const b = this.add.ellipse(0, -34 + i * 17, w, 20 - i * 1.6, NUM.smoke)
-        .setAlpha(.9 - i * .07);
-      b.baseX = 0;
-      b.baseY = -34 + i * 17;
-      c.add(b);
-      c.beard.push(b);
-    }
+    // Μακρύ μούσι ΚΑΙ μακριά μουστάκια σαολίν. Δεν είναι κυκλάκια στη σειρά:
+    // κάθε τρίχα είναι μία συνεχής πλεξούδα που ξαναζωγραφίζεται σε κάθε
+    // καρέ (animateMaster) και κυματίζει με καθυστέρηση από τη ρίζα προς την
+    // άκρη — το σώμα κινείται πρώτο, οι τρίχες ακολουθούν.
+    c.hairG = this.add.graphics();
+    c.add(c.hairG);
+    const strand = (pts) => pts.map(([x, y, r]) => ({ x, y, r, cx: x, cy: y }));
+    c.strands = [
+      strand([[-13, -44, 8], [-25, -35, 8], [-35, -18, 7], [-41, 3, 6],
+              [-44, 26, 5], [-45, 48, 3.6], [-45, 66, 2]]),          // μουστάκι αριστερά
+      strand([[13, -44, 8], [25, -35, 8], [35, -18, 7], [41, 3, 6],
+              [44, 26, 5], [45, 48, 3.6], [45, 66, 2]]),             // μουστάκι δεξιά
+      strand([[0, -32, 18], [0, -8, 16], [0, 16, 14], [1, 40, 12],
+              [2, 62, 10], [3, 82, 7.5], [4, 100, 5], [5, 118, 2.6]]) // μούσι
+    ];
 
     // Το χέρι που αρπάζει
     const arm = this.add.ellipse(-44, -6, 26, 16, NUM.shadow).setAlpha(.98);
@@ -278,18 +330,25 @@ export default class BattleScene extends Phaser.Scene {
     c.add(glow);
     c.hpGlow = glow;
 
-    // Φτερά πίσω από το σώμα, στο χρώμα του δράκου αλλά πιο σβηστά ώστε να
-    // διαβάζονται πάνω στον νυχτερινό ουρανό. Χτυπούν αργά και βαριά.
+    c.bodyColor = body;
+    c.darkColor = shade(body, .5);     // σκιά κοιλιάς & εσωτερικές γραμμές
+    c.lightColor = shade(body, 1.45);  // φωτισμένη ράχη
+
+    // Φτερά πίσω από το σώμα, με νευρώσεις μέσα στη μεμβράνη ώστε να μην
+    // είναι σκέτος λεκές.
     const wing = (dir, sc, alpha) => {
       const g = this.add.graphics();
+      const pts = [
+        [0, 0], [26 * dir, -104], [86 * dir, -96], [74 * dir, -34], [40 * dir, -4]
+      ].map(([px, py]) => new Phaser.Geom.Point(px * size, py * size));
       g.fillStyle(body, alpha);
-      g.fillPoints([
-        new Phaser.Geom.Point(0, 0),
-        new Phaser.Geom.Point(26 * size * dir, -104 * size),
-        new Phaser.Geom.Point(86 * size * dir, -96 * size),
-        new Phaser.Geom.Point(74 * size * dir, -34 * size),
-        new Phaser.Geom.Point(40 * size * dir, -4 * size)
-      ], true);
+      g.fillPoints(pts, true);
+      g.lineStyle(1.8 * size, c.darkColor, alpha + .25);
+      for (const [ex, ey] of [[26, -104], [86, -96], [74, -34]]) {   // νευρώσεις
+        g.lineBetween(6 * dir * size, -6 * size, ex * dir * size, ey * size);
+      }
+      g.lineStyle(2 * size, c.lightColor, alpha * .8);
+      g.strokePoints(pts, true);
       g.setPosition(0, -112 * size);
       g.setScale(sc);
       c.add(g);
@@ -303,87 +362,68 @@ export default class BattleScene extends Phaser.Scene {
     };
     c.wings = [wing(1, 1, .5), wing(-1, .8, .3)];
 
-    // Πόδια — για να πατάει στη γραμμή του εδάφους
+    // Πόδια — για να πατάει στη γραμμή του εδάφους, με νύχια
     const legs = this.add.graphics();
-    legs.fillStyle(body, .85);
-    legs.fillRoundedRect(-32 * size, -54 * size, 24 * size, 54 * size, 8 * size);
-    legs.fillRoundedRect(26 * size, -50 * size, 24 * size, 50 * size, 8 * size);
+    legs.fillStyle(c.darkColor, 1);
+    legs.fillRoundedRect(-34 * size, -56 * size, 26 * size, 56 * size, 9 * size);
+    legs.fillRoundedRect(26 * size, -52 * size, 26 * size, 52 * size, 9 * size);
+    legs.fillStyle(NUM.parchment, .8);
+    for (const lx of [-34, -25, -16, 26, 35, 44]) {
+      legs.fillTriangle(lx * size, 0, (lx + 8) * size, 0, (lx + 4) * size, 7 * size);
+    }
     c.add(legs);
 
-    // Ο δράκος στέκεται ΟΡΘΙΟΣ: η ουρά χαμηλά δεξιά, το σώμα στη μέση, ο
-    // λαιμός ανεβαίνει αριστερά. Έτσι είναι επιβλητικός χωρίς να πιάνει μισή
-    // οθόνη σε πλάτος. Τα τμήματα κυματίζουν με καθυστέρηση το ένα από το
-    // άλλο (animateEnemies) — φιδίσιος, όχι σακούλα που αναπνέει.
-    const segs = [
-      { x: 116, y: -38, w: 26, h: 14 },   // άκρη ουράς
-      { x: 92,  y: -48, w: 42, h: 26 },
-      { x: 62,  y: -62, w: 60, h: 44 },
-      { x: 26,  y: -74, w: 86, h: 66 },   // καπούλια
-      { x: -12, y: -84, w: 98, h: 76 },   // κορμός
-      { x: -42, y: -110, w: 64, h: 62 },  // ώμοι
-      { x: -56, y: -148, w: 50, h: 48 },  // λαιμός
-      { x: -66, y: -182, w: 44, h: 42 }
-    ];
-    c.segs = [];
-    segs.forEach((s, i) => {
-      const g = this.add.graphics();
-      g.fillStyle(body, 1);
-      if (i === 0) {
-        g.fillPoints([                                     // μυτερή άκρη ουράς
-          new Phaser.Geom.Point(22 * size, -2 * size),
-          new Phaser.Geom.Point(-12 * size, -s.h * .6 * size),
-          new Phaser.Geom.Point(-12 * size, s.h * .6 * size)
-        ], true);
-      } else {
-        g.fillEllipse(0, 0, s.w * size, s.h * size);
-      }
-      // Αγκάθια στη ράχη — αυτό είναι που τον κάνει δράκο και όχι πουλί.
-      if (i > 0 && i < segs.length) {
-        const spike = (7 + s.h * .22) * size;
-        g.fillPoints([
-          new Phaser.Geom.Point(-7 * size, -s.h * .42 * size),
-          new Phaser.Geom.Point(1 * size, -s.h * .5 * size - spike),
-          new Phaser.Geom.Point(8 * size, -s.h * .40 * size)
-        ], true);
-      }
-      g.setPosition(s.x * size, s.y * size);
-      g.baseY = s.y * size;
-      c.add(g);
-      c.segs.push(g);
-    });
+    // ---- Το σώμα: ΜΙΑ συνεχής σιλουέτα γύρω από ραχοκοκαλιά ----
+    // Δεν είναι ενωμένες ελλείψεις. Ορίζουμε τη ραχοκοκαλιά (θέση + πάχος)
+    // και σε κάθε καρέ ξαναχτίζουμε το περίγραμμα γύρω της (redrawDragon).
+    // Έτσι η κίνηση είναι πραγματικά φιδίσια και το σώμα ενιαίο.
+    c.bodyG = this.add.graphics();
+    c.add(c.bodyG);
+    c.spine = [
+      { x: 128, y: -26, r: 3,  amp: 14 },   // άκρη ουράς
+      { x: 106, y: -38, r: 9,  amp: 12 },
+      { x: 84,  y: -50, r: 17, amp: 10 },
+      { x: 58,  y: -62, r: 26, amp: 7.5 },
+      { x: 28,  y: -72, r: 34, amp: 5 },
+      { x: -4,  y: -80, r: 38, amp: 3.5 },  // κορμός
+      { x: -32, y: -94, r: 31, amp: 3 },
+      { x: -48, y: -126, r: 23, amp: 2.6 }, // λαιμός
+      { x: -58, y: -162, r: 18, amp: 2.2 },
+      { x: -70, y: -196, r: 15, amp: 2 }
+    ].map((p) => ({ x: p.x * size, y: p.y * size, r: p.r * size, amp: p.amp * size, cy: p.y * size }));
 
     // Το κεφάλι — ξεχωριστό, ώστε να ανασηκώνεται πριν βγάλει φωτιά.
-    const head = this.add.container(-80 * size, -214 * size);
+    const head = this.add.container(-84 * size, -218 * size);
+    const P = (px, py) => new Phaser.Geom.Point(px * size, py * size);
     const hg = this.add.graphics();
+
     hg.fillStyle(body, 1);
     hg.fillEllipse(0, 0, 68 * size, 48 * size);            // κρανίο
-    hg.fillPoints([                                        // μουσούδα προς τα αριστερά
-      new Phaser.Geom.Point(-24 * size, -10 * size),
-      new Phaser.Geom.Point(-76 * size, 12 * size),
-      new Phaser.Geom.Point(-22 * size, 26 * size)
-    ], true);
-    hg.fillPoints([                                        // σαγόνι
-      new Phaser.Geom.Point(-26 * size, 16 * size),
-      new Phaser.Geom.Point(-58 * size, 28 * size),
-      new Phaser.Geom.Point(-16 * size, 28 * size)
-    ], true);
-    hg.fillPoints([                                        // κέρατα προς τα πίσω
-      new Phaser.Geom.Point(10 * size, -12 * size),
-      new Phaser.Geom.Point(46 * size, -44 * size),
-      new Phaser.Geom.Point(24 * size, -6 * size)
-    ], true);
-    hg.fillPoints([
-      new Phaser.Geom.Point(4 * size, -14 * size),
-      new Phaser.Geom.Point(24 * size, -46 * size),
-      new Phaser.Geom.Point(16 * size, -10 * size)
-    ], true);
+    hg.fillPoints([P(-24, -10), P(-78, 12), P(-22, 26)], true);   // μουσούδα
+    hg.fillStyle(c.darkColor, 1);
+    hg.fillPoints([P(-26, 15), P(-60, 29), P(-14, 29)], true);    // σαγόνι στη σκιά
+    hg.fillStyle(body, 1);
+    hg.fillPoints([P(10, -12), P(48, -46), P(24, -6)], true);     // κέρατα
+    hg.fillPoints([P(4, -14), P(24, -48), P(16, -10)], true);
+    hg.fillStyle(NUM.parchment, .85);                             // δόντια
+    hg.fillTriangle(-52 * size, 14 * size, -44 * size, 14 * size, -48 * size, 23 * size);
+    hg.fillTriangle(-40 * size, 15 * size, -32 * size, 15 * size, -36 * size, 24 * size);
+    // Γραμμές στο κρανίο: φρύδι και ρουθούνι — λίγες, καθαρές
+    hg.lineStyle(2.2 * size, c.darkColor, .75);
+    hg.lineBetween(-30 * size, -12 * size, 6 * size, -18 * size);
+    hg.lineBetween(-30 * size, 6 * size, -12 * size, 4 * size);
+    hg.fillStyle(c.darkColor, .9);
+    hg.fillCircle(-62 * size, 8 * size, 3.4 * size);              // ρουθούνι
+    hg.lineStyle(2 * size, c.lightColor, .5);                     // φως στη ράχη του κρανίου
+    hg.lineBetween(-16 * size, -20 * size, 20 * size, -14 * size);
+
     const eyeGlow = this.add.image(-14 * size, -4 * size, 'glow-flame')
       .setScale(.34 * size).setAlpha(.9).setTint(c.fire)
       .setBlendMode(Phaser.BlendModes.ADD);
     const eye = this.add.circle(-14 * size, -4 * size, 5 * size, c.fire);
     head.add([hg, eyeGlow, eye]);
-    head.baseX = -80 * size;
-    head.baseY = -214 * size;
+    head.baseX = -84 * size;
+    head.baseY = -218 * size;
     c.add(head);
     c.head = head;
 
@@ -393,6 +433,8 @@ export default class BattleScene extends Phaser.Scene {
 
   spawnWave() {
     this.wave = (this.wave || 0) + 1;
+    // Όταν τελειώσουν οι ορδές που στέλνει, κατεβαίνει ο ίδιος.
+    if (this.wave % BOSS_EVERY === 0) { this.summonMaster(); return; }
     const comp = waveComposition(this.wave);
     comp.forEach((archId, i) => {
       const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, archId, 1.22 - i * .05);
@@ -403,6 +445,67 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   frontEnemy() { return this.enemies[0] || null; }
+
+  // Ο Μάστερ Γου κατεβαίνει ο ίδιος στο πεδίο. Δεν περπατά και δεν πατάει
+  // χώμα: χάνεται από τη θέση του και ξαναεμφανίζεται μέσα σε καπνό. Πέντε
+  // σωστές απαντήσεις για να διωχτεί — και δεν λέει ούτε λέξη.
+  summonMaster() {
+    const m = this.master;
+    const arch = archetype('master');
+    m.arch = arch;
+    m.hp = arch.hp;
+    m.maxHp = arch.hp;
+    m.speed = arch.speed;
+    m.mult = 1;
+    m.multMs = 0;
+    m.size = 1;
+    m.isMaster = true;
+    audio.poof();
+    this.smokePuff(m.x, m.y, 24);
+
+    this.tweens.add({
+      targets: m, alpha: 0, duration: 260, ease: 'Quad.easeIn',
+      onComplete: () => {
+        // Χαμηλά αρκετά ώστε το κεφάλι του να μη μπλέκεται με τη σειρά των
+        // φουσκών, αλλά αιωρούμενος: το μούσι φτάνει ως το χώμα, τα πόδια όχι.
+        m.setX(SPAWN_X + 40).setDepth(11).setScale(1.3);
+        m.baseY = LINE_Y - 165;
+        m.setY(m.baseY);
+        audio.poof();
+        this.smokePuff(m.x, m.y, 34);
+        this.cameras.main.shake(240, .004);
+        this.tweens.add({ targets: m, alpha: 1, duration: 320 });
+        this.tweens.add({ targets: m.hpGlow, alpha: .34, duration: 400 });
+      }
+    });
+    this.enemies.push(m);
+  }
+
+  // Διώχτηκε: επιστρέφει στο ψηλό του πόστο και ξαναρχίζει να στέλνει ορδές.
+  banishMaster(m) {
+    m.isMaster = false;
+    audio.poof();
+    this.smokePuff(m.x, m.y, 40);
+    this.tweens.add({
+      targets: m, alpha: 0, scale: 1.7, duration: 380, ease: 'Quad.easeOut',
+      onComplete: () => {
+        m.setX(1108).setDepth(10).setScale(1);
+        m.baseY = 214;
+        m.setY(214);
+        m.hpGlow.setAlpha(m.auraBase);
+        this.tweens.add({ targets: m, alpha: .92, duration: 460, delay: 500 });
+      }
+    });
+  }
+
+  smokePuff(x, y, n) {
+    const p = this.add.particles(x, y, 'spark', {
+      speed: { min: 40, max: 210 }, scale: { start: 1.6, end: 0 },
+      alpha: { start: .6, end: 0 }, lifespan: 850, tint: NUM.smoke, emitting: false
+    }).setDepth(16);
+    p.explode(n);
+    this.time.delayedCall(1300, () => p.destroy());
+  }
 
   // Προσωρινή αλλαγή ρυθμού σε ΟΛΗ τη γραμμή — κρατά τον σχηματισμό.
   pace(factor, ms) {
@@ -462,20 +565,92 @@ export default class BattleScene extends Phaser.Scene {
 
   animateEnemies(time) {
     for (const e of this.enemies) {
-      if (!e.segs) continue;
-      // Κύμα που ταξιδεύει από το κεφάλι προς την ουρά: κάθε τμήμα
-      // καθυστερεί λίγο σε σχέση με το προηγούμενο.
-      e.segs.forEach((s, i) => {
-        const amp = (i === 0 ? 11 : i < 3 ? 8 : 4) * e.size;   // η ουρά κουνιέται πιο πολύ
-        s.y = s.baseY + Math.sin(time * .0034 + i * .72) * amp;
-      });
+      if (!e.spine) continue;
+      this.redrawDragon(e, time);
       if (e.head && !e.breathing) {
-        const n = e.segs.length;
-        e.head.y = e.head.baseY + Math.sin(time * .0034 + n * .72) * 5 * e.size;
-        e.head.x = e.head.baseX + Math.sin(time * .0027 + n * .5) * 3 * e.size;
+        const n = e.spine.length;
+        e.head.y = e.head.baseY + Math.sin(time * .0034 + n * .58) * 5 * e.size;
+        e.head.x = e.head.baseX + Math.sin(time * .0027 + n * .42) * 3 * e.size;
       }
       if (e.nextBreathAt && time > e.nextBreathAt) this.dragonBreath(e, time);
     }
+  }
+
+  // Ξαναχτίζει το σώμα του δράκου γύρω από τη ραχοκοκαλιά του, ένα καρέ τη
+  // φορά. Το κύμα ταξιδεύει από την ουρά προς τον λαιμό. Το περίγραμμα
+  // υπολογίζεται κάθετα στη ραχοκοκαλιά, οπότε το σώμα είναι ΕΝΙΑΙΟ και
+  // λυγίζει σαν φίδι — δεν είναι ελλείψεις κολλημένες μεταξύ τους.
+  redrawDragon(e, time) {
+    const sp = e.spine;
+    const g = e.bodyG;
+    const S = e.size;
+    const n = sp.length;
+
+    for (let i = 0; i < n; i++) {
+      sp[i].cy = sp[i].y + Math.sin(time * .0032 + i * .62) * sp[i].amp;
+    }
+
+    // Περίγραμμα: πάνω ακμή από την ουρά στον λαιμό, κάτω ακμή ανάποδα
+    const up = [], lo = [], inner = [];
+    for (let i = 0; i < n; i++) {
+      const p = sp[i];
+      const a = sp[Math.max(i - 1, 0)];
+      const b = sp[Math.min(i + 1, n - 1)];
+      let tx = b.x - a.x, ty = b.cy - a.cy;
+      const len = Math.hypot(tx, ty) || 1;
+      tx /= len; ty /= len;
+      const nx = -ty, ny = tx;
+      up.push(new Phaser.Geom.Point(p.x + nx * p.r, p.cy + ny * p.r));
+      lo.push(new Phaser.Geom.Point(p.x - nx * p.r, p.cy - ny * p.r));
+      inner.push(new Phaser.Geom.Point(p.x - nx * p.r * .34, p.cy - ny * p.r * .34));
+      p.nx = nx; p.ny = ny;
+    }
+
+    g.clear();
+
+    // 1. Το σώμα, ένα ενιαίο σχήμα
+    g.fillStyle(e.bodyColor, 1);
+    g.fillPoints(up.concat(lo.slice().reverse()), true);
+
+    // 2. Σκιά στην κοιλιά — δίνει όγκο χωρίς gradient
+    g.fillStyle(e.darkColor, .55);
+    g.fillPoints(lo.concat(inner.slice().reverse()), true);
+
+    // 3. Φως στη ράχη
+    g.lineStyle(2.6 * S, e.lightColor, .5);
+    g.strokePoints(up, false);
+
+    // 4. Λίγες πλάκες στην κοιλιά — μετρημένες, όχι μοτίβο
+    g.lineStyle(1.9 * S, e.darkColor, .55);
+    for (let i = 2; i < n - 2; i++) {
+      const p = sp[i];
+      g.lineBetween(
+        p.x - p.nx * p.r * .92, p.cy - p.ny * p.r * .92,
+        p.x - p.nx * p.r * .30, p.cy - p.ny * p.r * .30
+      );
+    }
+
+    // 5. Αγκάθια στη ράχη — κάθετα στη ραχοκοκαλιά, άρα λυγίζουν μαζί της
+    g.fillStyle(e.darkColor, 1);
+    for (let i = 1; i < n - 1; i++) {
+      const p = sp[i];
+      const h = (8 + p.r * .42);
+      const bx = p.x + p.nx * p.r, by = p.cy + p.ny * p.r;
+      g.fillTriangle(
+        bx - p.ny * 7 * S, by + p.nx * 7 * S,
+        bx + p.nx * h, by + p.ny * h,
+        bx + p.ny * 7 * S, by - p.nx * 7 * S
+      );
+    }
+
+    // 6. Μυτερή άκρη ουράς
+    const t0 = sp[0], t1 = sp[1];
+    g.fillStyle(e.bodyColor, 1);
+    g.fillTriangle(
+      t0.x + (t0.x - t1.x) * .55, t0.cy + (t0.cy - t1.cy) * .55,
+      t1.x + t1.nx * t1.r * .8, t1.cy + t1.ny * t1.r * .8,
+      t1.x - t1.nx * t1.r * .8, t1.cy - t1.ny * t1.r * .8
+    );
   }
 
   // Προειδοποίηση πριν επιτεθεί: ανασηκώνει το κεφάλι και βγάζει φωτιά.
@@ -525,9 +700,19 @@ export default class BattleScene extends Phaser.Scene {
     if (!m || this.calm) return;
     m.y = m.baseY + Math.sin(time * .0009) * 12;
     m.angle = Math.sin(time * .0007) * 2.2;
-    m.beard.forEach((b, i) => {
-      b.x = b.baseX + Math.sin(time * .0013 - i * .55) * (2 + i * 1.6);
-      b.y = b.baseY + Math.sin(time * .0011 - i * .45) * (1 + i * .5);
+    // Οι τρίχες: κάθε σημείο κυματίζει πιο πολύ όσο απομακρύνεται από τη ρίζα
+    const g = m.hairG;
+    g.clear();
+    m.strands.forEach((pts, s) => {
+      pts.forEach((p, i) => {
+        p.cx = p.x + Math.sin(time * .0013 - i * .5 + s) * (1.2 + i * 1.5);
+        p.cy = p.y + Math.sin(time * .0011 - i * .42 + s) * (.6 + i * .5);
+      });
+      const outline = ribbonOutline(pts);
+      g.fillStyle(NUM.smoke, .95);
+      g.fillPoints(outline, true);
+      g.lineStyle(1.6, shade(NUM.smoke, .62), .8);          // μία γραμμή μέσα στην τρίχα
+      g.strokePoints(pts.map((p) => new Phaser.Geom.Point(p.cx, p.cy)), false);
     });
     m.robe.forEach((r, i) => {
       r.angle = Math.sin(time * .001 - i * .7) * (3 + i * 2);
@@ -889,8 +1074,9 @@ export default class BattleScene extends Phaser.Scene {
       duration: 110, yoyo: true, ease: 'Quad.easeOut'
     });
     if (e.hpGlow) {
+      const full = e.isMaster ? .34 : .20;
       this.tweens.add({
-        targets: e.hpGlow, alpha: .20 * (e.hp / e.maxHp),
+        targets: e.hpGlow, alpha: full * (e.hp / e.maxHp),
         duration: 400, ease: 'Quad.easeOut'
       });
     }
@@ -907,20 +1093,22 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   killEnemy(e) {
-    {
-      const burst = this.add.particles(e.x, e.y - 44, 'spark', {
-        speed: { min: 60, max: 260 }, scale: { start: .8, end: 0 },
-        alpha: { start: 1, end: 0 }, lifespan: { min: 420, max: 900 },
-        blendMode: 'ADD', tint: [NUM.flameCore, NUM.lantern, NUM.flame],
-        emitting: false
-      }).setDepth(15);
-      burst.explode(34);
-      this.time.delayedCall(1200, () => burst.destroy());
-      this.tweens.killTweensOf(e);
-      this.tweens.add({ targets: e, alpha: 0, scaleX: 1.4, scaleY: .6, y: e.y - 20,
-        duration: 480, ease: 'Quad.easeOut', onComplete: () => e.destroy() });
-      this.collectSparks(e.x, e.y - 44);
-    }
+    const burst = this.add.particles(e.x, e.y - 44, 'spark', {
+      speed: { min: 60, max: 260 }, scale: { start: .8, end: 0 },
+      alpha: { start: 1, end: 0 }, lifespan: { min: 420, max: 900 },
+      blendMode: 'ADD', tint: [NUM.flameCore, NUM.lantern, NUM.flame],
+      emitting: false
+    }).setDepth(15);
+    burst.explode(e.isMaster ? 60 : 34);
+    this.time.delayedCall(1200, () => burst.destroy());
+    this.collectSparks(e.x, e.y - 44);
+
+    // Ο Μάστερ Γου δεν καταστρέφεται ποτέ — υποχωρεί στο πόστο του.
+    if (e.isMaster) { this.banishMaster(e); return; }
+
+    this.tweens.killTweensOf(e);
+    this.tweens.add({ targets: e, alpha: 0, scaleX: 1.4, scaleY: .6, y: e.y - 20,
+      duration: 480, ease: 'Quad.easeOut', onComplete: () => e.destroy() });
   }
 
   collectSparks(x, y) {
@@ -1092,7 +1280,10 @@ export default class BattleScene extends Phaser.Scene {
   showNoWords() {
     this.clearOrbs();
     this.hideScroll();
-    this.enemies.forEach((e) => { this.tweens.killTweensOf(e); e.destroy(); });
+    this.enemies.forEach((e) => {
+      this.tweens.killTweensOf(e);
+      if (e.isMaster) this.banishMaster(e); else e.destroy();
+    });
     this.enemies = [];
 
     const lamp = this.add.image(W / 2, 300, 'glow-lantern')
