@@ -43,6 +43,15 @@ const FOCUS_MS = 1800;
 
 const COMBO_BRIGHT = 3, COMBO_TRAIL = 6, COMBO_ZOOM = 9;
 
+// Ελάχιστο ορατό μέγεθος φούσκας (HYPER-NOTE §16.7). Το FIT σε 1280×720
+// συρρικνώνει τα πάντα σε κινητό (×0,52): οι 96px της φούσκας γίνονται 50
+// πραγματικά pixels — κάτω από το όριο των 56 του DESIGN. Οι φούσκες
+// μεγαλώνουν αναλογικά ώστε και το δάχτυλο να τις βρίσκει και το γράφημα
+// να διαβάζεται. Σε tablet και desktop ο συντελεστής είναι 1 (καμία αλλαγή).
+const ORB_HIT = 96;
+const MIN_ORB_CSS = 62;
+const ORB_BOOST_MAX = 1.3;
+
 /**
  * Σκουραίνει (f < 1) ή φωτίζει (f > 1) ένα χρώμα της παλέτας. Χρησιμεύει
  * για σκιές και φωτισμένες ακμές μέσα στο ίδιο σχήμα, ώστε οι μορφές να
@@ -867,6 +876,7 @@ export default class BattleScene extends Phaser.Scene {
   // στόχος για το παιδικό δάχτυλο (DESIGN, απόφαση 2).
   spawnOrbs(candidates) {
     const n = candidates.length;
+    const boost = this.orbBoost();
     const spread = Math.min(150, 620 / Math.max(n - 1, 1));
     const startX = W / 2 - (spread * (n - 1)) / 2;
     candidates.forEach((cand, i) => {
@@ -882,10 +892,13 @@ export default class BattleScene extends Phaser.Scene {
       const txt = this.add.text(0, 0, cand, {
         fontFamily: FONT.word, fontSize: '42px', fontStyle: '700', color: HEX.ink
       }).setOrigin(.5);
-      orb.add([glow, disc, inner, txt]);
+      // Η ζωγραφιά μπαίνει σε δικό της container ώστε ο συντελεστής μικρής
+      // οθόνης να μην μπερδεύεται με τα tween κλίμακας της φούσκας.
+      const art = this.add.container(0, 0, [glow, disc, inner, txt]).setScale(boost);
+      orb.add(art);
       orb.setData('grapheme', cand);
       orb.setData('glow', glow);
-      orb.setSize(96, 96).setInteractive({ useHandCursor: true });
+      orb.setSize(ORB_HIT * boost, ORB_HIT * boost).setInteractive({ useHandCursor: true });
       orb.on('pointerdown', () => this.chooseOrb(orb));
 
       orb.setScale(0);
@@ -898,6 +911,14 @@ export default class BattleScene extends Phaser.Scene {
       }
       this.orbs.push(orb);
     });
+  }
+
+  // Πόσο πρέπει να μεγαλώσουν οι φούσκες σε αυτή τη συσκευή. Υπολογίζεται
+  // σε κάθε νέα πρόκληση, οπότε η αλλαγή προσανατολισμού διορθώνεται μόνη
+  // της στην επόμενη λέξη.
+  orbBoost() {
+    const shown = (this.scale.displaySize.width || W) / W;
+    return Phaser.Math.Clamp(MIN_ORB_CSS / (ORB_HIT * shown), 1, ORB_BOOST_MAX);
   }
 
   clearOrbs() {
