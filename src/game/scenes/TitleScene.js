@@ -164,8 +164,15 @@ export default class TitleScene extends Phaser.Scene {
       icon.setAlpha(m ? .35 : .55);
     });
 
-    this.add.text(14, H - 20, 'v0.5', {
+    // Η ΠΡΑΓΜΑΤΙΚΗ έκδοση που σερβίρει το service worker αυτής της συσκευής.
+    // Ήταν σταθερό «v0.5» και δεν έλεγε τίποτα· τώρα απαντά με μια ματιά στο
+    // «πήρε το κινητό/ο υπολογιστής την αναβάθμιση;».
+    const label = this.add.text(14, H - 20, window.__swVersion || '…', {
       fontFamily: FONT.ui, fontSize: '13px', color: HEX.smoke
     }).setAlpha(.22).setDepth(45);
+    this.time.addEvent({
+      delay: 600, repeat: 8,
+      callback: () => label.setText(window.__swVersion || 'τοπικά')
+    });
   }
 }

@@ -112,6 +112,21 @@
 
           // Έλεγχος για νέα έκδοση σε κάθε άνοιγμα και κάθε επιστροφή στην
           // εφαρμογή — όχι μόνο στην πρώτη φόρτωση.
+          // Ποια έκδοση τρέχει πραγματικά αυτή η συσκευή; Φαίνεται στην οθόνη
+          // τίτλου, κάτω αριστερά — έτσι απαντιέται με μια ματιά το «πήρε την
+          // αναβάθμιση;» χωρίς εργαλεία προγραμματιστή.
+          const askVersion = () => {
+            const sw = navigator.serviceWorker.controller;
+            if (!sw) return;
+            const ch = new MessageChannel();
+            ch.port1.onmessage = (ev) => {
+              window.__swVersion = ev.data && ev.data.version;
+            };
+            sw.postMessage('version', [ch.port2]);
+          };
+          setTimeout(askVersion, 500);
+          navigator.serviceWorker.addEventListener('controllerchange', askVersion);
+
           const check = () => reg.update().catch(() => {});
           document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') check();

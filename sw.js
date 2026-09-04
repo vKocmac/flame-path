@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v1.9.3';
+const VERSION = 'flame-v2.0.0';
 
 const CORE = [
   './',
@@ -65,6 +65,15 @@ function isCode(url) {
     (CODE.test(url.pathname) || url.pathname.endsWith('/'));
 }
 
+// ΚΡΙΣΙΜΟ: το σκέτο fetch(request) ΠΕΡΝΑΕΙ από την HTTP cache του browser.
+// Το GitHub Pages σερβίρει με max-age, οπότε ο κώδικας μπορούσε να είναι
+// λεπτά ή ώρες παλιός ακόμα κι ενώ το service worker έλεγε «network-first» —
+// γι' αυτό ο υπολογιστής κρατούσε την προηγούμενη έκδοση. Το cache:'reload'
+// παρακάμπτει την HTTP cache και χτυπάει πραγματικά δίκτυο.
+function fromNetwork(request) {
+  return fetch(request.url, { cache: 'reload', credentials: 'same-origin' });
+}
+
 function put(request, res) {
   if (res.ok && new URL(request.url).origin === self.location.origin) {
     const copy = res.clone();
@@ -73,13 +82,23 @@ function put(request, res) {
   return res;
 }
 
+// Η σελίδα ρωτάει ποια έκδοση τρέχει ΠΡΑΓΜΑΤΙΚΑ. Χωρίς αυτό δεν υπάρχει
+// τρόπος να ξέρει κανείς αν η συσκευή πήρε την αναβάθμιση ή όχι.
+self.addEventListener('message', (e) => {
+  if (e.data === 'version') {
+    const reply = { version: VERSION };
+    if (e.ports && e.ports[0]) e.ports[0].postMessage(reply);
+    else if (e.source) e.source.postMessage(reply);
+  }
+});
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
   if (isCode(url)) {
     e.respondWith(
-      fetch(e.request)
+      fromNetwork(e.request)
         .then((res) => put(e.request, res))
         .catch(() => caches.match(e.request, { ignoreSearch: true })
           .then((hit) => hit || (e.request.mode === 'navigate'
