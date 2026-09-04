@@ -892,16 +892,22 @@ export default class BattleScene extends Phaser.Scene {
 
   buildScroll() {
     this.scroll = this.add.container(W / 2, 152).setDepth(20);
+    // Το χαρτί είναι ψημένο texture (κόκκος, ίνες, ακανόνιστη άκρη) και όχι
+    // σκέτο ορθογώνιο — έμοιαζε με κάρτα, όχι με περγαμηνή (NEXT-FIXES Γ9).
+    const sheet = this.add.image(0, 0, 'paper-scroll');
+    // Ξύλινοι κύλινδροι δεξιά κι αριστερά, με φως και σκιά στον άξονα
     const bg = this.add.graphics();
-    bg.fillStyle(NUM.parchment, 1);
-    bg.fillRoundedRect(-320, -56, 640, 112, 18);
-    bg.fillStyle(NUM.ink, .07);
-    bg.fillRoundedRect(-320, 38, 640, 18, 9);            // σκιά στο κάτω μέρος
-    // Ξύλινοι κύλινδροι δεξιά κι αριστερά
     bg.fillStyle(NUM.dojoRoof, 1);
     bg.fillRoundedRect(-338, -66, 20, 132, 10);
     bg.fillRoundedRect(318, -66, 20, 132, 10);
-    this.scroll.add(bg);
+    bg.fillStyle(NUM.stone, .8);
+    bg.fillRoundedRect(-334, -60, 6, 120, 3);
+    bg.fillRoundedRect(322, -60, 6, 120, 3);
+    // Το χαρτί τυλίγεται γύρω από τους κυλίνδρους: σκιά στις δύο άκρες του
+    bg.fillStyle(NUM.ink, .16);
+    bg.fillRect(-320, -56, 12, 112);
+    bg.fillRect(308, -56, 12, 112);
+    this.scroll.add([sheet, bg]);
     this.scroll.setScale(0, 1).setAlpha(0);
 
     this.label = this.add.text(W / 2, 62, '', {
@@ -1026,12 +1032,10 @@ export default class BattleScene extends Phaser.Scene {
     const cx = W / 2 - 90, cy = 330;                 // αριστερά, ο μάγος δεξιά
     const w2 = 230, h2 = 46 + shown.length * 25;
 
-    const paper = this.add.graphics().setDepth(31);
-    paper.fillStyle(NUM.parchment, 1);
-    paper.fillRoundedRect(-w2, -h2, w2 * 2, h2 * 2, 14);
-    paper.lineStyle(3, shade(NUM.parchment, .72), .8);
-    paper.strokeRoundedRect(-w2, -h2, w2 * 2, h2 * 2, 14);
-    paper.setPosition(cx, cy).setScale(.2).setAlpha(0);
+    const paper = this.add.image(cx, cy, 'paper-sheet').setDepth(31)
+      .setDisplaySize(w2 * 2, h2 * 2);
+    paper.setScale(paper.scaleX * .2, paper.scaleY * .2).setAlpha(0);
+    const openX = paper.scaleX * 5, openY = paper.scaleY * 5;   // το «1» του tween
 
     const lines = shown.map((w, i) => this.add.text(
       cx, cy - (shown.length - 1) * 25 + i * 50, w,
@@ -1042,7 +1046,8 @@ export default class BattleScene extends Phaser.Scene {
     const home = { x: m.x, baseY: m.baseY, depth: m.depth, scale: m.scale };
 
     this.tweens.add({ targets: veil, alpha: .72, duration: 420 });
-    this.tweens.add({ targets: paper, alpha: 1, scale: 1, duration: 520, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: paper, alpha: 1, scaleX: openX, scaleY: openY,
+      duration: 520, ease: 'Back.easeOut' });
     lines.forEach((t, i) => this.tweens.add({ targets: t, alpha: 1, duration: 300, delay: 520 + i * 150 }));
 
     // 1. Ο μάγος έρχεται στην ΑΚΡΗ του παπύρου, όχι από πάνω του.
@@ -1065,6 +1070,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.time.delayedCall(enterAt + 1200, () => {
       audio.whoosh();
+      audio.flamethrower(520);
       this.cameras.main.shake(300, .004);
       const jet = this.add.particles(cx + 285, cy, 'spark', {
         speed: { min: 160, max: 420 }, angle: { min: 168, max: 192 },
@@ -1089,7 +1095,7 @@ export default class BattleScene extends Phaser.Scene {
         });
       });
       this.tweens.add({
-        targets: paper, alpha: 0, scaleY: .06, y: cy + 40,
+        targets: paper, alpha: 0, scaleY: openY * .06, y: cy + 40,
         duration: 900, delay: 300 + shown.length * 130, ease: 'Quad.easeIn'
       });
     });

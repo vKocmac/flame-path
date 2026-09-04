@@ -25,7 +25,93 @@ function glow(scene, key, size, hex) {
   });
 }
 
+/**
+ * Χαρτί περγαμηνής (NEXT-FIXES Γ9). Το καθαρό ορθογώνιο δεν έμοιαζε με
+ * περγαμηνή· εδώ μπαίνει κόκκος, ίνες, λεκέδες και ακανόνιστη άκρη.
+ *
+ * ΟΡΙΟ: ό,τι μπαίνει εδώ πρέπει να μένει κάτω από ~6% αντίθεση. Η λέξη
+ * είναι μελάνι σε περγαμηνή και η αναγνωσιμότητά της είναι αμετάβλητο
+ * (DESIGN.md) — η υφή δεν επιτρέπεται να παλέψει με τα γράμματα.
+ *
+ * @param {Phaser.Scene} scene
+ * @param {string} key
+ * @param {number} w
+ * @param {number} h
+ * @param {number} radius γωνία των άκρων
+ */
+function paper(scene, key, w, h, radius) {
+  canvasTexture(scene, key, w, h, (ctx) => {
+    // Ντετερμινιστικός θόρυβος: ίδια υφή σε κάθε φόρτωση, ώστε να μη
+    // «τρεμοπαίζει» το χαρτί όταν ξαναχτιστεί η σκηνή.
+    let seed = 20260904;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+
+    // Άκρη με μικρές ατέλειες — δεν είναι τελείως ίσια, όπως το κομμένο χαρτί
+    ctx.beginPath();
+    const edge = (x, y) => ctx.lineTo(x + (rnd() - .5) * 2.4, y + (rnd() - .5) * 2.4);
+    const STEP = 9;
+    ctx.moveTo(radius, 0);
+    for (let x = radius; x < w - radius; x += STEP) edge(x, 0);
+    ctx.quadraticCurveTo(w, 0, w, radius);
+    for (let y = radius; y < h - radius; y += STEP) edge(w, y);
+    ctx.quadraticCurveTo(w, h, w - radius, h);
+    for (let x = w - radius; x > radius; x -= STEP) edge(x, h);
+    ctx.quadraticCurveTo(0, h, 0, h - radius);
+    for (let y = h - radius; y > radius; y -= STEP) edge(0, y);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.fillStyle = HEX.parchment;
+    ctx.fillRect(0, 0, w, h);
+
+    // Ελαφρύ ζέσταμα στο κέντρο και σκίαση στα άκρα: το χαρτί είναι λίγο
+    // κυρτό, όχι επίπεδο σαν κάρτα.
+    const shade = ctx.createLinearGradient(0, 0, 0, h);
+    shade.addColorStop(0, rgba(HEX.ink, 0.055));
+    shade.addColorStop(0.22, rgba(HEX.ink, 0));
+    shade.addColorStop(0.78, rgba(HEX.ink, 0));
+    shade.addColorStop(1, rgba(HEX.ink, 0.075));
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, w, h);
+
+    // Λεκέδες — μεγάλοι, πολύ αχνοί
+    for (let i = 0; i < 22; i++) {
+      const bx = rnd() * w, by = rnd() * h, br = 16 + rnd() * 84;
+      const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, rgba(HEX.ink, 0.016));
+      g.addColorStop(1, rgba(HEX.ink, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(bx - br, by - br, br * 2, br * 2);
+    }
+
+    // Ίνες — κοντές οριζόντιες γραμμές, όπως στο χειροποίητο χαρτί
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 130; i++) {
+      const fx = rnd() * w, fy = rnd() * h, len = 6 + rnd() * 26;
+      ctx.strokeStyle = rgba(HEX.ink, 0.02 + rnd() * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.quadraticCurveTo(fx + len / 2, fy + (rnd() - .5) * 3, fx + len, fy);
+      ctx.stroke();
+    }
+
+    // Κόκκος
+    for (let i = 0; i < 2600; i++) {
+      ctx.fillStyle = rgba(rnd() > .5 ? HEX.ink : HEX.lantern, 0.018 + rnd() * 0.028);
+      ctx.fillRect(rnd() * w, rnd() * h, 1, 1);
+    }
+  });
+}
+
 export function buildTextures(scene) {
+  // Δύο μεγέθη χαρτιού: η περγαμηνή της μάχης και ο πάπυρος του Μάστερ Γου
+  paper(scene, 'paper-scroll', 640, 112, 18);
+  paper(scene, 'paper-sheet', 460, 300, 14);
+
   glow(scene, 'glow-flame', 256, HEX.flame);
   glow(scene, 'glow-lantern', 256, HEX.lantern);
   glow(scene, 'glow-moon', 256, HEX.moon);
