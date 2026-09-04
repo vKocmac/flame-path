@@ -23,7 +23,7 @@
 import * as store from './src/shared/storage.js';
 import * as engine from './src/learning/engine.js';
 import { errorCounts } from './src/learning/telemetry.js';
-import { splitGraphemes, classForGrapheme, distractorsFor, stripAccent, AUTO_CLASSES }
+import { splitGraphemes, classForGrapheme, distractorsFor, stripAccent, AUTO_CLASSES, canBeGap }
   from './src/shared/graphemes.js';
 
 const out = document.getElementById('out');
@@ -278,6 +278,46 @@ await test('Χωρίς καμία λέξη το engine επιστρέφει null
   eq(engine.getNextChallenge(pid), null, 'null');
 });
 
+// ------------------------------- Στόχος που δεν παίζεται δεν παρουσιάζεται
+
+await test('Στόχος χωρίς distractors ΔΕΝ παίρνει τελετή όταν ζητάμε μόνο κενό', () => {
+  // Το «ου» είναι μόνο του στην κλάση του: καμία εναλλακτική, κανένα κενό.
+  // Αν έπαιρνε τελειτή, η λέξη θα καιγόταν στον πάπυρο και μετά δεν θα
+  // μπορούσε να ρωτηθεί ΠΟΤΕ — και το παιχνίδι έλεγε «δεν έχω τεχνικές».
+  const { pid } = seed([{ text: 'ουρανού', targets: [
+    { start: 0, len: 2, g: 'ου', cls: 'u', d: [] },
+    { start: 5, len: 2, g: 'ού', cls: 'u', d: [] }
+  ] }]);
+  engine.resetSession();
+  eq(engine.getNextChallenge(pid, { types: ['gap'] }), null, 'τίποτα δεν σερβίρεται');
+});
+
+await test('Ο ίδιος στόχος ΠΑΙΡΝΕΙ τελετή όταν επιτρέπεται και συναρμολόγηση', () => {
+  const { pid } = seed([{ text: 'ουρανού', targets: [
+    { start: 0, len: 2, g: 'ου', cls: 'u', d: [] }
+  ] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap', 'assembly'] });
+  assert(ch && ch.type === 'intro', `περίμενα intro, πήρα ${ch && ch.type}`);
+});
+
+await test('Λέξη με ΕΝΑ παίξιμο σημείο σερβίρεται κανονικά, το άπαιχτο αγνοείται', () => {
+  const { pid } = seed([{ text: 'λουλούδι', targets: [
+    { start: 1, len: 2, g: 'ου', cls: 'u', d: [] },
+    { start: 6, len: 1, g: 'ι', cls: 'i', d: ['η', 'υ', 'ει', 'οι'] }
+  ] }]);
+  engine.resetSession();
+  const a = engine.getNextChallenge(pid, { types: ['gap'] });
+  assert(a && a.type === 'intro', 'πρώτα η τελετή του παίξιμου στόχου');
+  eq(a.gap.start, 6, 'και είναι ο στόχος «ι», όχι το «ου»');
+});
+
+await test('Το «ου» δεν προεπιλέγεται πια — δεν ρωτιέται με κενό', () => {
+  assert(!AUTO_CLASSES.includes('u'), 'το u δεν πρέπει να προεπιλέγεται');
+  assert(!canBeGap('ου'), 'το ου δεν γίνεται κενό');
+  assert(canBeGap('ι') && canBeGap('αυ') && canBeGap('νν'), 'τα υπόλοιπα γίνονται');
+});
+
 // --------------------------------------------------- Διαλυτικά (NEXT-FIXES Β2)
 
 await test('Τα διαλυτικά μένουν ΕΝΩΜΕΝΑ στον τεμαχισμό — μία μονάδα, όχι δύο', () => {
@@ -342,7 +382,7 @@ await test('Τα διπλά σύμφωνα ΔΕΝ προεπιλέγονται �
   for (const c of ['nn', 'ss', 'll', 'gg', 'kk']) {
     assert(!AUTO_CLASSES.includes(c), `${c} δεν πρέπει να προεπιλέγεται`);
   }
-  for (const c of ['i', 'o', 'e', 'u', 'au', 'oi_dia']) {
+  for (const c of ['i', 'o', 'e', 'au', 'oi_dia']) {
     assert(AUTO_CLASSES.includes(c), `${c} πρέπει να προεπιλέγεται`);
   }
 });

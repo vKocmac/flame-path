@@ -84,7 +84,15 @@ export function getNextChallenge(profileId, { types = ['gap', 'assembly'] } = {}
   for (let tries = 0; tries < 12; tries++) {
     const pick = selectNext(p, cfg, clock(), session);
     if (!pick) return null;
-    type = !pick.target.introduced ? 'intro' : chooseType(pick.target, types);
+    // ΠΡΩΤΑ ελέγχουμε αν ο στόχος παίζεται ΚΑΘΟΛΟΥ με τους ζητούμενους
+    // τύπους — και μετά αποφασίζουμε αν χρειάζεται τελετή.
+    //
+    // Αλλιώς ένας στόχος σαν το «ου» (καμία εναλλακτική, άρα κανένα κενό)
+    // έπαιρνε τελετή, η λέξη του καιγόταν στον πάπυρο, και μετά δεν
+    // μπορούσε να ρωτηθεί ποτέ. Με προφίλ γεμάτο τέτοιους στόχους το
+    // παιχνίδι έκαιγε τις λέξεις και έλεγε «δεν έχω τεχνικές ακόμα».
+    const playable = chooseType(pick.target, types);
+    type = playable && !pick.target.introduced ? 'intro' : playable;
     if (type) { ({ word, target, isPractice } = pick); break; }
     session.skip.add(pick.target.id);
   }

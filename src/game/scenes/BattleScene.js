@@ -1399,13 +1399,17 @@ export default class BattleScene extends Phaser.Scene {
     this.clearOrbs();
     let ch = null;
     // Αν εμφανιστεί νέος στόχος στη μέση της συνεδρίας, τον περνάμε σιωπηλά:
-    // η παρουσίασή του έγινε ήδη στον πάπυρο της αρχής.
-    for (let i = 0; i < 10; i++) {
+    // η παρουσίασή του έγινε ήδη στον πάπυρο της αρχής. Η τελετή ΔΕΝ είναι
+    // πρόκληση — μηδενίζουμε και ξαναρωτάμε, ώστε να μη βγει ποτέ οθόνη
+    // «δεν έχω τεχνικές» ενώ υπάρχουν λέξεις να παιχτούν.
+    for (let i = 0; i < 12; i++) {
       ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
-      if (!ch || ch.type !== 'intro') break;
+      if (!ch) break;
+      if (ch.type !== 'intro') break;
       this.consumeIntro(ch);
+      ch = null;
     }
-    if (!ch || ch.type === 'intro') { this.showNoWords(); return; }
+    if (!ch) { this.showNoWords(); return; }
     this.startChallenge(ch);
   }
 

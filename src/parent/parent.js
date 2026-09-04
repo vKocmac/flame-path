@@ -3,7 +3,7 @@
 // Την πρώτη φορά ο γονιός ΟΡΙΖΕΙ το PIN (αποθηκεύεται μόνο σε αυτή τη συσκευή).
 
 import * as store from '../shared/storage.js';
-import { AUTO_CLASSES, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
+import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
 
 const root = document.getElementById('parent-root');
 let state = store.loadState();
@@ -202,12 +202,22 @@ function renderPick(w) {
     <button class="pm-btn primary" id="save">Αποθήκευση λέξης</button>`;
 
   const refresh = () => {
-    const parts = [...selected].sort((a, b) => a - b).map((i) => {
+    const chosen = [...selected].sort((a, b) => a - b);
+    const parts = chosen.map((i) => {
       const g = units[i];
-      return `${g} → ${[g, ...distractorsFor(g)].join('/')}`;
+      return canBeGap(g)
+        ? `${g} → ${[g, ...distractorsFor(g)].join('/')}`
+        : `${g} → (δεν ρωτιέται ακόμα)`;
     });
+    // Τίμια προειδοποίηση: ένα «ου» δεν έχει εναλλακτικές, άρα δεν γίνεται
+    // κενό. Αν η λέξη ΔΕΝ έχει κανένα άλλο σημείο, δεν θα εμφανιστεί ποτέ
+    // στη μάχη — και ο γονιός πρέπει να το ξέρει πριν την αποθηκεύσει.
+    const playable = chosen.filter((i) => canBeGap(units[i])).length;
+    const warn = chosen.length && !playable
+      ? ' ⚠ Καμία από αυτές τις επιλογές δεν ρωτιέται με τον σημερινό μηχανισμό — η λέξη δεν θα εμφανιστεί στη μάχη.'
+      : '';
     pick.querySelector('#suggest').textContent = parts.length
-      ? `Σημεία ελέγχου: ${parts.join(' · ')}`
+      ? `Σημεία ελέγχου: ${parts.join(' · ')}${warn}`
       : 'Κανένα σημείο — διάλεξε τουλάχιστον ένα φωνήεν ή διπλό σύμφωνο.';
     pick.querySelector('#save').disabled = selected.size === 0;
   };
