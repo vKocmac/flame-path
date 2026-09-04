@@ -103,15 +103,23 @@ export default class BattleScene extends Phaser.Scene {
   // Το `busy` κρατά και τη στιγμή που μπήκε, ώστε το update() να μπορεί να
   // δει ότι κόλλησε. Έτσι δεν χρειάζεται να αλλάξει κανένα από τα ~20
   // σημεία που το θέτουν.
+  //
+  // ΠΡΟΣΟΧΗ στο ρολόι: μετράμε με το `sceneMs`, δηλαδή το ΑΘΡΟΙΣΜΑ των delta
+  // που είδε η σκηνή — ΟΧΙ με τον χρόνο τοίχου. Τα tween και τα χρονόμετρα
+  // του Phaser προχωρούν με delta· όταν η συσκευή χάνει καρέ (εναλλαγή
+  // εφαρμογής, αργή στιγμή) ο χρόνος τοίχου τρέχει μπροστά και τα animation
+  // μένουν πίσω. Με χρόνο τοίχου το δίχτυ ασφαλείας χτυπούσε ΜΕΣΑ στη σκηνή
+  // του παπύρου και τη διέκοπτε.
   get busy() { return this._busy; }
   set busy(v) {
     this._busy = v;
-    this._busySince = v ? (this.time ? this.time.now : 0) : 0;
+    this._busySince = v ? (this.sceneMs || 0) : null;
   }
 
   create() {
     buildTextures(this);
     this.calm = world.isCalm();
+    this.sceneMs = 0;          // χρόνος σκηνής σε delta — δες τον setter του busy
     this.busy = false;
     this.enemies = [];
     this.orbs = [];
@@ -770,15 +778,15 @@ export default class BattleScene extends Phaser.Scene {
     this.time.delayedCall(2200, () => {
       this.tweens.add({ targets: m.arm, x: -44, y: -6, scaleX: 1, scaleY: 1,
         duration: 420, ease: 'Quad.easeIn' });
-      this.tweens.add({
-        targets: veil, alpha: 0, duration: 460,
-        onComplete: () => {
-          veil.destroy();
-          m.setDepth(11);
-          this.busy = false;
-          if (done) done();
-        }
-      });
+      this.tweens.add({ targets: veil, alpha: 0, duration: 460 });
+    });
+
+    // Ίδιος κανόνας με τον πάπυρο: η συνέχεια είναι χρονόμετρο, όχι tween.
+    this.time.delayedCall(2660, () => {
+      veil.destroy();
+      m.setDepth(11);
+      this.busy = false;
+      if (done) done();
     });
   }
 
@@ -869,13 +877,16 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    this.sceneMs += delta;
+
     // Η ζωή της σκηνής τρέχει ΠΑΝΤΑ — και στα animation και στην τελετή.
     // Τίποτα δεν επιτρέπεται να μοιάζει με ακίνητη ζωγραφιά.
     this.animateEnemies(time);
     this.animateNinja(time);
     this.animateMaster(time);
 
-    if (this._busy && this._busySince && time - this._busySince > STUCK_MS) this.unstick();
+    if (this._busy && this._busySince !== null
+      && this.sceneMs - this._busySince > STUCK_MS) this.unstick();
 
     // Η πίεση του χρόνου, αντίθετα, τρέχει ΜΟΝΟ όσο το παιδί μπορεί
     // πραγματικά να απαντήσει — αλλιώς του κλέβεται χρόνος.
@@ -896,10 +907,13 @@ export default class BattleScene extends Phaser.Scene {
   // Ξεκόλλημα: αν οι φούσκες είναι ακόμα στην οθόνη αρκεί να ξαναδεχτούμε
   // άγγιγμα· αλλιώς προχωράμε στην επόμενη λέξη. Ποτέ οθόνη σφάλματος —
   // το παιδί δεν πρέπει καν να καταλάβει ότι κάτι πήγε στραβά.
+  //
+  // ΠΡΕΠΕΙ να καταλήγει πάντα σε παιχνίδι. Πριν, όταν δεν υπήρχε τρέχουσα
+  // πρόκληση (π.χ. στην πρώτη σκηνή του παπύρου), γύριζε χωρίς να κάνει
+  // τίποτα και το παιχνίδι έμενε νεκρό για πάντα.
   unstick() {
     this.busy = false;
     if (this.orbs.length) return;
-    if (!this.current) return;
     this.nextChallenge();
   }
 
@@ -1338,6 +1352,8 @@ export default class BattleScene extends Phaser.Scene {
   // στην αρχή του λεβελ δείχνει μόνο τις λέξεις ΑΥΤΟΥ του λεβελ — όχι όλες.
   // Όταν τον νικήσεις, ανοίγει νέο λεβελ με νέο πάπυρο.
   openLevel() {
+    this.clearOrbs();
+    this.current = null;
     const words = [];
     let held = null;
     for (let i = 0; i < WORDS_PER_LEVEL; i++) {
@@ -1364,6 +1380,14 @@ export default class BattleScene extends Phaser.Scene {
 
   startChallenge(ch) {
     if (!ch) { this.nextChallenge(); return; }
+    // Φρουρά: η σκηνή ξέρει να δείχνει ΜΟΝΟ προκλήσεις με κενό και υποψήφια.
+    // Μια τελετή (intro) δεν έχει ούτε τα δύο· αν έφτανε ως εδώ, το
+    // layoutWord έσκαγε και το παιχνίδι κολλούσε με άδεια περγαμηνή.
+    if (!ch.gap || !ch.candidates || !ch.candidates.length) {
+      if (ch.type === 'intro') this.consumeIntro(ch);
+      this.nextChallenge();
+      return;
+    }
     this.current = ch;
     this.reported = false;
     this.revealed = false;
@@ -1381,7 +1405,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!ch || ch.type !== 'intro') break;
       this.consumeIntro(ch);
     }
-    if (!ch) { this.showNoWords(); return; }
+    if (!ch || ch.type === 'intro') { this.showNoWords(); return; }
     this.startChallenge(ch);
   }
 
@@ -1480,18 +1504,30 @@ export default class BattleScene extends Phaser.Scene {
           this.tweens.add({ targets: m, alpha: .92, duration: 420 });
         }
       });
-      this.tweens.add({ targets: veil, alpha: 0, duration: 520,
-        onComplete: () => {
-          veil.destroy();
-          paper.destroy();
-          lines.forEach((t) => t.destroy());
-          this.busy = false;
-          done();
-        } });
+      this.tweens.add({ targets: veil, alpha: 0, duration: 520 });
+    });
+
+    // Η ΣΥΝΕΧΕΙΑ ΤΟΥ ΠΑΙΧΝΙΔΙΟΥ ΔΕΝ ΚΡΕΜΕΤΑΙ ΑΠΟ TWEEN. Ήταν στο onComplete
+    // του σκοταδιού: αν χανόταν εκείνο το tween (χαμένα καρέ, στόχος που
+    // καταστράφηκε, εναλλαγή εφαρμογής στη μέση), το done() δεν καλούνταν
+    // ποτέ και το παιχνίδι έμενε στον καμένο πάπυρο. Τώρα είναι χρονόμετρο:
+    // τα χρονόμετρα δεν εξαρτώνται από στόχους που μπορεί να μην υπάρχουν.
+    this.time.delayedCall(endAt + 560, () => {
+      veil.destroy();
+      paper.destroy();
+      lines.forEach((t) => t.destroy());
+      this.busy = false;
+      done();
     });
   }
 
   showGap(ch) {
+    // ΠΑΝΤΑ από καθαρή οθόνη. Υπάρχουν διαδρομές που φτάνουν εδώ χωρίς να
+    // έχουν περάσει από nextChallenge() — π.χ. το τέλος του λεβελ μετά τη
+    // νίκη επί του Μάστερ Γου. Χωρίς αυτό, οι φούσκες της προηγούμενης
+    // λέξης έμεναν στον πίνακα, μισοκατεστραμμένες, και το πρώτο άγγιγμα
+    // στη νέα λέξη έσκαγε πάνω τους.
+    this.clearOrbs();
     this.busy = false;
     this.label.setAlpha(0);
     this.showScroll();
@@ -1552,7 +1588,11 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   clearOrbs() {
-    this.orbs.forEach((o) => { this.tweens.killTweensOf(o); o.destroy(); });
+    this.orbs.forEach((o) => {
+      if (!o || !o.scene) return;              // το είχε ήδη πάρει κάποιο tween
+      this.tweens.killTweensOf(o);
+      o.destroy();
+    });
     this.orbs = [];
   }
 
@@ -1589,7 +1629,7 @@ export default class BattleScene extends Phaser.Scene {
   // ------------------------------------------------------------ επιτυχία
 
   castFlame(orb) {
-    this.orbs.filter((o) => o !== orb).forEach((o) => {
+    this.orbs.filter((o) => o !== orb && o && o.scene).forEach((o) => {
       this.tweens.add({ targets: o, alpha: .25, scale: .8, duration: 180 });
       o.disableInteractive();
     });
@@ -1802,6 +1842,7 @@ export default class BattleScene extends Phaser.Scene {
   // Η φλόγα δεν πιάνει. Καθόλου κόκκινο, καθόλου «ΛΑΘΟΣ», καμία απώλεια —
   // ο εχθρός απλώς επιταχύνει για λίγο και το σωστό γράφημα φωτίζεται.
   flameFails(orb) {
+    if (!orb || !orb.scene) { this.busy = false; return; }
     audio.fizzle();
     const glow = orb.getData('glow');
     this.tweens.add({ targets: glow, alpha: 0, duration: 240 });
