@@ -1064,7 +1064,19 @@ export default class BattleScene extends Phaser.Scene {
   // Η λέξη στην περγαμηνή: τρία κομμάτια σε σειρά (πριν / κενό / μετά).
   // Το κενό κρατά ΤΟ ΣΩΣΤΟ γράφημα από την αρχή, αόρατο — έτσι το πλάτος
   // είναι ακριβές και η αποκάλυψη είναι απλό fade, χωρίς μετατόπιση.
-  layoutWord(text, gap, { revealed }) {
+  /**
+   * Ζωγραφίζει τη λέξη με το κενό της.
+   *
+   * ΚΡΙΣΙΜΟ: το πλάτος του κενού βγαίνει από το ΦΑΡΔΥΤΕΡΟ υποψήφιο, όχι από
+   * τον στόχο. Αλλιώς το ίδιο το κενό δίνει την απάντηση — ένα στενό κενό
+   * αποκλείει το «ει», ένα φαρδύ αποκλείει το «ι», και για τα διπλά σύμφωνα
+   * (ν / νν) η ερώτηση δεν θα μπορούσε καν να τεθεί (NEXT-FIXES Β3).
+   *
+   * @param {string} text
+   * @param {{start:number,length:number}} gap
+   * @param {{revealed:boolean, candidates?:string[]}} opts
+   */
+  layoutWord(text, gap, { revealed, candidates }) {
     this.wordParts?.forEach((o) => o.destroy());
     const style = { fontFamily: FONT.word, fontSize: '58px', color: HEX.ink };
     const before = text.slice(0, gap.start);
@@ -1072,14 +1084,24 @@ export default class BattleScene extends Phaser.Scene {
     const after = text.slice(gap.start + gap.length);
 
     const tBefore = this.add.text(0, 0, before, style).setOrigin(0, .5).setDepth(22);
-    const tGap = this.add.text(0, 0, target, style).setOrigin(0, .5).setDepth(22);
+    const tGap = this.add.text(0, 0, target, style).setOrigin(.5, .5).setDepth(22);
     const tAfter = this.add.text(0, 0, after, style).setOrigin(0, .5).setDepth(22);
-    const total = tBefore.width + tGap.width + tAfter.width;
+
+    // Το φαρδύτερο υποψήφιο ορίζει την υποδοχή. Μετριέται με προσωρινό
+    // κείμενο ίδιου στυλ — το Phaser δεν δίνει πλάτος χωρίς αντικείμενο.
+    let gapW = tGap.width;
+    for (const c of (candidates || [])) {
+      const probe = this.add.text(0, 0, c, style).setVisible(false);
+      gapW = Math.max(gapW, probe.width);
+      probe.destroy();
+    }
+
+    const total = tBefore.width + gapW + tAfter.width;
     let x = W / 2 - total / 2;
     const y = 152;
     tBefore.setPosition(x, y); x += tBefore.width;
-    tGap.setPosition(x, y);
-    const gapX = x, gapW = tGap.width;
+    const gapX = x;
+    tGap.setPosition(gapX + gapW / 2, y);     // κεντραρισμένο μέσα στην υποδοχή
     x += gapW;
     tAfter.setPosition(x, y);
     tGap.setAlpha(revealed ? 1 : 0);
@@ -1262,7 +1284,8 @@ export default class BattleScene extends Phaser.Scene {
     this.busy = false;
     this.label.setAlpha(0);
     this.showScroll();
-    const center = this.layoutWord(ch.text, ch.gap, { revealed: false });
+    const center = this.layoutWord(ch.text, ch.gap,
+      { revealed: false, candidates: ch.candidates });
     this.spawnOrbs(ch.candidates);
     // Ο Μάστερ Γου μόλις άρπαξε αυτό το γράμμα — να γιατί λείπει.
     this.time.delayedCall(120, () => this.stealLetter(center));

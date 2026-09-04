@@ -3,7 +3,7 @@
 // Την πρώτη φορά ο γονιός ΟΡΙΖΕΙ το PIN (αποθηκεύεται μόνο σε αυτή τη συσκευή).
 
 import * as store from '../shared/storage.js';
-import { splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
+import { AUTO_CLASSES, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
 
 const root = document.getElementById('parent-root');
 let state = store.loadState();
@@ -188,8 +188,11 @@ function renderPick(w) {
   let starts = [], pos = 0;
   units.forEach((u) => { starts.push(pos); pos += u.length; });
 
+  // Προεπιλέγονται μόνο τα φωνήεντα και τα διαλυτικά. Τα διπλά σύμφωνα
+  // υπάρχουν ως επιλογή αλλά τα διαλέγει ο γονιός — αλλιώς κάθε σύμφωνο
+  // κάθε λέξης θα γινόταν στόχος.
   const selected = new Set();
-  units.forEach((u, i) => { if (classForGrapheme(u)) selected.add(i); });
+  units.forEach((u, i) => { if (AUTO_CLASSES.includes(classForGrapheme(u))) selected.add(i); });
 
   const pick = w.querySelector('#pick');
   pick.innerHTML = `
@@ -205,7 +208,7 @@ function renderPick(w) {
     });
     pick.querySelector('#suggest').textContent = parts.length
       ? `Σημεία ελέγχου: ${parts.join(' · ')}`
-      : 'Κανένα σημείο — διάλεξε τουλάχιστον ένα φωνήεν.';
+      : 'Κανένα σημείο — διάλεξε τουλάχιστον ένα φωνήεν ή διπλό σύμφωνο.';
     pick.querySelector('#save').disabled = selected.size === 0;
   };
   refresh();
@@ -215,7 +218,7 @@ function renderPick(w) {
       const i = Number(chip.dataset.i);
       const g = units[i];
       if (!classForGrapheme(g)) {
-        err.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης: ι/η/υ/ει/οι · ο/ω · ε/αι · ου · διαλυτικά (αυ-αϋ, ευ-εϋ, οι-οϊ, ει-εϊ, αι-αϊ).`;
+        err.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης: ι/η/υ/ει/οι · ο/ω · ε/αι · ου · διαλυτικά (αυ-αϋ, ευ-εϋ, οι-οϊ, ει-εϊ, αι-αϊ) · διπλά σύμφωνα (λ-λλ, μ-μμ, ν-νν, π-ππ, ρ-ρρ, σ-σσ, τ-ττ, κ-κκ, β-ββ, γγ-γκ).`;
         return;
       }
       err.textContent = '';

@@ -23,7 +23,7 @@
 import * as store from './src/shared/storage.js';
 import * as engine from './src/learning/engine.js';
 import { errorCounts } from './src/learning/telemetry.js';
-import { splitGraphemes, classForGrapheme, distractorsFor, stripAccent }
+import { splitGraphemes, classForGrapheme, distractorsFor, stripAccent, AUTO_CLASSES }
   from './src/shared/graphemes.js';
 
 const out = document.getElementById('out');
@@ -313,6 +313,37 @@ await test('Καμία υποψήφια δεν είναι ίδια με τον �
     assert(!distractorsFor(g).includes(g), `${g} έχει τον εαυτό του ως distractor`);
     assert(new Set(distractorsFor(g)).size === distractorsFor(g).length,
       `${g} έχει διπλό distractor`);
+  }
+});
+
+// ---------------------------------------------- Διπλά σύμφωνα (NEXT-FIXES Β3)
+
+await test('Το διπλό σύμφωνο είναι ΜΙΑ μονάδα ορθογραφίας', () => {
+  eq(splitGraphemes('γέννηση'), ['γ', 'έ', 'νν', 'η', 'σ', 'η'], 'γέννηση');
+  eq(splitGraphemes('θάλασσα'), ['θ', 'ά', 'λ', 'α', 'σσ', 'α'], 'θάλασσα');
+  eq(splitGraphemes('εκκλησία'), ['ε', 'κκ', 'λ', 'η', 'σ', 'ί', 'α'], 'εκκλησία');
+});
+
+await test('Απλό ↔ διπλό: υποψήφια διαφορετικού μήκους στο ίδιο κενό', () => {
+  eq(distractorsFor('νν'), ['ν'], 'νν → ν');
+  eq(distractorsFor('ν'), ['νν'], 'ν → νν');
+  eq(distractorsFor('σσ'), ['σ'], 'σσ → σ');
+});
+
+await test('γγ ↔ γκ (άγγελος / αγκάλη) — ΟΧΙ γ ↔ γγ, που ακούγονται αλλιώς', () => {
+  eq(splitGraphemes('άγγελος')[1], 'γγ', 'άγγελος → γγ');
+  eq(splitGraphemes('αγκάλη')[1], 'γκ', 'αγκάλη → γκ');
+  eq(distractorsFor('γγ'), ['γκ'], 'γγ → γκ');
+  eq(distractorsFor('γκ'), ['γγ'], 'γκ → γγ');
+  eq(classForGrapheme('γ'), null, 'το σκέτο γ δεν είναι στόχος');
+});
+
+await test('Τα διπλά σύμφωνα ΔΕΝ προεπιλέγονται — τα διαλέγει ο γονιός', () => {
+  for (const c of ['nn', 'ss', 'll', 'gg', 'kk']) {
+    assert(!AUTO_CLASSES.includes(c), `${c} δεν πρέπει να προεπιλέγεται`);
+  }
+  for (const c of ['i', 'o', 'e', 'u', 'au', 'oi_dia']) {
+    assert(AUTO_CLASSES.includes(c), `${c} πρέπει να προεπιλέγεται`);
   }
 });
 
