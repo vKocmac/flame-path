@@ -45,6 +45,12 @@ const FOCUS_MS = 1800;
 
 const COMBO_BRIGHT = 3, COMBO_TRAIL = 6, COMBO_ZOOM = 9;
 
+// Δίχτυ ασφαλείας. Καμία σκηνή δεν κρατά νόμιμα το «απασχολημένη» πάνω από
+// λίγα δευτερόλεπτα: το πιο αργό animation (ο πάπυρος) τελειώνει πολύ πριν.
+// Αν το ξεπεράσει, κάτι έσπασε — και το παιδί βλέπει παγωμένη οθόνη χωρίς να
+// ξέρει να κάνει ανανέωση. Ξεκολλάμε μόνοι μας.
+const STUCK_MS = 9000;
+
 // Ελάχιστο ορατό μέγεθος φούσκας (HYPER-NOTE §16.7). Το FIT σε 1280×720
 // συρρικνώνει τα πάντα σε κινητό (×0,52): οι 96px της φούσκας γίνονται 50
 // πραγματικά pixels — κάτω από το όριο των 56 του DESIGN. Οι φούσκες
@@ -93,6 +99,15 @@ function shade(hex, f) {
 
 export default class BattleScene extends Phaser.Scene {
   constructor() { super('Battle'); }
+
+  // Το `busy` κρατά και τη στιγμή που μπήκε, ώστε το update() να μπορεί να
+  // δει ότι κόλλησε. Έτσι δεν χρειάζεται να αλλάξει κανένα από τα ~20
+  // σημεία που το θέτουν.
+  get busy() { return this._busy; }
+  set busy(v) {
+    this._busy = v;
+    this._busySince = v ? (this.time ? this.time.now : 0) : 0;
+  }
 
   create() {
     buildTextures(this);
@@ -530,6 +545,8 @@ export default class BattleScene extends Phaser.Scene {
     this.animateNinja(time);
     this.animateMaster(time);
 
+    if (this._busy && this._busySince && time - this._busySince > STUCK_MS) this.unstick();
+
     // Η πίεση του χρόνου, αντίθετα, τρέχει ΜΟΝΟ όσο το παιδί μπορεί
     // πραγματικά να απαντήσει — αλλιώς του κλέβεται χρόνος.
     if (this.busy || !this.current || !this.enemies.length) return;
@@ -544,6 +561,16 @@ export default class BattleScene extends Phaser.Scene {
       e.x -= e.speed * e.mult * dt;
     }
     if (this.enemies[0].x <= RETREAT_X) this.regroup();
+  }
+
+  // Ξεκόλλημα: αν οι φούσκες είναι ακόμα στην οθόνη αρκεί να ξαναδεχτούμε
+  // άγγιγμα· αλλιώς προχωράμε στην επόμενη λέξη. Ποτέ οθόνη σφάλματος —
+  // το παιδί δεν πρέπει καν να καταλάβει ότι κάτι πήγε στραβά.
+  unstick() {
+    this.busy = false;
+    if (this.orbs.length) return;
+    if (!this.current) return;
+    this.nextChallenge();
   }
 
   // Shadow Focus — προστατευτικό, όχι «εύκολο». Παγώνει την πίεση όταν ο

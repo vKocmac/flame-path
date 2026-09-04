@@ -37,49 +37,138 @@ function boot() {
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
-  // Η πλήρης οθόνη ΔΕΝ μπορεί να μπει σε μία μόνο ευκαιρία: το παιχνίδι
-  // ξεκινά συχνά όρθιο, όπου δεν τη θέλουμε. Ο browser επιτρέπει το αίτημα
-  // μόνο μέσα σε χειρονομία χρήστη, οπότε δοκιμάζουμε σε ΚΑΘΕ άγγιγμα μέχρι
-  // να πετύχει — δηλαδή στο πρώτο άγγιγμα αφού γυρίσει η συσκευή πλαγίως.
-  window.addEventListener('pointerdown', () => goFullscreen(), { capture: true });
-
   // Το κινητό κρατά μπάρα διεύθυνσης και μενού ακόμα και πλαγιαστά, οπότε η
   // ωφέλιμη οθόνη μικραίνει — και μικραίνει κι άλλο μετά από εναλλαγή
   // εφαρμογών. Ο Scale Manager μετράει μία φορά και δεν διορθώνεται μόνος του,
   // γι' αυτό τον ξαναμετράμε σε κάθε αλλαγή.
   const refresh = () => { try { game.scale.refresh(); } catch (e) { /* πριν το boot */ } };
   window.addEventListener('resize', refresh);
-  window.addEventListener('orientationchange', () => setTimeout(refresh, 300));
+  window.addEventListener('orientationchange', () => { setTimeout(refresh, 300); syncHint(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') setTimeout(refresh, 150);
+    if (document.visibilityState === 'visible') { setTimeout(refresh, 150); wake(game); }
   });
+  window.addEventListener('focus', () => wake(game));
   if (window.visualViewport) window.visualViewport.addEventListener('resize', refresh);
+
+  setupFullscreen(game, refresh);
+  guardContext(game);
 
   window.flameGame = game; // λαβή για ελέγχους — δεν τη χρησιμοποιεί το παιχνίδι
   return game;
 }
 
-// Πλήρης οθόνη με το πρώτο άγγιγμα: είναι ο ΜΟΝΟΣ τρόπος να φύγουν η μπάρα
-// διεύθυνσης και το μενού στο Android. Επιτρέπεται μόνο μέσα σε χειρονομία
-// χρήστη, γι' αυτό ζει μαζί με το ξεκλείδωμα του ήχου. Σε iPhone δεν
-// υποστηρίζεται — το catch το αγνοεί σιωπηλά.
+// ------------------------------------------------------------ πλήρης οθόνη
+//
+// ΠΡΟΣΟΧΗ — γιατί ΔΕΝ ζητάμε πια πλήρη οθόνη μέσα σε άγγιγμα του παιχνιδιού:
+// το είχαμε βάλει σε κάθε pointerdown (v1.2.1) και το παιχνίδι ΠΑΓΩΝΕ στο
+// κινητό. Η μετάβαση σε πλήρη οθόνη ξαναχτίζει το καμβά μέσα στην ίδια
+// χειρονομία: το pointerup δεν φτάνει ποτέ στο Phaser, η σκηνή μένει σε
+// κατάσταση «απασχολημένη» και δεν δέχεται άλλο άγγιγμα.
+//
+// Λύση: η πλήρης οθόνη ζητιέται ΜΟΝΟ από ένα δικό της κουμπί, έξω από τον
+// καμβά. Το άγγιγμα που την ανοίγει δεν είναι ποτέ άγγιγμα του παιχνιδιού.
+
+const hint = () => document.getElementById('rotate');
+
+function fsAvailable() {
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+}
+
+function isFs() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+// Τι δείχνει η λωρίδα κάθε στιγμή:
+//   όρθιο            → «γύρισε το κινητό» (υπόδειξη, δεν δέχεται άγγιγμα)
+//   πλάγιο, όχι fs   → «πλήρης οθόνη» (κουμπί)
+//   πλήρης οθόνη     → τίποτα
+function syncHint() {
+  const el = hint();
+  if (!el) return;
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+
+  if (portrait) {
+    el.className = 'show';
+    el.querySelector('.icon').textContent = '▯';
+    el.querySelector('p').textContent = 'Γύρισε το κινητό στο πλάι για τη μάχη';
+    return;
+  }
+  if (coarse && fsAvailable() && !isFs()) {
+    el.className = 'show tap';
+    el.querySelector('.icon').textContent = '⛶';
+    el.querySelector('p').textContent = 'Πλήρης οθόνη';
+    return;
+  }
+  el.className = '';
+}
+
+function setupFullscreen(game, refresh) {
+  const el = hint();
+  if (el) {
+    el.addEventListener('click', (ev) => {
+      if (!el.classList.contains('tap')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      goFullscreen();
+    });
+  }
+  // Η αλλαγή κατάστασης αλλάζει το μέγεθος του καμβά — ξαναμετράμε ΚΑΙ
+  // ξυπνάμε τον βρόχο, γιατί κάποιοι browsers τον παγώνουν στη μετάβαση.
+  const onChange = () => {
+    syncHint();
+    setTimeout(() => { refresh(); wake(game); }, 120);
+    setTimeout(refresh, 600);
+  };
+  document.addEventListener('fullscreenchange', onChange);
+  document.addEventListener('webkitfullscreenchange', onChange);
+  window.addEventListener('resize', syncHint);
+  syncHint();
+}
+
 function goFullscreen() {
-  if (!window.matchMedia) return;
-  const coarse = window.matchMedia('(pointer: coarse)').matches;
-  const landscape = window.matchMedia('(orientation: landscape)').matches;
-  // Μόνο σε συσκευή αφής ΚΑΙ μόνο πλαγιαστά: όρθιο το θέλουμε κανονικό,
-  // γιατί εκεί γίνονται τα μενού και η εισαγωγή λέξεων.
-  if (!coarse || !landscape) return;
-  // Καλούμε απευθείας το DOM API ώστε να πιάσουμε ΚΑΙ την ασύγχρονη απόρριψη
-  // (π.χ. μέσα σε iframe χωρίς άδεια) — αλλιώς πετάει σφάλμα στην κονσόλα.
   try {
-    if (document.fullscreenElement) return;
+    if (isFs()) return;
     const el = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
     if (!req) return;
     const p = req.call(el, { navigationUI: 'hide' });
     if (p && p.catch) p.catch(() => { /* δεν επιτρέπεται — συνεχίζουμε κανονικά */ });
   } catch (e) { /* δεν υποστηρίζεται — συνεχίζουμε κανονικά */ }
+}
+
+// --------------------------------------------------------------- αντοχή
+//
+// Το παιχνίδι δεν επιτρέπεται να μείνει παγωμένο σε καμία περίπτωση: το
+// παιδί δεν ξέρει να κάνει ανανέωση. Δύο δίχτυα ασφαλείας:
+
+// 1. Ο βρόχος του Phaser σταματά όταν ο browser κρύψει τη σελίδα. Αν το
+//    «ξαναφάνηκε» χαθεί (συμβαίνει στη μετάβαση σε πλήρη οθόνη), μένει
+//    σταματημένος για πάντα. Τον ξυπνάμε χειροκίνητα.
+function wake(game) {
+  try {
+    if (!game || !game.loop) return;
+    if (!game.loop.running) game.loop.wake();
+    if (game.scene) {
+      game.scene.scenes.forEach((s) => {
+        if (s.sys.isPaused && s.sys.isPaused()) s.sys.resume();
+      });
+    }
+  } catch (e) { /* τίποτα να κάνουμε */ }
+}
+
+// 2. Χαμένο WebGL context: ο καμβάς παγώνει στο τελευταίο καρέ. Σε κινητό
+//    συμβαίνει σε μεταβάσεις και σε πίεση μνήμης. Δεν προσπαθούμε να το
+//    ξαναχτίσουμε — φορτώνουμε ξανά τη σελίδα, η πρόοδος είναι αποθηκευμένη.
+function guardContext(game) {
+  const cv = game.canvas;
+  if (!cv) return;
+  cv.addEventListener('webglcontextlost', (ev) => {
+    ev.preventDefault();
+    setTimeout(() => { if (!game.renderer || !game.renderer.contextLost) return; location.reload(); }, 1200);
+  });
+  cv.addEventListener('webglcontextrestored', () => location.reload());
 }
 
 // Γραμματοσειρές ΚΑΙ Learning Engine έτοιμα πριν ανοίξει η πρώτη σκηνή.
