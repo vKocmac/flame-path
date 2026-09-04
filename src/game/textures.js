@@ -117,6 +117,17 @@ export function buildTextures(scene) {
   glow(scene, 'glow-moon', 256, HEX.moon);
   glow(scene, 'glow-spirit', 256, HEX.spirit);
 
+  // Τούφα καπνού: ΟΥΔΕΤΕΡΟ λευκό, ώστε το tint να δίνει καθαρό γκρι. Με τη
+  // «σπίθα» (που είναι πορτοκαλί) ο καπνός έβγαινε χρυσός σαν πυγολαμπίδες.
+  canvasTexture(scene, 'puff', 64, 64, (ctx) => {
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,0.92)');
+    g.addColorStop(0.42, 'rgba(255,255,255,0.34)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+  });
+
   // Σπίθα: μικρή κουκκίδα με απαλή άλω (για τα σωματίδια)
   canvasTexture(scene, 'spark', 32, 32, (ctx) => {
     const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);

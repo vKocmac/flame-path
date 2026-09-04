@@ -259,6 +259,11 @@ export default class BattleScene extends Phaser.Scene {
               [2, 62, 10], [3, 82, 7.5], [4, 100, 5], [5, 118, 2.6]]) // μούσι
     ];
 
+    // Το μανίκι ζωγραφίζεται κάθε καρέ από τον ώμο ως το χέρι (animateMaster),
+    // ώστε όταν τεντώνεται το χέρι να μη μοιάζει με μαύρη μπάρα στον αέρα.
+    c.sleeveG = this.add.graphics();
+    c.add(c.sleeveG);
+
     // Το χέρι που αρπάζει
     const arm = this.add.ellipse(-44, -6, 26, 16, NUM.shadow).setAlpha(.98);
     c.add(arm);
@@ -465,10 +470,15 @@ export default class BattleScene extends Phaser.Scene {
     c.nextBreathAt = this.time.now + Phaser.Math.Between(2600, 5200);
   }
 
-  spawnWave() {
+  /**
+   * @param {() => void} [done] καλείται όταν το κύμα είναι έτοιμο. Η είσοδος
+   *   του Μάστερ Γου είναι σκηνή δύο δευτερολέπτων — η επόμενη λέξη δεν
+   *   επιτρέπεται να εμφανιστεί από πάνω της.
+   */
+  spawnWave(done) {
     this.wave = (this.wave || 0) + 1;
     // Όταν τελειώσουν οι ορδές που στέλνει, κατεβαίνει ο ίδιος.
-    if (this.wave % BOSS_EVERY === 0) { this.summonMaster(); return; }
+    if (this.wave % BOSS_EVERY === 0) { this.summonMaster(done); return; }
     const comp = waveComposition(this.wave);
     comp.forEach((archId, i) => {
       const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, archId, 1.22 - i * .05);
@@ -476,6 +486,7 @@ export default class BattleScene extends Phaser.Scene {
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
       this.enemies.push(e);
     });
+    if (done) done();
   }
 
   frontEnemy() { return this.enemies[0] || null; }
@@ -483,7 +494,14 @@ export default class BattleScene extends Phaser.Scene {
   // Ο Μάστερ Γου κατεβαίνει ο ίδιος στο πεδίο. Δεν περπατά και δεν πατάει
   // χώμα: χάνεται από τη θέση του και ξαναεμφανίζεται μέσα σε καπνό. Πέντε
   // σωστές απαντήσεις για να διωχτεί — και δεν λέει ούτε λέξη.
-  summonMaster() {
+  /**
+   * Η είσοδος του Μάστερ Γου (NEXT-FIXES Γ7). Δεν μιλάει ποτέ, οπότε η
+   * κορύφωση γίνεται με κίνηση: εξαφανίζεται από το πόστο του, υλοποιείται
+   * ψηλά μέσα σε καπνό, ΚΑΤΕΒΑΙΝΕΙ αργά, και ανοίγει το χέρι — από την
+   * παλάμη του φεύγουν δύο δαχτυλίδια ενέργειας.
+   * @param {() => void} [done]
+   */
+  summonMaster(done) {
     const m = this.master;
     const arch = archetype('master');
     m.arch = arch;
@@ -494,25 +512,121 @@ export default class BattleScene extends Phaser.Scene {
     m.multMs = 0;
     m.size = 1;
     m.isMaster = true;
-    audio.poof();
-    this.smokePuff(m.x, m.y, 24);
+    this.enemies.push(m);
 
-    this.tweens.add({
-      targets: m, alpha: 0, duration: 260, ease: 'Quad.easeIn',
-      onComplete: () => {
-        // Χαμηλά αρκετά ώστε το κεφάλι του να μη μπλέκεται με τη σειρά των
-        // φουσκών, αλλά αιωρούμενος: το μούσι φτάνει ως το χώμα, τα πόδια όχι.
-        m.setX(SPAWN_X + 40).setDepth(11).setScale(1.3);
-        m.baseY = LINE_Y - 165;
-        m.setY(m.baseY);
-        audio.poof();
-        this.smokePuff(m.x, m.y, 34);
-        this.cameras.main.shake(240, .004);
-        this.tweens.add({ targets: m, alpha: 1, duration: 320 });
-        this.tweens.add({ targets: m.hpGlow, alpha: .34, duration: 400 });
+    // Όσο κρατά η σκηνή δεν τρέχει πίεση χρόνου και δεν μετράει άγγιγμα.
+    this.busy = true;
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow)
+      .setDepth(9).setAlpha(0);
+    this.tweens.add({ targets: veil, alpha: .45, duration: 420 });
+
+    // 1. Φεύγει από το ψηλό του πόστο
+    audio.poof();
+    audio.omen();
+    this.smokePuff(m.x, m.y, 26);
+    this.tweens.add({ targets: m, alpha: 0, duration: 300, ease: 'Quad.easeIn' });
+
+    // 2. Υλοποιείται ψηλά, μεγάλος, μέσα σε πυκνό καπνό
+    const groundY = LINE_Y - 165;
+    this.time.delayedCall(420, () => {
+      m.setX(SPAWN_X + 40).setDepth(33).setScale(1.62);
+      m.baseY = groundY - 190;
+      m.setY(m.baseY);
+      this.smokePuff(m.x, m.y + 60, 46);
+      this.tweens.add({ targets: m, alpha: 1, duration: 380 });
+      // Χαμηλά: πιο πάνω η άλως καταπίνει τη σιλουέτα και γίνεται φάντασμα
+      this.tweens.add({ targets: m.hpGlow, alpha: .24, duration: 600 });
+      // 3. Η κάθοδος — αργή, με το μούσι και τον μανδύα να ακολουθούν
+      this.tweens.add({
+        targets: m, baseY: groundY, scale: 1.3,
+        duration: 1150, ease: 'Sine.easeInOut'
+      });
+    });
+
+    // 4. Η χειρονομία: ανοίγει την παλάμη και δύο δαχτυλίδια φεύγουν από μέσα
+    this.time.delayedCall(1500, () => {
+      this.tweens.add({ targets: m.arm, x: -82, y: -26, scaleX: 1.5, scaleY: 1.15,
+        duration: 380, ease: 'Quad.easeOut' });
+      // ΜΟΝΟ alpha: το Graphics των ματιών ζωγραφίζει γύρω από το (0,0) του
+      // container, οπότε κλίμακα θα τα μετακινούσε από το πρόσωπο.
+      this.tweens.add({ targets: m.eyes, alpha: .35,
+        duration: 220, yoyo: true, repeat: 2 });
+      this.cameras.main.shake(420, .005);
+      audio.poof();
+      for (let i = 0; i < 2; i++) {
+        this.time.delayedCall(i * 190, () => this.sealRing(m.x - 78, m.y - 30, m.fire));
       }
     });
-    this.enemies.push(m);
+
+    // 5. Κατεβάζει το χέρι, φεύγει το σκοτάδι, αρχίζει η μάχη
+    this.time.delayedCall(2200, () => {
+      this.tweens.add({ targets: m.arm, x: -44, y: -6, scaleX: 1, scaleY: 1,
+        duration: 420, ease: 'Quad.easeIn' });
+      this.tweens.add({
+        targets: veil, alpha: 0, duration: 460,
+        onComplete: () => {
+          veil.destroy();
+          m.setDepth(11);
+          this.busy = false;
+          if (done) done();
+        }
+      });
+    });
+  }
+
+  // Δαχτυλίδι ενέργειας που ανοίγει από ένα σημείο και σβήνει. Το ίδιο σχήμα
+  // χρησιμοποιείται στην είσοδο και στο χτύπημά του — μία γλώσσα, δική του.
+  sealRing(x, y, color) {
+    const g = this.add.graphics().setDepth(34)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const st = { r: 8, a: .95 };
+    this.tweens.add({
+      targets: st, r: 190, a: 0, duration: 720, ease: 'Quad.easeOut',
+      onUpdate: () => {
+        g.clear();
+        g.lineStyle(5 * (1 - st.r / 260), color, st.a);
+        g.strokeEllipse(x, y, st.r * 2, st.r * 1.35);
+      },
+      onComplete: () => g.destroy()
+    });
+  }
+
+  /**
+   * Το χτύπημά του στο λάθος (NEXT-FIXES Γ7). Δεν αφαιρεί τίποτα: ο νίντζα
+   * τραντάζεται και επανέρχεται. Είναι δήλωση ΔΙΚΗΣ ΤΟΥ δύναμης, όχι ποινή
+   * — καμία απώλεια προόδου, κανένα κόκκινο (SPEC κεφ. 3).
+   */
+  masterStrike(m) {
+    this.tweens.add({ targets: m.arm, x: -80, scaleX: 1.5,
+      duration: 200, ease: 'Quad.easeOut', yoyo: true, hold: 240 });
+    this.tweens.add({ targets: m.eyes, alpha: 1, duration: 160, yoyo: true, repeat: 1 });
+    this.sealRing(m.x - 76, m.y - 28, m.fire);
+
+    const bolt = this.add.container(m.x - 76, m.y - 28).setDepth(15);
+    bolt.add(this.add.image(0, 0, 'glow-spirit').setScale(.7).setAlpha(.9)
+      .setBlendMode(Phaser.BlendModes.ADD));
+    bolt.add(this.add.circle(0, 0, 13, NUM.spirit).setAlpha(.9));
+
+    this.tweens.add({
+      targets: bolt, x: this.ninja.x + 10, y: this.ninja.y - 74,
+      duration: 360, delay: 220, ease: 'Quad.easeIn',
+      onComplete: () => {
+        bolt.destroy();
+        audio.strike();
+        this.cameras.main.shake(260, .006);
+        this.sealRing(this.ninja.x + 10, this.ninja.y - 74, NUM.spirit);
+        // Ο νίντζα τραντάζεται και ξαναστέκεται — τίποτα δεν χάνεται
+        this.ninja.frozen = true;
+        this.tweens.add({
+          targets: this.ninja, x: NINJA_X - 34, angle: -13,
+          duration: 130, ease: 'Quad.easeOut', yoyo: true, hold: 90,
+          onComplete: () => {
+            this.ninja.setAngle(0).setX(NINJA_X);
+            this.ninja.frozen = false;
+          }
+        });
+      }
+    });
   }
 
   // Διώχτηκε: επιστρέφει στο ψηλό του πόστο και ξαναρχίζει να στέλνει ορδές.
@@ -533,10 +647,10 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   smokePuff(x, y, n) {
-    const p = this.add.particles(x, y, 'spark', {
+    const p = this.add.particles(x, y, 'puff', {
       speed: { min: 40, max: 210 }, scale: { start: 1.6, end: 0 },
       alpha: { start: .6, end: 0 }, lifespan: 850, tint: NUM.smoke, emitting: false
-    }).setDepth(16);
+    }).setDepth(35);
     p.explode(n);
     this.time.delayedCall(1300, () => p.destroy());
   }
@@ -886,6 +1000,24 @@ export default class BattleScene extends Phaser.Scene {
     m.robe.forEach((r, i) => {
       r.angle = Math.sin(time * .001 - i * .7) * (3 + i * 2);
     });
+
+    // Το μανίκι ακολουθεί το χέρι, με μια καμπύλη στον αγκώνα
+    const a = m.arm;
+    const sg = m.sleeveG;
+    sg.clear();
+    const sx = -24, sy = -16;                       // ώμος
+    const ex = a.x + 6, ey = a.y;                   // καρπός
+    const pts = [];
+    for (let i = 0; i <= 4; i++) {
+      const f = i / 4;
+      pts.push({
+        cx: sx + (ex - sx) * f,
+        cy: sy + (ey - sy) * f + Math.sin(f * Math.PI) * 12,   // πέφτει ο αγκώνας
+        r: 15 - 5 * f
+      });
+    }
+    sg.fillStyle(NUM.shadow, .98);
+    sg.fillPoints(ribbonOutline(pts), true);
   }
 
   // ----------------------------------------------------------- η περγαμηνή
@@ -1333,11 +1465,10 @@ export default class BattleScene extends Phaser.Scene {
     this.time.delayedCall(820, () => {
       this.hideScroll(() => {
         if (!this.enemies.length) {
-          this.time.delayedCall(420, () => {
-            this.spawnWave();
+          this.time.delayedCall(420, () => this.spawnWave(() => {
             // Νίκησες τον Μάστερ Γου → τέλος λεβελ, νέος πάπυρος με νέες λέξεις
             if (bossCleared) this.openLevel(); else this.nextChallenge();
-          });
+          }));
         } else {
           this.nextChallenge();
         }
@@ -1443,7 +1574,7 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: orb, alpha: .3, scale: .82, duration: 380, ease: 'Quad.easeOut' });
     orb.disableInteractive();
 
-    const smoke = this.add.particles(orb.x, orb.y, 'spark', {
+    const smoke = this.add.particles(orb.x, orb.y, 'puff', {
       speed: { min: 12, max: 46 }, angle: { min: 250, max: 290 },
       scale: { start: .7, end: 0 }, alpha: { start: .5, end: 0 },
       lifespan: { min: 500, max: 900 }, tint: NUM.smoke, emitting: false
@@ -1479,7 +1610,7 @@ export default class BattleScene extends Phaser.Scene {
           targets: bolt, x: reach, y: bolt.y + 36, scale: .12, alpha: 0,
           duration: 330, ease: 'Quad.easeOut',
           onComplete: () => {
-            const puff = this.add.particles(bolt.x, bolt.y, 'spark', {
+            const puff = this.add.particles(bolt.x, bolt.y, 'puff', {
               speed: { min: 15, max: 60 }, angle: { min: 240, max: 300 },
               scale: { start: .9, end: 0 }, alpha: { start: .5, end: 0 },
               lifespan: { min: 400, max: 800 }, tint: NUM.smoke, emitting: false
@@ -1505,10 +1636,17 @@ export default class BattleScene extends Phaser.Scene {
         this.tweens.add({
           targets: e, x: e.x - ERROR_STEP, duration: 260, delay: i * 40, ease: 'Back.easeOut'
         });
-        if (e.head) {
-          this.tweens.add({ targets: e.head, angle: -8, duration: 180, yoyo: true, delay: i * 40 });
+        // Ο δράκος γρυλίζει: μαζεύει τον λαιμό και τον ξανατεντώνει. (Το
+        // παλιό tween στη γωνία του κεφαλιού δεν έχει πια νόημα — το κεφάλι
+        // το ορίζει η ραχοκοκαλιά σε κάθε καρέ.)
+        if (e.spine && !e.breathing) {
+          this.tweens.add({ targets: e, breath: -.55, duration: 150,
+            delay: i * 40, yoyo: true, ease: 'Quad.easeOut' });
         }
       });
+      // Όταν είναι ο ίδιος στο πεδίο, δεν αρκεί να πλησιάσει: χτυπά.
+      const boss = this.enemies.find((e) => e.isMaster);
+      if (boss) this.masterStrike(boss);
     }
     this.cameras.main.shake(190, .0028);
     this.pace(HASTE_FACTOR, HASTE_MS);
@@ -1540,7 +1678,7 @@ export default class BattleScene extends Phaser.Scene {
     audio.poof();
 
     const smokeAt = (x, y, n, life) => {
-      const p = this.add.particles(x, y, 'spark', {
+      const p = this.add.particles(x, y, 'puff', {
         speed: { min: 30, max: 170 }, scale: { start: 1.5, end: 0 },
         alpha: { start: .6, end: 0 }, lifespan: life, tint: NUM.smoke, emitting: false
       }).setDepth(16);

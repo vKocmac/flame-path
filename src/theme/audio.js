@@ -411,6 +411,73 @@ export function cast() {
   for (let i = 0; i < 3; i++) setTimeout(() => crackle(1.3, fxGain), 200 + i * 50);
 }
 
+/**
+ * Ο οιωνός του Μάστερ Γου: δεν μιλάει ποτέ, οπότε η είσοδός του χρειάζεται
+ * ήχο. Δύο τόνοι σε μικρό δεύτερο — το διάστημα που ο εγκέφαλος διαβάζει ως
+ * απειλή — μαζί με ένα βαθύ φούσκωμα από κάτω.
+ */
+export function omen() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(58, t);
+  sub.frequency.exponentialRampToValueAtTime(38, t + 1.4);
+  const sg = ctx.createGain();
+  sg.gain.setValueAtTime(0.0001, t);
+  sg.gain.exponentialRampToValueAtTime(0.20, t + 0.35);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+  sub.connect(sg).connect(fxGain);
+  sub.start(t); sub.stop(t + 1.6);
+
+  [233, 247].forEach((f, i) => {                 // σι♭ και σι — μικρό δεύτερο
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.06);
+    g.gain.exponentialRampToValueAtTime(0.055, t + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    o.connect(g).connect(fxGain);
+    o.start(t + i * 0.06); o.stop(t + 1.6);
+  });
+}
+
+/**
+ * Το χτύπημα του Μάστερ Γου. Υπόκωφο και μεταλλικό — ΟΧΙ ήχος αποτυχίας:
+ * δείχνει ότι χτύπησε ΑΥΤΟΣ, όχι ότι έφταιξε το παιδί (SPEC κεφ. 3).
+ */
+export function strike() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(190, t);
+  o.frequency.exponentialRampToValueAtTime(52, t + 0.26);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.18, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+  o.connect(g).connect(fxGain);
+  o.start(t); o.stop(t + 0.45);
+
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.4);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(2400, t);
+  bp.frequency.exponentialRampToValueAtTime(700, t + 0.22);
+  bp.Q.value = 1.8;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  src.connect(bp).connect(ng).connect(fxGain);
+  src.start(t); src.stop(t + 0.4);
+}
+
 export function setMusic(on) {
   musicOn = on;
   if (musicGain) musicGain.gain.value = on ? 1 : 0;
