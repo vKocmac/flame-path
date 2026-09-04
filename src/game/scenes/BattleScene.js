@@ -35,6 +35,10 @@ const KNOCKBACK = 96;                          // σωστό → η γραμμή
 const SLOW_FACTOR = .4, SLOW_MS = 400;         // σωστό → «ανασαίνει» το παιδί
 const HASTE_FACTOR = 1.6, HASTE_MS = 800;      // λάθος → πραγματική συνέπεια
 const ERROR_STEP = 58;                         // λάθος → ορατό βήμα μπροστά
+// Πόσες φορές μπορεί να πέσει έξω πριν του πάρουν τη λέξη. Με απεριόριστες
+// προσπάθειες το παιδί απλώς πατούσε τις φούσκες μία-μία μέχρι να βρει —
+// δηλαδή μάθαινε να μαντεύει, όχι να γράφει.
+const MAX_TRIES = 2;
 const WORDS_PER_LEVEL = 5;                     // πόσες λέξεις καίει ο πάπυρος
 
 // Shadow Focus (BRANCH-SCOPE §8): το φρένο. Όταν ο εχθρός είναι κοντά ΚΑΙ η
@@ -1391,6 +1395,8 @@ export default class BattleScene extends Phaser.Scene {
     this.current = ch;
     this.reported = false;
     this.revealed = false;
+    this.tries = 0;
+    this.lostWord = false;
     this.startedAt = performance.now();
     this.showGap(ch);
   }
@@ -1624,7 +1630,12 @@ export default class BattleScene extends Phaser.Scene {
     // κανένα «έχασες το combo», κανένας ήχος. Αλλιώς είναι τιμωρητικό UI
     // από την πίσω πόρτα (SPEC κεφ. 3).
     if (correct) this.combo += 1;
-    else { this.combo = 0; this.hardTargets.add(ch.targetId); }
+    else {
+      this.combo = 0;
+      this.hardTargets.add(ch.targetId);
+      this.tries = (this.tries || 0) + 1;
+      this.lostWord = this.tries >= MAX_TRIES;
+    }
 
     if (correct) this.castFlame(orb);
     else this.flameFails(orb);
@@ -1756,14 +1767,17 @@ export default class BattleScene extends Phaser.Scene {
 
   // Κάθε νίκη σπρώχνει ΟΛΗ τη γραμμή πίσω (ποτέ πέρα από τη θέση εκκίνησής
   // της) και την επιβραδύνει για μια ανάσα.
+  // ΜΟΝΟ ο μπροστινός υποχωρεί. Πριν, μία σωστή απάντηση έσπρωχνε ολόκληρη
+  // τη γραμμή και το κύμα έχανε κάθε απειλή: χτυπούσες έναν και πήγαιναν
+  // πίσω πέντε. Τώρα οι πίσω συνεχίζουν να έρχονται.
   pushBackLine() {
-    this.enemies.forEach((en, i) => {
-      const cap = SPAWN_X + i * ENEMY_GAP;
-      this.tweens.add({
-        targets: en, x: Math.min(en.x + KNOCKBACK, cap),
-        duration: 260, ease: 'Quad.easeOut'
-      });
-    });
+    const front = this.enemies[0];
+    if (front) {
+      const behind = this.enemies[1];
+      const cap = behind ? behind.x - ENEMY_GAP * .7 : SPAWN_X;
+      const to = Math.max(front.x, Math.min(front.x + KNOCKBACK, cap));
+      this.tweens.add({ targets: front, x: to, duration: 260, ease: 'Quad.easeOut' });
+    }
     this.pace(SLOW_FACTOR, SLOW_MS);
   }
 
@@ -1911,9 +1925,11 @@ export default class BattleScene extends Phaser.Scene {
   enemyGainsGround() {
     if (this.enemies.length) {
       audio.thud();
+      // Στη δεύτερη αστοχία η γραμμή ορμάει: διπλό βήμα, όχι το ίδιο.
+      const step = this.lostWord ? ERROR_STEP * 1.9 : ERROR_STEP;
       this.enemies.forEach((e, i) => {
         this.tweens.add({
-          targets: e, x: e.x - ERROR_STEP, duration: 260, delay: i * 40, ease: 'Back.easeOut'
+          targets: e, x: e.x - step, duration: 260, delay: i * 40, ease: 'Back.easeOut'
         });
         // Ο δράκος γρυλίζει: μαζεύει τον λαιμό και τον ξανατεντώνει. (Το
         // παλιό tween στη γωνία του κεφαλιού δεν έχει πια νόημα — το κεφάλι
@@ -1927,12 +1943,35 @@ export default class BattleScene extends Phaser.Scene {
       const boss = this.enemies.find((e) => e.isMaster);
       if (boss) this.masterStrike(boss);
     }
-    this.cameras.main.shake(190, .0028);
+    this.cameras.main.shake(this.lostWord ? 340 : 190, this.lostWord ? .005 : .0028);
     this.pace(HASTE_FACTOR, HASTE_MS);
-    this.time.delayedCall(340, () => this.revealCorrect());
+    this.time.delayedCall(340, () => (this.lostWord ? this.wordLost() : this.revealCorrect()));
   }
 
-  // Μετά το λάθος το παιδί ξαναπροσπαθεί — ΧΩΡΙΣ να του δείξουμε ποιο είναι
+  /**
+   * Δεύτερη αστοχία: ο Μάστερ Γου αρπάζει ΟΛΗ τη λέξη και η μάχη συνεχίζει
+   * με άλλη. Καμία οθόνη σφάλματος, κανένα κόκκινο, καμία απώλεια σπίθας —
+   * η λέξη απλώς φεύγει, όπως έφυγε και το γράμμα (SPEC κεφ. 3).
+   *
+   * Η λέξη ΑΛΛΑΖΕΙ επίτηδες: αν έμενε η ίδια με λιγότερες επιλογές, το
+   * παιδί θα τη μάντευε με αποκλεισμό αντί να τη θυμηθεί.
+   */
+  wordLost() {
+    this.busy = true;
+    this.clearOrbs();
+    audio.poof();
+    audio.roar(.55);
+    const m = this.master;
+    if (m) {
+      this.tweens.add({ targets: m.arm, x: -92, scaleX: 2.2,
+        duration: 240, ease: 'Quad.easeOut', yoyo: true, hold: 220 });
+      this.tweens.add({ targets: m.eyes, alpha: .3, duration: 180, yoyo: true, repeat: 2 });
+    }
+    this.smokePuff(W / 2, 152, 34);
+    this.hideScroll(() => this.time.delayedCall(260, () => this.nextChallenge()));
+  }
+
+  // Μετά το ΠΡΩΤΟ λάθος το παιδί ξαναπροσπαθεί — ΧΩΡΙΣ να του δείξουμε ποιο είναι
   // το σωστό. Η φούσκα που πάλλεται πρόδιδε την ορθογραφία· δεν ήταν
   // βοήθεια, ήταν απάντηση. Οι υπόλοιπες φούσκες μένουν ενεργές όπως ήταν.
   revealCorrect() {
