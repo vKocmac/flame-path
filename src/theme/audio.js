@@ -237,29 +237,178 @@ export function poof() {
   src.stop(t + 0.6);
 }
 
-// Βρυχηθμός δράκου: χαμηλό πριόνι με αργό vibrato.
-export function roar() {
+// Καμπύλη παραμόρφωσης: δίνει «γρατζουνιά» σε καθαρές κυματομορφές. Χωρίς
+// αυτήν ένα χαμηλό πριόνι με vibrato δεν ακούγεται σαν ζώο — ακούγεται σαν
+// κόρνα. Ο βρυχηθμός θέλει αρμονικές ψηλά, όχι μόνο μπάσο.
+let shaperCurve = null;
+function grit(amount = 40) {
+  if (!shaperCurve) {
+    const n = 1024;
+    shaperCurve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      shaperCurve[i] = ((3 + amount) * x * 20 * Math.PI / 180) / (Math.PI + amount * Math.abs(x));
+    }
+  }
+  const ws = ctx.createWaveShaper();
+  ws.curve = shaperCurve;
+  ws.oversample = '2x';
+  return ws;
+}
+
+/**
+ * Βρυχηθμός δράκου. Τρία στρώματα, γιατί ένα δεν φτάνει:
+ *   1. δύο πριόνια ξεκούρδιστα μεταξύ τους → «σκίσιμο», όχι σφύριγμα
+ *   2. φίλτρο formant γύρω στα 500 Hz → λαρύγγι, όχι ηχείο
+ *   3. καφέ θόρυβος από πάνω → ανάσα του ζώου
+ * Η συχνότητα πέφτει κατά ένα τρίτο σε όλη τη διάρκεια: το ζώο ξεφυσά.
+ * @param {number} power 0..1 — μικρή προειδοποίηση ή κανονική επίθεση
+ */
+export function roar(power = 1) {
   if (!ctx) return;
   const t = ctx.currentTime;
-  const o = ctx.createOscillator();
-  o.type = 'sawtooth';
-  o.frequency.setValueAtTime(78, t);
-  o.frequency.exponentialRampToValueAtTime(52, t + 0.55);
-  const lfo = ctx.createOscillator();
-  lfo.frequency.value = 11;
-  const lfoG = ctx.createGain();
-  lfoG.gain.value = 6;
-  lfo.connect(lfoG).connect(o.frequency);
+  const dur = 0.55 + 0.5 * power;
+  const vol = 0.09 + 0.13 * power;
+
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t);
+  bus.gain.exponentialRampToValueAtTime(vol, t + 0.09);
+  bus.gain.setValueAtTime(vol, t + dur * 0.55);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+  const shape = grit(28);
+  const form = ctx.createBiquadFilter();
+  form.type = 'bandpass';
+  form.frequency.setValueAtTime(520, t);
+  form.frequency.exponentialRampToValueAtTime(300, t + dur);
+  form.Q.value = 1.1;
   const lp = ctx.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = 620;
+  lp.frequency.value = 2600;
+
+  shape.connect(form).connect(lp).connect(bus).connect(fxGain);
+
+  // Τα δύο πριόνια — το δεύτερο σκόπιμα ξεκούρδιστο κατά ένα πέμπτο
+  for (const [base, det, lvl] of [[108, 0, 1], [163, 7, 0.55]]) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.detune.value = det;
+    o.frequency.setValueAtTime(base, t);
+    o.frequency.exponentialRampToValueAtTime(base * 0.68, t + dur);
+    const lfo = ctx.createOscillator();          // αργό τρέμουλο, όχι βόμβος
+    lfo.frequency.value = 7.5;
+    const lfoG = ctx.createGain();
+    lfoG.gain.value = base * 0.05;
+    lfo.connect(lfoG).connect(o.frequency);
+    const og = ctx.createGain();
+    og.gain.value = lvl;
+    o.connect(og).connect(shape);
+    o.start(t); lfo.start(t);
+    o.stop(t + dur + 0.1); lfo.stop(t + dur + 0.1);
+  }
+
+  // Η ανάσα από πάνω
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(1.4);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 260;
+  const ng = ctx.createGain();
+  ng.gain.value = 0.5 * power;
+  src.connect(hp).connect(ng).connect(bus);
+  src.start(t);
+  src.stop(t + dur + 0.1);
+}
+
+/**
+ * Το φλογοβόλο: συνεχής ροή φωτιάς όση ώρα κρατά η δέσμη. Καφέ θόρυβος που
+ * ανοίγει και ξανακλείνει, με τσιτσιρίσματα από πάνω. Χωρίς αυτό ο δράκος
+ * βγάζει έναν ήχο και μετά σιωπή, ενώ η φωτιά συνεχίζει στην οθόνη.
+ * @param {number} ms πόσο κρατά η δέσμη
+ */
+export function flamethrower(ms = 700) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const dur = ms / 1000;
+
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(Math.max(2, dur + 0.5));
+
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(400, t);
+  lp.frequency.exponentialRampToValueAtTime(2200, t + 0.12);
+  lp.frequency.exponentialRampToValueAtTime(700, t + dur);
+  lp.Q.value = 0.8;
+
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 180;
+
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.12, t + 0.08);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
-  o.connect(lp).connect(g).connect(fxGain);
-  o.start(t); lfo.start(t);
-  o.stop(t + 0.8); lfo.stop(t + 0.8);
+  g.gain.exponentialRampToValueAtTime(0.20, t + 0.10);
+  g.gain.setValueAtTime(0.20, t + dur * 0.7);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.12);
+
+  src.connect(hp).connect(lp).connect(g).connect(fxGain);
+  src.start(t);
+  src.stop(t + dur + 0.2);
+
+  const n = Math.max(3, Math.round(dur * 14));
+  for (let i = 0; i < n; i++) setTimeout(() => crackle(1.8, fxGain), (dur * 1000 * i) / n);
+}
+
+/**
+ * Η εκτόξευση του νίντζα — «μαγικό», όχι σκέτο whoosh (NEXT-FIXES Γ4).
+ * Τρία πράγματα μαζί: ανοδικό γλίστρημα (η ενέργεια μαζεύεται), μια καθαρή
+ * καμπάνα με πέμπτη (το ξόρκι κλειδώνει) και κοντός αέρας (η φλόγα φεύγει).
+ */
+export function cast() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  // 1. Το γλίστρημα προς τα πάνω
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(320, t);
+  o.frequency.exponentialRampToValueAtTime(1560, t + 0.22);
+  const og = ctx.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(0.10, t + 0.05);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+  o.connect(og).connect(fxGain);
+  o.start(t); o.stop(t + 0.4);
+
+  // 2. Η καμπάνα: θεμελιώδης + πέμπτη + οκτάβα, με μεγάλη ουρά
+  [[1174, 0.075, 0.9], [1760, 0.05, 1.1], [2348, 0.03, 1.3]].forEach(([f, v, tail]) => {
+    const b = ctx.createOscillator();
+    b.type = 'sine';
+    b.frequency.value = f;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, t + 0.16);
+    bg.gain.exponentialRampToValueAtTime(v, t + 0.19);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.19 + tail);
+    b.connect(bg).connect(fxGain);
+    b.start(t + 0.16); b.stop(t + 0.2 + tail);
+  });
+
+  // 3. Ο αέρας της φλόγας
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.8);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(500, t + 0.14);
+  bp.frequency.exponentialRampToValueAtTime(3200, t + 0.42);
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t + 0.14);
+  ng.gain.exponentialRampToValueAtTime(0.13, t + 0.2);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  src.connect(bp).connect(ng).connect(fxGain);
+  src.start(t + 0.14);
+  src.stop(t + 0.6);
+  for (let i = 0; i < 3; i++) setTimeout(() => crackle(1.3, fxGain), 200 + i * 50);
 }
 
 export function setMusic(on) {

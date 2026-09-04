@@ -416,7 +416,10 @@ export default class BattleScene extends Phaser.Scene {
       { x: -48, y: -126, r: 23, amp: 2.6 }, // λαιμός
       { x: -58, y: -162, r: 18, amp: 2.2 },
       { x: -70, y: -196, r: 15, amp: 2 }
-    ].map((p) => ({ x: p.x * size, y: p.y * size, r: p.r * size, amp: p.amp * size, cy: p.y * size }));
+    ].map((p) => ({
+      x: p.x * size, y: p.y * size, r: p.r * size, amp: p.amp * size,
+      cx: p.x * size, cy: p.y * size
+    }));
 
     // Το κεφάλι — ξεχωριστό, ώστε να ανασηκώνεται πριν βγάλει φωτιά.
     const head = this.add.container(-84 * size, -218 * size);
@@ -453,6 +456,11 @@ export default class BattleScene extends Phaser.Scene {
     c.add(head);
     c.head = head;
 
+    // Κατάσταση αναπνοής: -1 εισπνοή · 0 ηρεμία · +1 εκπνοή. Το redrawDragon
+    // τη διαβάζει και λυγίζει τον λαιμό ανάλογα.
+    c.breath = 0;
+    c.big = false;          // η επόμενη είναι μικρό «παφ»· εναλλάσσεται
+    c.beam = null;
     // Πότε θα βγάλει την πρώτη προειδοποιητική φλόγα
     c.nextBreathAt = this.time.now + Phaser.Math.Between(2600, 5200);
   }
@@ -605,11 +613,7 @@ export default class BattleScene extends Phaser.Scene {
     for (const e of this.enemies) {
       if (!e.spine) continue;
       this.redrawDragon(e, time);
-      if (e.head && !e.breathing) {
-        const n = e.spine.length;
-        e.head.y = e.head.baseY + Math.sin(time * .0034 + n * .58) * 5 * e.size;
-        e.head.x = e.head.baseX + Math.sin(time * .0027 + n * .42) * 3 * e.size;
-      }
+      if (e.beam) this.drawBeam(e, time);
       if (e.nextBreathAt && time > e.nextBreathAt) this.dragonBreath(e, time);
     }
   }
@@ -624,8 +628,30 @@ export default class BattleScene extends Phaser.Scene {
     const S = e.size;
     const n = sp.length;
 
+    // Η αναπνοή δεν σηκώνει το κεφάλι — λυγίζει τον ΛΑΙΜΟ, και το κεφάλι
+    // ακολουθεί επειδή κρέμεται από την κορυφή της ραχοκοκαλιάς. Έτσι δεν
+    // ξεκολλάει ποτέ οπτικά από το σώμα (NEXT-FIXES Γ2).
+    const b = e.breath || 0;
     for (let i = 0; i < n; i++) {
       sp[i].cy = sp[i].y + Math.sin(time * .0032 + i * .62) * sp[i].amp;
+      sp[i].cx = sp[i].x;
+      const w = Math.max(0, (i - (n - 4)) / 3);      // 0 στον κορμό, 1 στην κορυφή
+      if (!w) continue;
+      if (b < 0) {                                    // εισπνοή: μαζεύεται πίσω
+        sp[i].cx += 16 * -b * w * S;
+        sp[i].cy -= 12 * -b * w * S;
+      } else if (b > 0) {                             // εκπνοή: τεντώνεται μπροστά
+        sp[i].cx -= 20 * b * w * S;
+        sp[i].cy += 8 * b * w * S;
+      }
+    }
+
+    // Το κεφάλι κάθεται πάνω στην κορυφή του λαιμού, πάντα.
+    const tip = sp[n - 1];
+    if (e.head) {
+      e.head.x = tip.cx - 14 * S;
+      e.head.y = tip.cy - 22 * S;
+      e.head.angle = b * 9;
     }
 
     // Περίγραμμα: πάνω ακμή από την ουρά στον λαιμό, κάτω ακμή ανάποδα
@@ -633,14 +659,14 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 0; i < n; i++) {
       const p = sp[i];
       const a = sp[Math.max(i - 1, 0)];
-      const b = sp[Math.min(i + 1, n - 1)];
-      let tx = b.x - a.x, ty = b.cy - a.cy;
+      const c = sp[Math.min(i + 1, n - 1)];
+      let tx = c.cx - a.cx, ty = c.cy - a.cy;
       const len = Math.hypot(tx, ty) || 1;
       tx /= len; ty /= len;
       const nx = -ty, ny = tx;
-      up.push(new Phaser.Geom.Point(p.x + nx * p.r, p.cy + ny * p.r));
-      lo.push(new Phaser.Geom.Point(p.x - nx * p.r, p.cy - ny * p.r));
-      inner.push(new Phaser.Geom.Point(p.x - nx * p.r * .34, p.cy - ny * p.r * .34));
+      up.push(new Phaser.Geom.Point(p.cx + nx * p.r, p.cy + ny * p.r));
+      lo.push(new Phaser.Geom.Point(p.cx - nx * p.r, p.cy - ny * p.r));
+      inner.push(new Phaser.Geom.Point(p.cx - nx * p.r * .34, p.cy - ny * p.r * .34));
       p.nx = nx; p.ny = ny;
     }
 
@@ -663,8 +689,8 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 2; i < n - 2; i++) {
       const p = sp[i];
       g.lineBetween(
-        p.x - p.nx * p.r * .92, p.cy - p.ny * p.r * .92,
-        p.x - p.nx * p.r * .30, p.cy - p.ny * p.r * .30
+        p.cx - p.nx * p.r * .92, p.cy - p.ny * p.r * .92,
+        p.cx - p.nx * p.r * .30, p.cy - p.ny * p.r * .30
       );
     }
 
@@ -673,7 +699,7 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 1; i < n - 1; i++) {
       const p = sp[i];
       const h = (8 + p.r * .42);
-      const bx = p.x + p.nx * p.r, by = p.cy + p.ny * p.r;
+      const bx = p.cx + p.nx * p.r, by = p.cy + p.ny * p.r;
       g.fillTriangle(
         bx - p.ny * 7 * S, by + p.nx * 7 * S,
         bx + p.nx * h, by + p.ny * h,
@@ -685,37 +711,142 @@ export default class BattleScene extends Phaser.Scene {
     const t0 = sp[0], t1 = sp[1];
     g.fillStyle(e.bodyColor, 1);
     g.fillTriangle(
-      t0.x + (t0.x - t1.x) * .55, t0.cy + (t0.cy - t1.cy) * .55,
-      t1.x + t1.nx * t1.r * .8, t1.cy + t1.ny * t1.r * .8,
-      t1.x - t1.nx * t1.r * .8, t1.cy - t1.ny * t1.r * .8
+      t0.cx + (t0.cx - t1.cx) * .55, t0.cy + (t0.cy - t1.cy) * .55,
+      t1.cx + t1.nx * t1.r * .8, t1.cy + t1.ny * t1.r * .8,
+      t1.cx - t1.nx * t1.r * .8, t1.cy - t1.ny * t1.r * .8
     );
   }
 
-  // Προειδοποίηση πριν επιτεθεί: ανασηκώνει το κεφάλι και βγάζει φωτιά.
+  // Το στόμα του δράκου σε συντεταγμένες κόσμου — από εκεί βγαίνει η φωτιά.
+  // Ακολουθεί το κεφάλι, που με τη σειρά του ακολουθεί τη ραχοκοκαλιά.
+  muzzle(e) {
+    const S = e.size;
+    return { x: e.x + e.head.x - 78 * S, y: e.y + e.head.y + 12 * S };
+  }
+
+  /**
+   * Η ανάσα του δράκου, ΕΝΑΛΛΑΞ (NEXT-FIXES Γ3):
+   *   μικρό «παφ»   — καθώς προχωράει, μια μπουκιά καπνού και σπίθες
+   *   ευθεία δέσμη  — μάζεμα, βρυχηθμός, και φωτιά που πετάγεται μπροστά
+   * Και στις δύο περιπτώσεις κινείται ο ΛΑΙΜΟΣ, όχι το κεφάλι χωριστά.
+   */
   dragonBreath(e, time) {
     e.breathing = true;
-    e.nextBreathAt = time + Phaser.Math.Between(4200, 7000);
-    audio.roar();
+    e.big = !e.big;
+    const big = e.big;
+    e.nextBreathAt = time + (big
+      ? Phaser.Math.Between(5400, 7800)
+      : Phaser.Math.Between(2800, 4400));
+
+    // 1. Εισπνοή — ο λαιμός μαζεύεται πίσω. Η μεγάλη διαρκεί περισσότερο:
+    //    το μάζεμα ΕΙΝΑΙ η προειδοποίηση.
     this.tweens.add({
-      targets: e.head, y: e.head.baseY - 26 * e.size, angle: -12,
-      duration: 260, ease: 'Quad.easeOut',
+      targets: e, breath: -1, duration: big ? 440 : 200, ease: 'Quad.easeOut',
       onComplete: () => {
-        const jet = this.add.particles(e.x + e.head.baseX - 54 * e.size,
-          e.y + e.head.baseY + 8 * e.size, 'spark', {
-          speed: { min: 90, max: 260 }, angle: { min: 160, max: 200 },
-          scale: { start: .9, end: 0 }, alpha: { start: .95, end: 0 },
-          lifespan: { min: 320, max: 620 }, blendMode: 'ADD',
-          tint: [e.fire, NUM.flame], emitting: false
-        }).setDepth(12);
-        jet.explode(26);
-        this.time.delayedCall(900, () => jet.destroy());
+        if (!e.active) return;
+        audio.roar(big ? 1 : .35);
+        if (big) this.dragonBeam(e); else this.dragonPuff(e);
+        // 2. Εκπνοή — τεντώνεται μπροστά, μετά επιστρέφει αργά
         this.tweens.add({
-          targets: e.head, y: e.head.baseY, angle: 0,
-          duration: 420, ease: 'Quad.easeIn',
-          onComplete: () => { e.breathing = false; }
+          targets: e, breath: 1, duration: 150, ease: 'Back.easeOut',
+          onComplete: () => {
+            this.tweens.add({
+              targets: e, breath: 0, duration: big ? 760 : 420,
+              ease: 'Sine.easeInOut',
+              onComplete: () => { e.breathing = false; }
+            });
+          }
         });
       }
     });
+  }
+
+  // Το μικρό «παφ»: μια μπουκιά, τίποτα παραπάνω.
+  dragonPuff(e) {
+    const m = this.muzzle(e);
+    const jet = this.add.particles(m.x, m.y, 'spark', {
+      speed: { min: 70, max: 200 }, angle: { min: 158, max: 202 },
+      scale: { start: .8, end: 0 }, alpha: { start: .9, end: 0 },
+      lifespan: { min: 280, max: 520 }, blendMode: 'ADD',
+      tint: [e.fire, NUM.flame], emitting: false
+    }).setDepth(12);
+    jet.explode(14);
+    this.time.delayedCall(800, () => jet.destroy());
+  }
+
+  // Η ευθεία δέσμη: ζωγραφίζεται καρέ-καρέ στο drawBeam, γιατί πρέπει να
+  // ξεκινά ΠΑΝΤΑ από το στόμα — και το στόμα κουνιέται.
+  dragonBeam(e) {
+    const S = e.size;
+    const m = this.muzzle(e);
+    const dur = 760;
+    audio.flamethrower(dur);
+    const em = this.add.particles(m.x, m.y, 'spark', {
+      speed: { min: 300, max: 720 }, angle: { min: 171, max: 189 },
+      scale: { start: .85, end: 0 }, alpha: { start: .95, end: 0 },
+      lifespan: { min: 240, max: 560 }, blendMode: 'ADD',
+      tint: [e.fire, NUM.flame, NUM.flameCore],
+      frequency: 16, quantity: 2
+    }).setDepth(13);
+    const g = this.add.graphics().setDepth(12)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    e.beam = { g, em, t0: this.time.now, dur, len: 320 * S };
+  }
+
+  // Η δέσμη είναι μια κορδέλα που ανοίγει προς τα εμπρός: στενή στο στόμα,
+  // φαρδιά στην άκρη, με πυρήνα πιο φωτεινό μέσα της. Το τρέμουλο είναι
+  // ημιτονοειδές και όχι τυχαίο — η τυχαιότητα ανά καρέ κάνει «χιόνι».
+  drawBeam(e, time) {
+    const b = e.beam;
+    const p = (time - b.t0) / b.dur;
+    if (p >= 1 || !e.active) {
+      b.g.destroy();
+      b.em.stop();
+      this.time.delayedCall(700, () => b.em.destroy());
+      e.beam = null;
+      return;
+    }
+    const env = p < .14 ? p / .14 : (p > .76 ? (1 - p) / .24 : 1);
+    const S = e.size;
+    const m = this.muzzle(e);
+    const L = b.len * env;
+    const SEG = 9;
+    const pts = [];
+    for (let i = 0; i <= SEG; i++) {
+      const f = i / SEG;
+      // Δύο ημίτονα σε ασύμβατες συχνότητες: η άκρη σπαρταράει χωρίς να
+      // γίνεται «χιόνι», όπως θα γινόταν με τυχαιότητα ανά καρέ.
+      const flick = 1 + (.16 * Math.sin(time * .021 + i * 1.7)
+                       + .12 * Math.sin(time * .037 + i * 2.9)) * (.3 + f);
+      pts.push({
+        cx: m.x - L * f,
+        cy: m.y + Math.sin(time * .012 + f * 3.4) * 7 * S * f,
+        r: (4 + 34 * f * f * .6 + 20 * f) * S * flick
+      });
+    }
+    // Μια μυτερή γλώσσα στην άκρη: χωρίς αυτήν η κορδέλα κλείνει με ίσιο
+    // κόψιμο και η φλόγα μοιάζει με χωνί.
+    pts.push({
+      cx: m.x - L * 1.12,
+      cy: m.y + Math.sin(time * .012 + 3.8) * 9 * S,
+      r: 6 * S
+    });
+
+    const g = b.g;
+    g.clear();
+    // Τρία στρώματα, καθένα ΚΟΝΤΟΤΕΡΟ από το προηγούμενο. Έτσι η φωτιά είναι
+    // λευκή στο στόμα, πορτοκαλί στη μέση και σκούρη στην άκρη — όπως η
+    // αληθινή. Ένα ενιαίο ανοιχτόχρωμο στρώμα έβγαζε προβολέα, όχι φλόγα.
+    const layer = (n, rf, color, a) => {
+      g.fillStyle(color, a * env);
+      g.fillPoints(ribbonOutline(pts.slice(0, n).map(
+        (q) => ({ cx: q.cx, cy: q.cy, r: q.r * rf }))), true);
+    };
+    layer(pts.length, 1, NUM.flameDeep, .34);
+    layer(SEG,     .70, NUM.flame,     .55);
+    layer(6,       .42, e.fire,        .60);
+    layer(4,       .26, NUM.flameCore, .85);
+    b.em.setPosition(m.x, m.y);
   }
 
   // Ο νίντζα ΔΕΝ είναι ζωγραφιά: αιωρείται, το σώμα ταλαντεύεται ελάχιστα
@@ -1101,7 +1232,6 @@ export default class BattleScene extends Phaser.Scene {
       onComplete: () => flash.destroy() });
 
     // Η φλόγα ρουφιέται στη χούφτα του νίντζα
-    audio.whoosh();
     this.tweens.add({
       targets: orb, x: this.ninja.x + 48, y: this.ninja.y - 78, scale: .45,
       duration: 300, ease: 'Quad.easeIn',
@@ -1114,6 +1244,9 @@ export default class BattleScene extends Phaser.Scene {
   // φλόγα φουσκώνει στη χούφτα του για ~320ms πριν φύγει. Χωρίς αυτό το
   // μάζεμα, το χτύπημα δεν «βαραίνει» — απλώς συμβαίνει.
   chargeAndFire() {
+    // Ο μαγικός ήχος ξεκινά ΕΔΩ, όχι στην αρπαγή: το ανοδικό γλίστρημα
+    // καλύπτει το μάζεμα και η καμπάνα χτυπά ακριβώς στην εκτόξευση.
+    audio.cast();
     this.ninja.frozen = true;
     const bright = this.combo >= COMBO_BRIGHT;   // 3 σωστά: πιο φωτεινή φλόγα
     this.tweens.add({
@@ -1260,6 +1393,16 @@ export default class BattleScene extends Phaser.Scene {
     if (e.isMaster) { this.banishMaster(e); return; }
 
     this.tweens.killTweensOf(e);
+    // Η δέσμη ζει έξω από το σώμα του — αν πεθάνει μέσα στη φωτιά, θα έμενε
+    // μια φλόγα κρεμασμένη στον αέρα.
+    if (e.beam) {
+      const { g, em } = e.beam;
+      e.beam = null;
+      g.destroy();
+      em.stop();
+      this.time.delayedCall(700, () => em.destroy());
+    }
+    e.nextBreathAt = 0;
     this.tweens.add({ targets: e, alpha: 0, scaleX: 1.4, scaleY: .6, y: e.y - 20,
       duration: 480, ease: 'Quad.easeOut', onComplete: () => e.destroy() });
   }

@@ -48,11 +48,13 @@ export const BOSS_EVERY = 3;
 // Ο δράκος αλλάζει χρώμα ανά στάδιο — ΠΟΤΕ ροζ/φούξια, μόνο από την
 // εγκεκριμένη παλέτα (DESIGN.md). Η φλόγα του παίρνει το ίδιο χρώμα, ώστε
 // η αλλαγή σταδίου να γίνεται αντιληπτή μέσα σε ένα δευτερόλεπτο.
+// Το `fire` βάφει τη δέσμη και τα μάτια. ΠΡΕΠΕΙ να είναι χρώμα φωτιάς: το
+// `parchment` έβγαζε λευκή δέσμη που δεν διαβαζόταν ως φλόγα.
 export const DRAGON_STAGES = [
-  { name: 'πορτοκαλί', body: 'flame',     fire: 'flameCore' },
-  { name: 'σμαραγδί',  body: 'spirit',    fire: 'parchment' },
-  { name: 'πυρρό',     body: 'flameDeep', fire: 'flame' },
-  { name: 'χρυσό',     body: 'lantern',   fire: 'flameCore' }
+  { name: 'πορτοκαλί', body: 'flame',     fire: 'lantern'   },
+  { name: 'σμαραγδί',  body: 'spirit',    fire: 'flame'     },
+  { name: 'πυρρό',     body: 'flameDeep', fire: 'lantern'   },
+  { name: 'χρυσό',     body: 'lantern',   fire: 'flameDeep' }
 ];
 
 /**
