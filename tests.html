@@ -23,7 +23,8 @@
 import * as store from './src/shared/storage.js';
 import * as engine from './src/learning/engine.js';
 import { errorCounts } from './src/learning/telemetry.js';
-import { splitGraphemes } from './src/shared/graphemes.js';
+import { splitGraphemes, classForGrapheme, distractorsFor, stripAccent }
+  from './src/shared/graphemes.js';
 
 const out = document.getElementById('out');
 const sum = document.getElementById('sum');
@@ -275,6 +276,44 @@ await test('Χωρίς καμία λέξη το engine επιστρέφει null
   const { pid } = seed([]);
   engine.resetSession();
   eq(engine.getNextChallenge(pid), null, 'null');
+});
+
+// --------------------------------------------------- Διαλυτικά (NEXT-FIXES Β2)
+
+await test('Τα διαλυτικά μένουν ΕΝΩΜΕΝΑ στον τεμαχισμό — μία μονάδα, όχι δύο', () => {
+  eq(splitGraphemes('αϋπνία'), ['αϋ', 'π', 'ν', 'ί', 'α'], 'αϋπνία');
+  eq(splitGraphemes('ευνοϊκό'), ['ευ', 'ν', 'οϊ', 'κ', 'ό'], 'ευνοϊκό');
+  eq(splitGraphemes('θεϊκός'), ['θ', 'εϊ', 'κ', 'ό', 'ς'], 'θεϊκός');
+  eq(splitGraphemes('μαϊμού'), ['μ', 'αϊ', 'μ', 'ού'], 'μαϊμού');
+});
+
+await test('Δυαδική ερώτηση: αυ↔αϋ και ευ↔εϋ, ακριβώς ένας distractor', () => {
+  eq(distractorsFor('αϋ'), ['αυ'], 'αϋ → αυ');
+  eq(distractorsFor('αυ'), ['αϋ'], 'αυ → αϋ');
+  eq(distractorsFor('ευ'), ['εϋ'], 'ευ → εϋ');
+  eq(distractorsFor('εϋ'), ['ευ'], 'εϋ → ευ');
+});
+
+await test('Το «οι» μένει ερώτημα /i/ — μόνο το «οϊ» ρωτά για διαλυτικά', () => {
+  eq(classForGrapheme('οι'), 'i', 'οι ανήκει στο /i/');
+  eq(distractorsFor('οι'), ['ι', 'η', 'υ', 'ει'], 'οι → τα άλλα /i/');
+  eq(classForGrapheme('οϊ'), 'oi_dia', 'οϊ ανήκει στα διαλυτικά');
+  eq(distractorsFor('οϊ'), ['οι'], 'οϊ → οι');
+});
+
+await test('Ο τόνος κληρονομείται: ΐ/ΰ κρατούν τα διαλυτικά όταν φεύγει ο τόνος', () => {
+  eq(stripAccent('εΐ'), 'εϊ', 'ο τόνος φεύγει, τα διαλυτικά μένουν');
+  eq(splitGraphemes('πρωτεΐνη')[4], 'εΐ', 'πρωτεΐνη → εΐ');
+  eq(distractorsFor('εΐ'), ['εί'], 'εΐ → εί, τονισμένο κι αυτό');
+  eq(distractorsFor('αΰ'), ['αύ'], 'αΰ → αύ');
+});
+
+await test('Καμία υποψήφια δεν είναι ίδια με τον στόχο', () => {
+  for (const g of ['αυ', 'αϋ', 'ευ', 'εϋ', 'οϊ', 'εϊ', 'αϊ', 'εΐ', 'ι', 'ω', 'αι']) {
+    assert(!distractorsFor(g).includes(g), `${g} έχει τον εαυτό του ως distractor`);
+    assert(new Set(distractorsFor(g)).size === distractorsFor(g).length,
+      `${g} έχει διπλό distractor`);
+  }
 });
 
 // --- Επαναφορά πραγματικών δεδομένων ---

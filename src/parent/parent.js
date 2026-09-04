@@ -215,7 +215,7 @@ function renderPick(w) {
       const i = Number(chip.dataset.i);
       const g = units[i];
       if (!classForGrapheme(g)) {
-        err.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης της Φάσης 1 (ι/η/υ/ει/οι, ο/ω, ε/αι, ου).`;
+        err.textContent = `Το «${g}» δεν ανήκει σε κλάση σύγχυσης: ι/η/υ/ει/οι · ο/ω · ε/αι · ου · διαλυτικά (αυ-αϋ, ευ-εϋ, οι-οϊ, ει-εϊ, αι-αϊ).`;
         return;
       }
       err.textContent = '';
