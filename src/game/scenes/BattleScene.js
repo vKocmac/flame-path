@@ -14,7 +14,7 @@ import * as audio from '../../theme/audio.js';
 import * as store from '../../shared/storage.js';
 import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
-import { archetype, dragonStage, waveComposition, BOSS_EVERY } from '../enemies.js';
+import { archetype, dragonStage, waveComposition, waveSpeed, BOSS_EVERY } from '../enemies.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
@@ -307,8 +307,13 @@ export default class BattleScene extends Phaser.Scene {
     c.multMs = 0;      // πόσα ms του απομένουν πριν επιστρέψει στο 1
     c.size = size;
 
-    if (arch.draw === 'dragon') this.drawDragon(c, size);
-    else this.drawSmoke(c, size);
+    // Ο πίνακας αρχετύπων λέει ΠΟΙΑ συνάρτηση· η σκηνή δεν ξέρει ονόματα
+    // εχθρών. Νέος εχθρός = μία γραμμή στο enemies.js + μία draw* εδώ.
+    const draw = {
+      dragon: this.drawDragon, ninja: this.drawNinjaFoe,
+      heavy: this.drawHeavy, wraith: this.drawWraith
+    }[arch.draw] || this.drawSmoke;
+    draw.call(this, c, size);
     return c;
   }
 
@@ -343,6 +348,207 @@ export default class BattleScene extends Phaser.Scene {
         delay: Phaser.Math.Between(0, 700)
       });
     }
+  }
+
+  /**
+   * Σκιερός Νίντζα (HYPER-NOTE §6) — γρήγορος, πέφτει με μία. ΔΕΝ είναι ο
+   * ήρωάς μας: γέρνει μπροστά, κρατά λεπίδα, και το χρώμα του είναι πιο
+   * ανοιχτό ώστε να μη μπερδεύεται με τη δική μας σιλουέτα.
+   *
+   * Anticipation: μαζεύεται και μετά ορμά. Χωρίς το μάζεμα η ορμή
+   * διαβάζεται ως κόλλημα της εικόνας, όχι ως πρόθεση.
+   */
+  drawNinjaFoe(c, size) {
+    const S = size;
+    const P = (x, y) => new Phaser.Geom.Point(x * S, y * S);
+    const g = this.add.graphics();
+
+    // Πόδια σε στάση φύλακα — χοντρά, το μπροστινό λυγισμένο
+    g.fillStyle(shade(NUM.nightHigh, .68), 1);
+    g.fillPoints([P(-4, -54), P(-40, -16), P(-20, 0), P(10, -40)], true);
+    g.fillPoints([P(14, -54), P(30, -14), P(50, -2), P(34, -46)], true);
+
+    // Κορμός: φαρδύς ώμος, γερμένος μπροστά (αριστερά)
+    g.fillStyle(NUM.nightHigh, 1);
+    g.fillPoints([P(-34, -122), P(24, -132), P(32, -50), P(-14, -44)], true);
+    g.fillStyle(shade(NUM.nightHigh, .58), .95);         // σκιά στην πλάτη
+    g.fillPoints([P(8, -128), P(24, -132), P(32, -50), P(14, -48)], true);
+    g.fillStyle(shade(NUM.nightHigh, 1.5), .35);         // φως στο στήθος
+    g.fillPoints([P(-34, -122), P(-16, -125), P(-8, -50), P(-14, -44)], true);
+
+    // Κεφάλι: κουκούλα με μύτη μπροστά, σχισμή για μάτια
+    g.fillStyle(NUM.nightHigh, 1);
+    g.fillEllipse(-8 * S, -150 * S, 52 * S, 44 * S);
+    g.fillPoints([P(-36, -158), P(-6, -184), P(20, -150), P(-2, -138)], true);
+    g.fillStyle(shade(NUM.nightHigh, .55), 1);           // η μάσκα, πιο σκούρη
+    g.fillEllipse(-16 * S, -142 * S, 34 * S, 26 * S);
+    g.fillStyle(NUM.flameDeep, .95);
+    g.fillRoundedRect(-32 * S, -152 * S, 28 * S, 7 * S, 3.5 * S);
+
+    // Ζώνη
+    g.fillStyle(NUM.flameDeep, .85);
+    g.fillPoints([P(-18, -84), P(30, -88), P(30, -76), P(-16, -72)], true);
+
+    // Λεπίδα χαμηλά, έτοιμη — διαγώνια, με λαβή στο χέρι
+    g.fillStyle(NUM.shadow, 1);
+    g.fillPoints([P(-24, -84), P(-8, -78), P(-14, -60), P(-30, -66)], true);
+    g.fillStyle(shade(NUM.stone, 2.1), .92);
+    g.fillPoints([P(-26, -74), P(-96, -40), P(-92, -31), P(-22, -62)], true);
+    g.fillStyle(NUM.parchment, .5);                      // ακμή φωτός στη λάμα
+    g.fillPoints([P(-26, -74), P(-96, -40), P(-94, -36), P(-25, -70)], true);
+
+    c.add(g);
+
+    // Κασκόλ: κορδέλα που ανεμίζει πίσω, ξαναζωγραφίζεται κάθε καρέ
+    const scarf = this.add.graphics();
+    c.add(scarf);
+    const spine = [[24, -118, 8], [42, -110, 6.5], [58, -98, 4.5], [70, -88, 2.5]]
+      .map(([x, y, r]) => ({ x: x * S, y: y * S, r: r * S, cx: x * S, cy: y * S }));
+
+    c.nextDashAt = this.time.now + Phaser.Math.Between(2200, 3600);
+    c.behave = (time) => {
+      // Το κασκόλ ακολουθεί με καθυστέρηση όσο πιο μακριά από τη ρίζα
+      scarf.clear();
+      spine.forEach((q, i) => {
+        q.cx = q.x + Math.sin(time * .006 - i * .7) * (1 + i * 2.2) * S;
+        q.cy = q.y + Math.sin(time * .005 - i * .5) * (1.5 + i * 2.6) * S;
+      });
+      scarf.fillStyle(NUM.flameDeep, .85);
+      scarf.fillPoints(ribbonOutline(spine), true);
+
+      if (time < c.nextDashAt) return;
+      c.nextDashAt = time + Phaser.Math.Between(2600, 4200);
+      // 1. μάζεμα  2. ορμή  3. επαναφορά
+      this.tweens.add({
+        targets: c, scaleY: c.scaleY * .84, scaleX: c.scaleX * 1.08,
+        duration: 190, ease: 'Quad.easeOut', yoyo: true,
+        onYoyo: () => { c.mult = 3.4; c.multMs = 300; }
+      });
+    };
+  }
+
+  /**
+   * Βαρύ Τέρας (HYPER-NOTE §6) — αργό, τέσσερα χτυπήματα. Η απειλή του δεν
+   * είναι ο χρόνος αλλά ότι δεν φεύγει: μένει μπροστά σου και τρώει σωστές
+   * απαντήσεις. Πλατύ και χαμηλό, ώστε να διαβάζεται ως όγκος.
+   */
+  drawHeavy(c, size) {
+    const S = size;
+    const P = (x, y) => new Phaser.Geom.Point(x * S, y * S);
+    const g = this.add.graphics();
+
+    // Πόδια κοντά και χοντρά
+    g.fillStyle(shade(NUM.ridgeNear, .8), 1);
+    g.fillRoundedRect(-46 * S, -40 * S, 36 * S, 40 * S, 10 * S);
+    g.fillRoundedRect(12 * S, -40 * S, 36 * S, 40 * S, 10 * S);
+
+    // Κορμός: καμπουριασμένος, ο ένας ώμος ψηλότερα — όγκος, όχι κουτί
+    g.fillStyle(NUM.ridgeNear, 1);
+    g.fillPoints([
+      P(-70, -128), P(-46, -156), P(30, -162), P(72, -134),
+      P(52, -38), P(-48, -38)
+    ], true);
+    g.fillStyle(shade(NUM.ridgeNear, 1.5), .42);         // φως στον μπροστινό ώμο
+    g.fillPoints([P(-70, -128), P(-46, -156), P(-24, -152), P(-40, -38), P(-48, -38)], true);
+    g.fillStyle(shade(NUM.ridgeNear, .55), .5);          // σκιά στην κοιλιά
+    g.fillPoints([P(-30, -70), P(46, -74), P(52, -38), P(-36, -38)], true);
+
+    // Αγκάθια στην πλάτη
+    g.fillStyle(shade(NUM.ridgeNear, .5), 1);
+    for (const [bx, by, h] of [[46, -150, 26], [64, -128, 20], [72, -104, 15]]) {
+      g.fillTriangle(bx * S, by * S, (bx + h) * S, (by + h * .4) * S, (bx + 4) * S, (by + h) * S);
+    }
+
+    // Δύο γραμμές θώρακα — λίγες, καθαρές
+    g.lineStyle(3 * S, shade(NUM.ridgeNear, .5), .75);
+    g.lineBetween(-52 * S, -112 * S, 48 * S, -118 * S);
+    g.lineBetween(-44 * S, -86 * S, 46 * S, -90 * S);
+
+    // Κεφάλι βυθισμένο ανάμεσα στους ώμους, με βαρύ φρύδι
+    g.fillStyle(shade(NUM.ridgeNear, .72), 1);
+    g.fillEllipse(-8 * S, -172 * S, 74 * S, 52 * S);
+    g.fillStyle(shade(NUM.ridgeNear, .45), 1);
+    g.fillPoints([P(-46, -184), P(28, -190), P(26, -172), P(-44, -168)], true);
+    g.fillStyle(NUM.lantern, .92);
+    g.fillEllipse(-24 * S, -168 * S, 13 * S, 9 * S);
+    g.fillEllipse(4 * S, -170 * S, 13 * S, 9 * S);
+    g.fillStyle(NUM.parchment, .8);                      // δύο χαυλιόδοντες
+    g.fillTriangle(-26 * S, -152 * S, -16 * S, -152 * S, -21 * S, -136 * S);
+    g.fillTriangle(2 * S, -152 * S, 12 * S, -152 * S, 7 * S, -138 * S);
+
+    // Χέρια που κρέμονται ως το χώμα, δεμένα στον ώμο
+    g.fillStyle(shade(NUM.ridgeNear, .85), 1);
+    g.fillPoints([P(-72, -142), P(-40, -140), P(-52, -44), P(-88, -46)], true);
+    g.fillPoints([P(46, -146), P(76, -138), P(88, -44), P(56, -44)], true);
+    g.fillCircle(-70 * S, -36 * S, 24 * S);
+    g.fillCircle(72 * S, -34 * S, 24 * S);
+    g.lineStyle(2.6 * S, shade(NUM.ridgeNear, .5), .7);  // δάχτυλα, μία γραμμή
+    g.lineBetween(-88 * S, -30 * S, -52 * S, -30 * S);
+    g.lineBetween(54 * S, -28 * S, 90 * S, -28 * S);
+
+    c.add(g);
+
+    // Βαρύ βήμα: το σώμα πέφτει και ανεβαίνει, δεν αιωρείται
+    c.behave = (time) => {
+      const t = Math.sin(time * .0022);
+      c.y = LINE_Y + Math.abs(t) * 5 * S;
+      c.scaleY = c.baseScaleY * (1 - Math.abs(t) * .022);
+      c.angle = t * 1.4;
+    };
+    c.baseScaleY = 1;
+  }
+
+  /**
+   * Σκιά (HYPER-NOTE §6) — «ιδιαίτερη συμπεριφορά»: σβήνει και όσο είναι
+   * σβηστή τρέχει. ΔΕΝ γίνεται ποτέ αόρατη (μένει στο 0,3): εχθρός που
+   * χάνεται τελείως δεν είναι δύσκολος, είναι άδικος.
+   */
+  drawWraith(c, size) {
+    const S = size;
+    const g = this.add.graphics();
+
+    // Σώμα γύρω από ραχοκοκαλιά που στενεύει προς τα κάτω — δεν έχει πόδια
+    const spine = [[0, -172, 26], [2, -136, 33], [0, -96, 31], [-2, -56, 24], [0, -22, 13]]
+      .map(([x, y, r]) => ({ cx: x * S, cy: y * S, r: r * S }));
+    g.fillStyle(NUM.shadow, .88);
+    g.fillPoints(ribbonOutline(spine), true);
+
+    // Κουρελιασμένος ποδόγυρος: ζιγκ-ζαγκ αντί για ίσια άκρη
+    const hem = [];
+    for (let i = 0; i <= 8; i++) {
+      const x = (-26 + i * 6.5) * S;
+      hem.push(new Phaser.Geom.Point(x, (i % 2 ? -4 : -26) * S));
+    }
+    hem.push(new Phaser.Geom.Point(26 * S, -40 * S));
+    hem.push(new Phaser.Geom.Point(-26 * S, -40 * S));
+    g.fillStyle(NUM.shadow, .88);
+    g.fillPoints(hem, true);
+
+    // Κουκούλα και δύο άδεια μάτια — «άδεια» σημαίνει σκοτεινά, όχι φωτεινά
+    g.fillStyle(shade(NUM.nightHigh, .8), 1);
+    g.fillEllipse(0, -168 * S, 46 * S, 40 * S);
+    g.fillStyle(NUM.shadow, 1);
+    g.fillEllipse(-11 * S, -170 * S, 13 * S, 17 * S);
+    g.fillEllipse(11 * S, -170 * S, 13 * S, 17 * S);
+    g.lineStyle(2.4 * S, shade(NUM.nightHigh, 1.6), .5);   // μία ακμή φωτός
+    g.lineBetween(-22 * S, -176 * S, 0 * S, -190 * S);
+
+    const halo = this.add.image(0, -140 * S, 'glow-moon')
+      .setScale(1.2 * S).setAlpha(.12).setTint(NUM.star)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    c.add([halo, g]);
+
+    c.nextFadeAt = this.time.now + Phaser.Math.Between(2400, 4000);
+    c.behave = (time) => {
+      c.y = LINE_Y + Math.sin(time * .0013) * 7 * S;      // αιωρείται
+      if (time < c.nextFadeAt) return;
+      c.nextFadeAt = time + Phaser.Math.Between(3400, 5200);
+      c.mult = 2.1; c.multMs = 900;
+      this.tweens.add({
+        targets: c, alpha: .3, duration: 260, ease: 'Quad.easeOut',
+        yoyo: true, hold: 640
+      });
+    };
   }
 
   // Ο δράκος. Χτισμένος σε ΤΜΗΜΑΤΑ που κυματίζουν με καθυστέρηση το ένα από
@@ -480,8 +686,10 @@ export default class BattleScene extends Phaser.Scene {
     // Όταν τελειώσουν οι ορδές που στέλνει, κατεβαίνει ο ίδιος.
     if (this.wave % BOSS_EVERY === 0) { this.summonMaster(done); return; }
     const comp = waveComposition(this.wave);
+    const rush = waveSpeed(this.wave);
     comp.forEach((archId, i) => {
       const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, archId, 1.22 - i * .05);
+      e.speed *= rush;                 // κλιμάκωση κύματος (HYPER-NOTE §6)
       e.setAlpha(0);
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
       this.enemies.push(e);
@@ -725,10 +933,13 @@ export default class BattleScene extends Phaser.Scene {
 
   animateEnemies(time) {
     for (const e of this.enemies) {
-      if (!e.spine) continue;
-      this.redrawDragon(e, time);
-      if (e.beam) this.drawBeam(e, time);
-      if (e.nextBreathAt && time > e.nextBreathAt) this.dragonBreath(e, time);
+      if (e.spine) {
+        this.redrawDragon(e, time);
+        if (e.beam) this.drawBeam(e, time);
+        if (e.nextBreathAt && time > e.nextBreathAt) this.dragonBreath(e, time);
+      } else if (e.behave && e.active) {
+        e.behave(time);
+      }
     }
   }
 
