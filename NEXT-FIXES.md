@@ -496,13 +496,9 @@ _Η σελίδα «🎮 Δημιουργία παιχνιδιού» (31/08) αρ
   της v4 είναι deprecated. Κανένα σχεδιαζόμενο feature δεν χρειάζεται v4.
   **Phaser MCP: μη εφαρμόσιμο** (θέλει Phaser Editor v5 και `.scene` αρχεία -
   εμείς ζωγραφίζουμε προγραμματιστικά). **Μην ξαναγίνει το ίδιο audit.**
-- **Εκκρεμεί χειροκίνητα:** στην υποσελίδα «Βελτίωση σχεδιασμού παιχνιδιού»
-  υπάρχει συνημμένο **`__Mega_Brief.md`** που **δεν κατεβαίνει προγραμματιστικά**
-  (το Notion MCP διαβάζει μόνο δικά του attachments). Κατέβασέ το και βάλ' το εδώ
-  στο repo όταν βολέψει:
+- **Το `__Mega_Brief.md`** (συνημμένο στην υποσελίδα «Βελτίωση σχεδιασμού
+  παιχνιδιού») **έχει ήδη περάσει στα docs του repo** - PROJECT_SPEC, DESIGN,
+  ARCHITECTURE, BUILD_PLAN, HYPER-NOTE. Δεν είναι εκκρεμότητα. Το πρωτότυπο μένει
+  προσβάσιμο αν ποτέ χρειαστεί διασταύρωση:
   `https://app.notion.com/p/3cc46fdc511780128314d6ba609d897e`
-  *(αρχειοθετημένο != διαγραμμένο - ανοίγει κανονικά με το URL)*
-
-**Links:** [HYPER-NOTE.md](HYPER-NOTE.md) · [BRANCH-SCOPE.md](BRANCH-SCOPE.md) ·
-[PROJECT_SPEC.md](PROJECT_SPEC.md) · [DESIGN.md](DESIGN.md) ·
-[ARCHITECTURE.md](ARCHITECTURE.md) · [README.md](README.md)
+  *(αρχειοθετημένο != διαγραμμένο)*
