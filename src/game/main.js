@@ -28,6 +28,12 @@ function boot() {
     scene: [TitleScene, BattleScene]
   });
 
+  // Η φλόγα φόρτωσης (index.html) φεύγει ΜΟΛΙΣ ξεκινήσει το παιχνίδι. Πίσω
+  // από τον καμβά συνέχιζε να «ανασαίνει» με φίλτρο σκιάς και ο browser την
+  // ξαναζωγράφιζε σε κάθε καρέ — μετρημένο 11/09: η δοκιμή έπεφτε από 1,08×
+  // σε 0,43×. Στο κινητό: χαμένα καρέ και μπαταρία.
+  game.events.once('ready', () => document.getElementById('boot')?.remove());
+
   // Ο browser δεν επιτρέπει ήχο πριν το πρώτο άγγιγμα του χρήστη.
   const unlock = () => {
     audio.startAmbience();
