@@ -24,21 +24,37 @@ if (fallback) {
 }
 
 function open() {
+  // ΦΡΕΣΚΟ state σε κάθε άνοιγμα. Πριν, το Parent Mode κρατούσε το αντίγραφο
+  // της ΦΟΡΤΩΣΗΣ της σελίδας: ό,τι έπαιζε το παιδί στο μεταξύ (σπίθες,
+  // επίπεδα) χανόταν μόλις ο γονιός πρόσθετε μια λέξη, γιατί σωζόταν από
+  // πάνω το παλιό αντίγραφο.
+  state = store.loadState();
+  if (!store.activeProfile(state)) store.createProfile(state, 'Νίντζα');
   root.classList.add('open');
   const dev = store.getDevice();
   if (!dev.pin) renderPinSetup();
   else renderPinEntry();
 }
 
+// Το κλείσιμο ΑΝΑΝΕΩΝΕΙ τη σελίδα (NEXT-FIXES Ε2). Το παιχνίδι ξεκινά έτσι
+// με τις νέες λέξεις και το σωστό προφίλ, και ο καμβάς ξαναμετριέται — στο
+// tablet το πληκτρολόγιο άλλαζε το μέγεθος της οθόνης και μετά δεν πατιόταν
+// ούτε η φωτιά.
 function close() {
   root.classList.remove('open');
   root.innerHTML = '';
+  location.reload();
 }
 
 function el(html) {
   const d = document.createElement('div');
   d.innerHTML = html;
   return d.firstElementChild;
+}
+
+// Τα ονόματα τα γράφει ο γονιός — ποτέ ωμά μέσα σε HTML.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function screen(html) {
@@ -93,6 +109,33 @@ function renderPinEntry() {
   w.querySelector('#pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') check(); });
 }
 
+// Ό,τι σβήνει δεδομένα του παιδιού ζητά ΞΑΝΑ τον κωδικό (NEXT-FIXES Ε6).
+// Δεν αρκεί που είσαι ήδη μέσα: το μενού μένει ανοιχτό και το tablet αλλάζει
+// χέρια. Το κουμπί γράφει ΤΙ ακριβώς θα γίνει και σε ΠΟΙΟΝ.
+function confirmWithPin({ title, body, label, action }) {
+  const w = screen(`
+    <h2>${esc(title)}</h2>
+    <p class="pm-note pm-warn">${body}</p>
+    <p class="pm-note">Δεν αναιρείται. Γράψε το PIN για να συνεχίσεις.</p>
+    <input class="pm-input" id="pin" inputmode="numeric" maxlength="4" placeholder="••••">
+    <p class="pm-error" id="err"></p>
+    <div class="pm-row">
+      <button class="pm-btn danger" id="ok">${esc(label)}</button>
+      <button class="pm-btn" id="cancel">Άκυρο</button>
+    </div>`);
+  const go = () => {
+    if (w.querySelector('#pin').value.trim() !== store.getDevice().pin) {
+      w.querySelector('#err').textContent = 'Λάθος PIN.';
+      return;
+    }
+    renderMain(action());
+  };
+  w.querySelector('#ok').addEventListener('click', go);
+  w.querySelector('#pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  w.querySelector('#cancel').addEventListener('click', () => renderMain());
+  w.querySelector('#pin').focus();
+}
+
 // --- Κύρια οθόνη ---
 
 // Απόδοση λέξης με ΟΛΟΥΣ τους στόχους έντονους: «λ<b>ι</b>μάν<b>ι</b>».
@@ -108,17 +151,48 @@ function wordHTML(wd) {
   return html + wd.text.slice(pos);
 }
 
-function renderMain() {
+function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
+
+function profilesHTML() {
+  return state.profiles.map(({ profile, words }) => {
+    const active = profile.id === state.activeProfileId;
+    return `
+    <div class="pm-prof${active ? ' active' : ''}" data-id="${profile.id}">
+      <span class="name">${esc(profile.name)}</span>
+      <span class="meta">${plural(words.length, 'λέξη', 'λέξεις')} · ${profile.sparks || 0} σπίθες</span>
+      ${active
+        ? '<span class="pm-badge">▶ παίζει τώρα</span>'
+        : '<button class="pm-btn small use">Παίζει αυτό</button>'}
+      <button class="ren" aria-label="Μετονομασία">✎</button>
+      ${state.profiles.length > 1 ? '<button class="del" aria-label="Διαγραφή προφίλ">🗑</button>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function download(text, name) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function renderMain(note = '') {
   const p = store.activeProfile(state);
+  const name = esc(p.profile.name);
   const words = p.words.map((wd) => `
     <div class="pm-word" data-id="${wd.id}">
       <span class="w">${wordHTML(wd)}</span>
-      <span class="meta">${wd.targets.length} ${wd.targets.length === 1 ? 'σημείο' : 'σημεία'} · επ. ${wd.targets.map((t) => t.level).join('/')}</span>
+      <span class="meta">${plural(wd.targets.length, 'σημείο', 'σημεία')} · επ. ${wd.targets.map((t) => t.level).join('/')}</span>
       <button class="del" aria-label="Διαγραφή">🗑</button>
     </div>`).join('') || '<p class="pm-note">Καμία λέξη ακόμα.</p>';
 
   const w = screen(`
-    <h2>Λέξεις — ${p.profile.name}</h2>
+    <button class="pm-btn primary wide" id="done">✓ Αποθήκευση &amp; πίσω στο παιχνίδι</button>
+    <p class="pm-ok">${esc(note)}</p>
+
+    <h2>Λέξεις — ${name}</h2>
     <h3>Νέα λέξη</h3>
     <div class="pm-row">
       <input class="pm-input" id="word" placeholder="π.χ. λιμάνι" style="flex:1;min-width:200px">
@@ -127,14 +201,39 @@ function renderMain() {
     <div id="pick"></div>
     <h3>Λίστα (${p.words.length})</h3>
     <div id="list">${words}</div>
+
+    <h3>Προφίλ</h3>
+    <p class="pm-note">Κάθε προφίλ έχει δικές του λέξεις, πρόοδο και σπίθες. Για δοκιμές φτιάξε ένα «Δοκιμή» — δεν αγγίζει κανέναν άλλον.</p>
+    <div id="profiles">${profilesHTML()}</div>
+    <div class="pm-row" style="margin-top:10px">
+      <input class="pm-input" id="pname" placeholder="Όνομα νέου προφίλ" style="flex:1;min-width:180px">
+      <button class="pm-btn" id="padd">Νέο προφίλ</button>
+    </div>
+    <label class="pm-check"><input type="checkbox" id="pcopy" checked> με τις λέξεις του «${name}» (χωρίς την πρόοδό του)</label>
+
     <h3>Μεταφορά σε άλλη συσκευή</h3>
     <div class="pm-row">
-      <button class="pm-btn" id="exp">Εξαγωγή αντιγράφου</button>
-      <button class="pm-btn" id="imp">Εισαγωγή αντιγράφου</button>
+      <button class="pm-btn" id="expw">Εξαγωγή: μόνο λέξεις</button>
+      <button class="pm-btn" id="expf">Εξαγωγή: λέξεις + πρόοδος</button>
+    </div>
+    <div class="pm-row" style="margin-top:10px">
+      <button class="pm-btn" id="impw">Εισαγωγή: πρόσθεσε λέξεις</button>
+      <button class="pm-btn" id="impf">Εισαγωγή: αντικατάσταση όλων</button>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>
-    <p class="pm-note">Η εξαγωγή κατεβάζει ένα αρχείο. Στην άλλη συσκευή: Εισαγωγή → διάλεξε το αρχείο. Η εισαγωγή ΑΝΤΙΚΑΘΙΣΤΑ ό,τι υπάρχει εκεί.</p>
+    <p class="pm-note"><b>Μόνο λέξεις</b>: το συνηθισμένο — η άλλη συσκευή ξεκινά καθαρά. Η εισαγωγή λέξεων ΠΡΟΣΘΕΤΕΙ στο «${name}» όσες δεν έχει, χωρίς να σβήσει τίποτα.<br>
+    <b>Λέξεις + πρόοδος</b>: μόνο όταν μεταφέρεις πραγματικά τον παίκτη. Η αντικατάσταση σβήνει ό,τι υπάρχει σε αυτή τη συσκευή.</p>
+
+    <h3>Επικίνδυνα</h3>
+    <div class="pm-row">
+      <button class="pm-btn danger" id="reset">Μηδενισμός προόδου: ${name}</button>
+      <button class="pm-btn danger" id="wipe">Διαγραφή όλων</button>
+    </div>
+    <p class="pm-note">Και τα δύο ζητούν ξανά το PIN.</p>
     <p class="pm-error" id="err"></p>`);
+
+  const err = w.querySelector('#err');
+  w.querySelector('#done').addEventListener('click', close);
 
   w.querySelector('#next').addEventListener('click', () => renderPick(w));
   w.querySelector('#word').addEventListener('keydown', (e) => { if (e.key === 'Enter') renderPick(w); });
@@ -150,27 +249,93 @@ function renderMain() {
     });
   });
 
-  w.querySelector('#exp').addEventListener('click', () => {
-    const blob = new Blob([store.exportJSON(state)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `flame-path-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  // --- προφίλ ---
+  w.querySelectorAll('.pm-prof').forEach((row) => {
+    const id = row.dataset.id;
+    const entry = state.profiles.find((x) => x.profile.id === id);
+    row.querySelector('.use')?.addEventListener('click', () => {
+      store.setActiveProfile(state, id);
+      renderMain(`Τώρα παίζει: ${entry.profile.name}`);
+    });
+    row.querySelector('.ren').addEventListener('click', () => {
+      const n = prompt('Νέο όνομα:', entry.profile.name);
+      if (n && n.trim()) { store.renameProfile(state, id, n.trim()); renderMain(); }
+    });
+    row.querySelector('.del')?.addEventListener('click', () => confirmWithPin({
+      title: `Διαγραφή προφίλ: ${entry.profile.name}`,
+      body: `Σβήνονται ${plural(entry.words.length, 'λέξη', 'λέξεις')}, ${entry.profile.sparks || 0} σπίθες και όλη η πρόοδος του «${esc(entry.profile.name)}». Τα άλλα προφίλ δεν αγγίζονται.`,
+      label: `Διαγραφή: ${entry.profile.name}`,
+      action: () => {
+        store.deleteProfile(state, id);
+        return `Διαγράφηκε το «${entry.profile.name}».`;
+      }
+    }));
   });
 
+  w.querySelector('#padd').addEventListener('click', () => {
+    const n = w.querySelector('#pname').value.trim();
+    if (!n) { err.textContent = 'Γράψε όνομα για το νέο προφίλ.'; return; }
+    if (state.profiles.some((x) => x.profile.name === n)) { err.textContent = `Υπάρχει ήδη προφίλ «${n}».`; return; }
+    const copy = w.querySelector('#pcopy').checked ? p.words : [];
+    const entry = store.createProfile(state, n, { words: copy });
+    store.setActiveProfile(state, entry.profile.id);
+    renderMain(`Νέο προφίλ «${n}»${copy.length ? ` με ${plural(copy.length, 'λέξη', 'λέξεις')}` : ''} — παίζει τώρα.`);
+  });
+
+  // --- μεταφορά ---
+  const day = new Date().toISOString().slice(0, 10);
+  w.querySelector('#expw').addEventListener('click', () =>
+    download(store.exportJSON(state, { progress: false }), `flame-path-lexeis-${day}.json`));
+  w.querySelector('#expf').addEventListener('click', () =>
+    download(store.exportJSON(state, { progress: true }), `flame-path-proodos-${day}.json`));
+
   const impfile = w.querySelector('#impfile');
-  w.querySelector('#imp').addEventListener('click', () => impfile.click());
+  let mode = 'words';
+  w.querySelector('#impw').addEventListener('click', () => { mode = 'words'; impfile.click(); });
+  w.querySelector('#impf').addEventListener('click', () => { mode = 'full'; impfile.click(); });
   impfile.addEventListener('change', () => {
     const f = impfile.files[0];
+    impfile.value = '';
     if (!f) return;
-    if (!confirm('Η εισαγωγή θα ΑΝΤΙΚΑΤΑΣΤΗΣΕΙ όλες τις λέξεις και την πρόοδο σε αυτή τη συσκευή. Συνέχεια;')) return;
     f.text().then((txt) => {
-      state = store.importJSON(txt);
-      if (!store.activeProfile(state)) state.activeProfileId = state.profiles[0]?.profile.id || null;
-      renderMain();
-    }).catch((e) => { w.querySelector('#err').textContent = e.message; });
+      if (mode === 'words') {
+        const n = store.importWords(state, txt);
+        renderMain(n ? `Μπήκαν ${plural(n, 'νέα λέξη', 'νέες λέξεις')} στο «${p.profile.name}».` : 'Όλες οι λέξεις του αρχείου υπήρχαν ήδη.');
+        return;
+      }
+      confirmWithPin({
+        title: 'Αντικατάσταση όλων',
+        body: `Το αρχείο «${esc(f.name)}» θα ΑΝΤΙΚΑΤΑΣΤΗΣΕΙ όλα τα προφίλ, τις λέξεις και την πρόοδο σε αυτή τη συσκευή.`,
+        label: 'Αντικατάσταση όλων',
+        action: () => {
+          state = store.importJSON(txt);
+          return 'Η εισαγωγή ολοκληρώθηκε.';
+        }
+      });
+    }).catch((e) => { err.textContent = e.message; });
   });
+
+  // --- επικίνδυνα ---
+  w.querySelector('#reset').addEventListener('click', () => confirmWithPin({
+    title: `Μηδενισμός προόδου: ${p.profile.name}`,
+    body: `Μένουν οι ${plural(p.words.length, 'λέξη', 'λέξεις')}. Σβήνονται ${p.profile.sparks || 0} σπίθες και ό,τι έχει μάθει το παιχνίδι για το «${esc(p.profile.name)}» — ο πάπυρος ξαναπαίζει από την αρχή.`,
+    label: `Μηδενισμός προόδου: ${p.profile.name}`,
+    action: () => {
+      store.resetProgress(state, p.profile.id);
+      return `Η πρόοδος του «${p.profile.name}» μηδενίστηκε.`;
+    }
+  }));
+
+  w.querySelector('#wipe').addEventListener('click', () => confirmWithPin({
+    title: 'Διαγραφή όλων',
+    body: `Σβήνονται ΟΛΑ τα προφίλ (${state.profiles.map((x) => esc(x.profile.name)).join(', ')}), οι λέξεις και η πρόοδος σε αυτή τη συσκευή. Το PIN μένει.`,
+    label: 'Διαγραφή όλων',
+    action: () => {
+      state = store.eraseAll();
+      store.createProfile(state, 'Νίντζα');
+      return 'Η συσκευή καθάρισε.';
+    }
+  }));
 }
 
 // Επιλογή στόχων: η λέξη τεμαχίζεται σε γραφήματα και ΠΡΟΕΠΙΛΕΓΟΝΤΑΙ όλα
@@ -247,7 +412,7 @@ function renderPick(w) {
       distractors: distractorsFor(units[i])
     }));
     store.addWord(state, store.newWord({ text, targets }));
-    renderMain();
+    renderMain(`Μπήκε η λέξη «${text}».`);
   });
 }
 

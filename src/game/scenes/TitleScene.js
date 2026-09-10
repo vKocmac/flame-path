@@ -6,6 +6,7 @@ import { TXT } from '../../theme/strings.js';
 import * as audio from '../../theme/audio.js';
 import { buildTextures } from '../textures.js';
 import * as world from '../world.js';
+import * as store from '../../shared/storage.js';
 
 const { W, H } = world;
 
@@ -174,5 +175,15 @@ export default class TitleScene extends Phaser.Scene {
       delay: 600, repeat: 8,
       callback: () => label.setText(window.__swVersion || 'τοπικά')
     });
+
+    // Ποιο προφίλ θα παίξει — μόνο όταν υπάρχουν πάνω από ένα. Αλλιώς ο
+    // γονιός δεν ξέρει αν πατώντας τη φωτιά θα παίξει ο Σταύρος ή η «Δοκιμή».
+    const st = store.loadState();
+    const who = store.activeProfile(st);
+    if (who && st.profiles.length > 1) {
+      this.add.text(14, H - 42, who.profile.name, {
+        fontFamily: FONT.ui, fontSize: '17px', color: HEX.smoke
+      }).setAlpha(.6).setDepth(45);
+    }
   }
 }

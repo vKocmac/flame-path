@@ -387,6 +387,98 @@ await test('Τα διπλά σύμφωνα ΔΕΝ προεπιλέγονται �
   }
 });
 
+// ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)
+
+// Ένα προφίλ με μια λέξη που έχει ΠΡΟΟΔΟ: επίπεδο 3, σπίθες, ιστορικό.
+function seedWithProgress() {
+  const { state, pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 3, introduced: true, due: FUTURE })] }]);
+  const s = store.loadState();
+  const t = store.activeProfile(s).words[0].targets[0];
+  t.attempts = 5; t.successes = 4;
+  t.errorHistory = [{ grapheme: 'η', type: 'gap', at: PAST }];
+  store.saveState(s);
+  store.addSparks(s, 42);
+  return { pid };
+}
+
+await test('Μηδενισμός προόδου: μένουν οι λέξεις, φεύγουν επίπεδα, ιστορικό και σπίθες', () => {
+  const { pid } = seedWithProgress();
+  const s = store.loadState();
+  store.resetProgress(s, pid);
+  const p = store.activeProfile(store.loadState());
+  eq(p.words.length, 1, 'η λέξη μένει');
+  const t = p.words[0].targets[0];
+  eq([t.level, t.attempts, t.successes, t.errorHistory.length, t.introduced, t.nextDueAt],
+     [0, 0, 0, 0, false, null], 'ο στόχος σαν καινούργιος');
+  eq(t.grapheme, 'ι', 'ο στόχος ίδιος');
+  eq(store.getSparks(store.loadState()), 0, 'μηδέν σπίθες');
+});
+
+await test('Νέο προφίλ με τις λέξεις του άλλου: ΧΩΡΙΣ πρόοδο, και ο πρώτος δεν πειράζεται', () => {
+  const { pid } = seedWithProgress();
+  const s = store.loadState();
+  const src = store.activeProfile(s);
+  const trial = store.createProfile(s, 'Δοκιμή', { words: src.words });
+  store.setActiveProfile(s, trial.profile.id);
+  const s2 = store.loadState();
+  const tp = store.activeProfile(s2);
+  eq(tp.profile.name, 'Δοκιμή', 'ενεργό το νέο');
+  eq(tp.words[0].text, 'λιμάνι', 'ίδια λέξη');
+  eq(tp.words[0].targets[0].level, 0, 'χωρίς πρόοδο');
+  assert(tp.words[0].id !== src.words[0].id, 'νέο id λέξης');
+  assert(tp.words[0].targets[0].id !== src.words[0].targets[0].id, 'νέο id στόχου');
+  const orig = s2.profiles.find((x) => x.profile.id === pid);
+  eq(orig.words[0].targets[0].level, 3, 'το αρχικό κράτησε το επίπεδό του');
+  eq(orig.profile.sparks, 42, 'και τις σπίθες του');
+});
+
+await test('Η μάχη διαβάζει ΜΟΝΟ το ενεργό προφίλ', () => {
+  seed([{ text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] }]);
+  const s = store.loadState();
+  const other = store.createProfile(s, 'Άδειο');
+  engine.resetSession();
+  eq(engine.getNextChallenge(other.profile.id), null, 'το άδειο προφίλ δεν έχει λέξεις');
+});
+
+await test('Διαγραφή προφίλ: το ενεργό περνά σε άλλο· το τελευταίο δεν σβήνεται', () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState();
+  eq(store.deleteProfile(s, pid), false, 'μόνο ένα προφίλ — δεν σβήνεται');
+  const b = store.createProfile(s, 'Β');
+  store.setActiveProfile(s, b.profile.id);
+  eq(store.deleteProfile(s, b.profile.id), true, 'σβήνεται όταν υπάρχει άλλο');
+  const s2 = store.loadState();
+  eq(s2.profiles.length, 1, 'έμεινε ένα');
+  eq(s2.activeProfileId, pid, 'ενεργό έγινε το άλλο');
+});
+
+await test('Εξαγωγή «μόνο λέξεις»: καμία πρόοδος μέσα στο αρχείο', () => {
+  seedWithProgress();
+  const data = JSON.parse(store.exportJSON(store.loadState(), { progress: false }));
+  eq(data.kind, 'words', 'είδος');
+  const t = data.profiles[0].words[0].targets[0];
+  eq([t.level, t.attempts, t.errorHistory.length, t.introduced], [0, 0, 0, false], 'καθαρός στόχος');
+  eq(data.profiles[0].profile.sparks, 0, 'μηδέν σπίθες');
+  eq(store.activeProfile(store.loadState()).words[0].targets[0].level, 3, 'η συσκευή δεν πειράχτηκε');
+  const full = JSON.parse(store.exportJSON(store.loadState(), { progress: true }));
+  eq(full.profiles[0].words[0].targets[0].level, 3, 'η πλήρης κρατά την πρόοδο');
+});
+
+await test('Εισαγωγή λέξεων: ΠΡΟΣΘΕΤΕΙ μόνο όσες λείπουν, χωρίς να σβήσει πρόοδο', () => {
+  seedWithProgress();
+  const file = JSON.stringify({
+    schemaVersion: 2, profiles: [{ profile: { id: 'x', name: 'Άλλος' }, words: [
+      store.newWord({ text: 'λιμάνι', targets: [{ gap: { start: 1, length: 1 }, grapheme: 'ι', confusionClass: 'i', distractors: ['η'] }] }),
+      store.newWord({ text: 'ώρα', targets: [{ gap: { start: 0, length: 1 }, grapheme: 'ώ', confusionClass: 'o', distractors: ['ό'] }] })
+    ] }]
+  });
+  const n = store.importWords(store.loadState(), file);
+  eq(n, 1, 'μπήκε μόνο το «ώρα»');
+  const p = store.activeProfile(store.loadState());
+  eq(p.words.map((w) => w.text), ['λιμάνι', 'ώρα'], 'λέξεις');
+  eq(p.words[0].targets[0].level, 3, 'η υπάρχουσα πρόοδος έμεινε');
+});
+
 // --- Επαναφορά πραγματικών δεδομένων ---
 if (BACKUP === null) localStorage.removeItem('flame.state.v1');
 else localStorage.setItem('flame.state.v1', BACKUP);

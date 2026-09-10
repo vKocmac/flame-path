@@ -85,9 +85,14 @@ export function saveState(state) {
   localStorage.setItem(STATE_KEY, JSON.stringify(state));
 }
 
-export function createProfile(state, name) {
+// `words`: προαιρετικά, λέξεις που αντιγράφονται ΧΩΡΙΣ πρόοδο — π.χ. προφίλ
+// «Δοκιμή» με τις λέξεις του Σταύρου, για να δοκιμάζεις χωρίς να τον πειράξεις.
+export function createProfile(state, name, { words = [] } = {}) {
   const t = now();
-  const entry = { profile: { id: newId(), name, createdAt: t, updatedAt: t }, words: [] };
+  const entry = {
+    profile: { id: newId(), name, createdAt: t, updatedAt: t },
+    words: words.map((w) => freshWord(w, { newIds: true }))
+  };
   state.profiles.push(entry);
   if (!state.activeProfileId) state.activeProfileId = entry.profile.id;
   saveState(state);
@@ -96,6 +101,76 @@ export function createProfile(state, name) {
 
 export function activeProfile(state) {
   return state.profiles.find((p) => p.profile.id === state.activeProfileId) || null;
+}
+
+// --- Προφίλ (NEXT-FIXES Ε7) ---
+// Κάθε προφίλ έχει δικές του λέξεις, πρόοδο και σπίθες. Το PIN ΔΕΝ είναι
+// ανά προφίλ: ένας γονιός, ένας κωδικός ανά συσκευή.
+
+export function setActiveProfile(state, id) {
+  if (!state.profiles.some((p) => p.profile.id === id)) return false;
+  state.activeProfileId = id;
+  saveState(state);
+  return true;
+}
+
+export function renameProfile(state, id, name) {
+  const p = state.profiles.find((x) => x.profile.id === id);
+  if (!p) return false;
+  p.profile.name = name;
+  p.profile.updatedAt = now();
+  saveState(state);
+  return true;
+}
+
+// Το τελευταίο προφίλ δεν σβήνεται — για καθαρή συσκευή υπάρχει το eraseAll.
+export function deleteProfile(state, id) {
+  if (state.profiles.length <= 1) return false;
+  state.profiles = state.profiles.filter((p) => p.profile.id !== id);
+  if (state.activeProfileId === id) state.activeProfileId = state.profiles[0].profile.id;
+  saveState(state);
+  return true;
+}
+
+// Ένας στόχος χωρίς καμία ιστορία: όπως μόλις τον έγραψε ο γονιός.
+function freshTarget(t) {
+  return {
+    ...t,
+    level: 0, attempts: 0, successes: 0,
+    errorHistory: [], challengeTypesUsed: [],
+    lastSeenAt: null, nextDueAt: null,
+    introduced: false
+  };
+}
+
+// Η λέξη χωρίς την πρόοδό της. Με `newIds` παίρνει και νέα αναγνωριστικά —
+// για αντιγραφή σε άλλο προφίλ, ώστε τα δύο να μη μοιράζονται ποτέ ταυτότητα.
+export function freshWord(w, { newIds = false } = {}) {
+  return {
+    ...w,
+    id: newIds ? newId() : w.id,
+    targets: w.targets.map((t) => ({ ...freshTarget(t), id: newIds ? newId() : t.id })),
+    updatedAt: now()
+  };
+}
+
+// Μηδενισμός προόδου (Ε6): κρατά τις λέξεις, σβήνει σπίθες και
+// χρονοδιάγραμμα. Ξαναπαίζει η τελετή του παπύρου από την αρχή.
+export function resetProgress(state, id) {
+  const p = state.profiles.find((x) => x.profile.id === id);
+  if (!p) return false;
+  p.words = p.words.map((w) => freshWord(w));
+  p.profile.sparks = 0;
+  p.profile.updatedAt = now();
+  saveState(state);
+  return true;
+}
+
+// Διαγραφή όλων (Ε6): καθαρή συσκευή. Το PIN μένει — είναι ρύθμιση της
+// συσκευής, όχι δεδομένο του παιδιού.
+export function eraseAll() {
+  localStorage.removeItem(STATE_KEY);
+  return loadState();
 }
 
 // Νέος στόχος (σημείο ελέγχου) με πλήρες learning state.
@@ -153,12 +228,22 @@ export function removeWord(state, wordId) {
 
 // --- Export / Import (η γέφυρα tablet ↔ κινητό) ---
 
-export function exportJSON(state) {
-  return JSON.stringify({ ...state, exportedAt: now() }, null, 2);
+// Δύο είδη αντιγράφου (NEXT-FIXES Ε1):
+// - `progress: false` (το συνηθισμένο) → μόνο οι λέξεις, κάθε στόχος σαν
+//   καινούργιος, μηδέν σπίθες. Για δοκιμή σε καθαρή συσκευή.
+// - `progress: true` → ολόκληρος ο παίκτης, για πραγματική μεταφορά.
+export function exportJSON(state, { progress = true } = {}) {
+  const out = JSON.parse(JSON.stringify(state));
+  if (!progress) {
+    out.profiles.forEach((p) => {
+      p.words = p.words.map((w) => freshWord(w));
+      p.profile.sparks = 0;
+    });
+  }
+  return JSON.stringify({ ...out, kind: progress ? 'full' : 'words', exportedAt: now() }, null, 2);
 }
 
-// Δέχεται v1 ή v2 αντίγραφο· επιστρέφει το νέο state ή πετάει Error.
-export function importJSON(text) {
+function parseBackup(text) {
   let data;
   try { data = JSON.parse(text); }
   catch (e) { throw new Error('Το αρχείο δεν είναι έγκυρο JSON.'); }
@@ -166,9 +251,40 @@ export function importJSON(text) {
     throw new Error('Το αρχείο δεν είναι αντίγραφο από αυτό το παιχνίδι.');
   }
   delete data.exportedAt;
-  const m = migrate(data);
+  delete data.kind;
+  return migrate(data);
+}
+
+// Πλήρης εισαγωγή: ΑΝΤΙΚΑΘΙΣΤΑ ό,τι υπάρχει στη συσκευή. Δέχεται v1 ή v2
+// αντίγραφο· επιστρέφει το νέο state ή πετάει Error.
+export function importJSON(text) {
+  const m = parseBackup(text);
+  if (!m.profiles.some((p) => p.profile.id === m.activeProfileId)) {
+    m.activeProfileId = m.profiles[0]?.profile.id || null;
+  }
   saveState(m);
   return m;
+}
+
+// Εισαγωγή ΜΟΝΟ λέξεων: ΠΡΟΣΘΕΤΕΙ στο ενεργό προφίλ τις λέξεις του αρχείου
+// που δεν έχει ήδη, χωρίς πρόοδο. Δεν σβήνει τίποτα. Επιστρέφει πόσες μπήκαν.
+export function importWords(state, text) {
+  const data = parseBackup(text);
+  const p = activeProfile(state);
+  if (!p) throw new Error('Δεν υπάρχει ενεργό προφίλ.');
+  const have = new Set(p.words.map((w) => w.text));
+  let added = 0;
+  for (const src of data.profiles) {
+    for (const w of src.words) {
+      if (have.has(w.text)) continue;
+      p.words.push(freshWord(w, { newIds: true }));
+      have.add(w.text);
+      added++;
+    }
+  }
+  p.profile.updatedAt = now();
+  saveState(state);
+  return added;
 }
 
 // --- Ρυθμίσεις συσκευής (PIN — μένει εκτός export) ---

@@ -36,3 +36,22 @@
 .pm-word .meta { color: #7C86A0; font-size: .78rem; }
 .pm-word .del { background: none; border: none; color: #7C86A0;
   font-size: 1.1rem; cursor: pointer; padding: 6px 10px; }
+/* Κουμπιά: πλήρες πλάτος, μικρό, επικίνδυνο (κεχριμπάρι — όχι κόκκινο) */
+.pm-btn.wide { width: 100%; }
+.pm-btn.small { min-height: 38px; padding: 6px 12px; font-size: .85rem; }
+.pm-btn.danger { background: transparent; border-color: #FFC857; color: #FFC857; }
+.pm-ok { color: #7BE0A3; font-size: .9rem; margin: 10px 0 0; min-height: 1.2em; }
+.pm-warn { color: #EDE9DC; font-size: .92rem; }
+.pm-check { display: flex; gap: 10px; align-items: center; color: #7C86A0;
+  font-size: .85rem; margin: 10px 0; cursor: pointer; }
+.pm-check input { width: 20px; height: 20px; accent-color: #FF7A1A; }
+/* Λίστα προφίλ */
+.pm-prof { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: #141A33; border: 2px solid transparent; border-radius: 10px;
+  padding: 10px 14px; margin: 6px 0; }
+.pm-prof.active { border-color: #FF7A1A; }
+.pm-prof .name { font-size: 1.05rem; font-weight: 700; flex: 1; min-width: 90px; }
+.pm-prof .meta { color: #7C86A0; font-size: .78rem; }
+.pm-badge { color: #FF7A1A; font-size: .82rem; font-weight: 700; }
+.pm-prof .ren, .pm-prof .del { background: none; border: none; color: #7C86A0;
+  font-size: 1.1rem; cursor: pointer; padding: 6px 8px; }
