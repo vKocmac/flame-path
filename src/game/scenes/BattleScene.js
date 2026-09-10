@@ -154,7 +154,10 @@ export default class BattleScene extends Phaser.Scene {
     // Οι τεχνικές που κέρδισαν οι ΚΑΤΑΚΤΗΜΕΝΕΣ λέξεις (BUILD_PLAN βήμα 6)
     this.perks = journey.unlockedPerks(journey.masteredCount(store.activeProfile(state)));
     this.newPerks = this.perks.filter((p) => !store.getPerksSeen(state).includes(p));
-    if (this.perks.includes('ember')) this.rage = RAGE_MAX / 2;     // Φλογερή Καρδιά
+    // Η ζώνη δίνει κάτι ΚΑΙ στη μάχη, όχι μόνο χρώμα (Ε3): κάθε ζώνη ξεκινά
+    // τη μπάρα λίγο πιο γεμάτη. Μαζί με τη Φλογερή Καρδιά, ποτέ γεμάτη.
+    this.rage = Math.min(RAGE_MAX * .8, journey.beltRage(this.cycle)
+      + (this.perks.includes('ember') ? RAGE_MAX / 2 : 0));
     engine.resetSession();
 
     this.buildBackdrop();
@@ -1807,10 +1810,13 @@ export default class BattleScene extends Phaser.Scene {
   // Η Μεγάλη Τεχνική ζητείται μόνο απέναντι σε ΜΕΓΑΛΟ εχθρό (BUILD_PLAN
   // βήμα 5, DESIGN). Το αν θα δοθεί το αποφασίζει το Learning Engine, που
   // εναλλάσσει τους τύπους ανά στόχο.
+  // ΜΙΑ ανά κύμα: στη μεγάλη δοκιμή (7 σταθμοί) έβγαινε σχεδόν κάθε δεύτερη
+  // πρόκληση, γιατί ο δράκος ήταν συχνά μπροστά — και η «μεγάλη» τεχνική
+  // γινόταν ρουτίνα με πολύ πάτημα πλακιδίων.
   challengeTypes() {
     const f = this.enemies[0];
     const big = f && (f.isMaster || ['dragon', 'heavy'].includes(f.arch && f.arch.id));
-    return big ? ['gap', 'assembly'] : ['gap'];
+    return big && this.asmWave !== this.wave ? ['gap', 'assembly'] : ['gap'];
   }
 
   // ---------------------------------------- Μεγάλη Τεχνική (συναρμολόγηση)
@@ -1826,6 +1832,7 @@ export default class BattleScene extends Phaser.Scene {
     this.clearOrbs();
     this.busy = false;
     this.assembling = true;
+    this.asmWave = this.wave;
     this.placed = 0;
     this.units = splitGraphemes(ch.text);
     this.label.setText(TXT.bigTechnique).setAlpha(1);
@@ -2358,6 +2365,12 @@ export default class BattleScene extends Phaser.Scene {
   advanceIfCleared(onContinue) {
     if (this.enemies.length) { onContinue(); return; }
     const bossCleared = this.wave % BOSS_EVERY === 0;
+    // Μία νίκη = ΕΝΑΣ σταθμός, όσοι δρόμοι κι αν φτάσουν εδώ (δύναμη, βολή,
+    // κύμα φωτιάς). Το δίχτυ λύνεται μόνο όταν αρχίσει το νέο λεβελ.
+    if (bossCleared) {
+      if (this.stationWon) return;
+      this.stationWon = true;
+    }
     this.time.delayedCall(420, () => {
       if (bossCleared) {
         // Αν τον Μάστερ Γου τον έριξε ΔΥΝΑΜΗ, η περγαμηνή με την τρέχουσα
@@ -2366,7 +2379,10 @@ export default class BattleScene extends Phaser.Scene {
         this.hideScroll();
         this.current = null;
         this.assembling = false;
-        this.completeStation(() => this.spawnWave(() => this.startLevel()));
+        this.completeStation(() => {
+          this.stationWon = false;
+          this.spawnWave(() => this.startLevel());
+        });
       } else {
         this.spawnWave(onContinue);
       }
@@ -2918,11 +2934,15 @@ export default class BattleScene extends Phaser.Scene {
       this.tweens.add({ targets: this.ninja, x: NINJA_X, y: LINE_Y, duration: 360, ease: 'Quad.easeInOut' });
     });
     // Η συνέχεια είναι χρονόμετρο, όχι tween (ο κανόνας των κολλημάτων)
+    // Αν η δύναμη άδειασε το πεδίο, η σκηνή μένει «απασχολημένη» ώσπου να
+    // έρθει το νέο κύμα. Πριν, για ~0,4 δευτ. οι φούσκες δέχονταν άγγιγμα
+    // με άδειο πεδίο — και ένα σωστό άγγιγμα ξαναμετρούσε τη νίκη: στη
+    // μεγάλη δοκιμή το κάστρο «κερδήθηκε» χωρίς μάχη, 2 δευτ. μετά τον 6ο σταθμό.
     this.time.delayedCall(2600, () => {
       this.ninja.setX(NINJA_X).setY(LINE_Y);
       this.ninja.frozen = false;
-      this.busy = false;
-      this.advanceIfCleared(() => {});
+      if (this.enemies.length) { this.busy = false; return; }
+      this.advanceIfCleared(() => { this.busy = false; });
     });
   }
 
@@ -2940,10 +2960,14 @@ export default class BattleScene extends Phaser.Scene {
       }));
     }
     if (power === 'ice') this.enemies.forEach((e) => this.freeze(e));
+    // Έπεσε ο Μάστερ Γου: οι φούσκες/τα πλακίδια φεύγουν ΤΩΡΑ, όχι μετά τη
+    // σκηνή της δύναμης (έμεναν ~0,4 δευτ. πάνω από τον χάρτη). ΜΟΝΟ τότε:
+    // σε απλό κύμα η ίδια λέξη συνεχίζει με το νέο κύμα.
+    if (!this.enemies.length && this.wave % BOSS_EVERY === 0) this.clearOrbs();
   }
 
   fxTornado() {
-    audio.flamethrower(1100);
+    audio.gust();
     const col = this.add.container(this.ninja.x + 70, LINE_Y).setDepth(16);
     for (let i = 0; i < 7; i++) {
       const f = this.add.image(0, -i * 34, 'flame').setOrigin(.5, 1)
@@ -2971,6 +2995,7 @@ export default class BattleScene extends Phaser.Scene {
 
   fxLightning() {
     this.cameras.main.flash(180, 201, 207, 234);
+    audio.thunder(1);
     this.enemies.forEach((e, i) => this.time.delayedCall(140 + i * 160, () => {
       if (!e.scene) return;
       const g = this.add.graphics().setDepth(17).setBlendMode(Phaser.BlendModes.ADD);
@@ -2986,14 +3011,14 @@ export default class BattleScene extends Phaser.Scene {
       g.strokePoints(pts);
       g.lineStyle(3, NUM.moon, 1);
       g.strokePoints(pts);
-      audio.strike();
+      audio.thunder(.5);                // το χτύπημα του Μάστερ Γου είναι δικό του
       this.sealRing(e.x, e.y - 80, NUM.spirit);
       this.tweens.add({ targets: g, alpha: 0, duration: 380, onComplete: () => g.destroy() });
     }));
   }
 
   fxIce() {
-    audio.whoosh();
+    audio.frost();
     this.cameras.main.flash(220, 87, 199, 184);
     const mist = this.add.particles(this.ninja.x, LINE_Y - 20, 'puff', {
       speedX: { min: 300, max: 620 }, speedY: { min: -40, max: 20 },
@@ -3104,88 +3129,132 @@ export default class BattleScene extends Phaser.Scene {
     else this.showPath(from, res.station, journey.powerUnlockedAt(res.station, res.cycle), cont);
   }
 
-  // Ο χάρτης: επτά σταθμοί ως το κάστρο. Ο νίντζας περπατά ένα βήμα.
+  // Ο χάρτης, ζωγραφισμένος σε ΠΑΠΥΡΟ (Ε3): επτά σταθμοί ως το κάστρο, ο
+  // νίντζας περπατά ένα βήμα. Όταν τελειώσει το βήμα, ένα άγγιγμα συνεχίζει
+  // — ο χάρτης είναι του παιδιού να τον κοιτάξει. Αν δεν αγγίξει, συνεχίζει
+  // μόνος του (μένει κάτω από το δίχτυ ασφαλείας STUCK_MS).
   showPath(from, to, newPower, done) {
     const objs = [];
     const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(38).setAlpha(0);
-    this.tweens.add({ targets: veil, alpha: .88, duration: 400 });
+    this.tweens.add({ targets: veil, alpha: .72, duration: 400 });
     objs.push(veil);
-    const title = this.add.text(W / 2, 150, TXT.pathTitle, {
-      fontFamily: FONT.ui, fontSize: '40px', fontStyle: '700', color: HEX.flameCore
-    }).setOrigin(.5).setDepth(39);
-    title.setShadow(0, 0, HEX.flame, 24, false, true);
-    objs.push(title);
+
+    // Το φύλλο: πάπυρος με δύο κυλίνδρους και παλιωμένες άκρες
+    const px = 130, py = 96, pw = W - 260, ph = 530;
+    const sheet = this.add.graphics();
+    sheet.fillStyle(shade(NUM.parchment, .7), 1);
+    sheet.fillRoundedRect(px - 6, py - 6, pw + 12, ph + 12, 18);
+    sheet.fillStyle(NUM.parchment, 1);
+    sheet.fillRoundedRect(px, py, pw, ph, 14);
+    sheet.fillStyle(shade(NUM.parchment, .9), 1);
+    sheet.fillRect(px + 8, py + 6, pw - 16, 12);
+    sheet.fillRect(px + 8, py + ph - 18, pw - 16, 12);
+    sheet.fillStyle(shade(NUM.parchment, .58), 1);
+    sheet.fillRoundedRect(px - 24, py - 16, 28, ph + 32, 13);
+    sheet.fillRoundedRect(px + pw - 4, py - 16, 28, ph + 32, 13);
+    const map = this.add.container(0, 0, [sheet]).setDepth(39).setAlpha(0);
+    this.tweens.add({ targets: map, alpha: 1, duration: 420 });
+    objs.push(map);
+
+    const title = this.add.text(W / 2, py + 62, TXT.pathTitle, {
+      fontFamily: FONT.ui, fontSize: '38px', fontStyle: '700', color: HEX.ink
+    }).setOrigin(.5);
+    map.add(title);
 
     const n = journey.STATIONS;
     const pts = [];
-    for (let i = 0; i < n; i++) pts.push({ x: 170 + i * (940 / (n - 1)), y: 400 + Math.sin(i * 1.1) * 60 });
+    for (let i = 0; i < n; i++) pts.push({ x: 240 + i * (800 / (n - 1)), y: 360 + Math.sin(i * 1.1) * 60 });
     const P = (q) => new Phaser.Geom.Point(q.x, q.y);
 
-    const g = this.add.graphics().setDepth(39);
-    objs.push(g);
-    g.lineStyle(6, NUM.nightHigh, 1);
+    const g = this.add.graphics();
+    map.add(g);
+    g.lineStyle(5, NUM.ink, .28);
     g.strokePoints(pts.map(P));
     if (from > 0) {
-      g.lineStyle(6, NUM.flame, .9);
+      g.lineStyle(6, NUM.flameDeep, .95);
       g.strokePoints(pts.slice(0, from + 1).map(P));
     }
     pts.forEach((q, i) => {
-      if (i === n - 1) {                                  // το κάστρο
-        g.fillStyle(NUM.nightHigh, 1);
+      if (i === n - 1) {                                  // το κάστρο, με μελάνι
+        g.fillStyle(NUM.ink, .85);
         g.fillRect(q.x - 30, q.y - 50, 60, 50);
         g.fillRect(q.x - 42, q.y - 70, 18, 70);
         g.fillRect(q.x + 24, q.y - 70, 18, 70);
         g.fillTriangle(q.x - 46, q.y - 70, q.x - 20, q.y - 70, q.x - 33, q.y - 96);
         g.fillTriangle(q.x + 20, q.y - 70, q.x + 46, q.y - 70, q.x + 33, q.y - 96);
-        g.fillStyle(to === i ? NUM.lantern : NUM.flameDeep, .8);
+        g.fillStyle(to === i ? NUM.lantern : NUM.flameDeep, 1);
         g.fillRect(q.x - 6, q.y - 30, 12, 18);
         return;
       }
-      if (i <= from) { g.fillStyle(NUM.lantern, 1); g.fillCircle(q.x, q.y, 14); }
-      else { g.fillStyle(NUM.shadow, 1); g.fillCircle(q.x, q.y, 11); g.lineStyle(2, NUM.smoke, .6); g.strokeCircle(q.x, q.y, 11); }
+      if (i <= from) {
+        g.fillStyle(NUM.flame, 1); g.fillCircle(q.x, q.y, 14);
+        g.lineStyle(3, NUM.ink, .7); g.strokeCircle(q.x, q.y, 14);
+      } else {
+        g.fillStyle(NUM.parchment, 1); g.fillCircle(q.x, q.y, 11);
+        g.lineStyle(3, NUM.ink, .45); g.strokeCircle(q.x, q.y, 11);
+      }
     });
 
     // Το βήμα: η φωτιά του δρόμου απλώνεται από τον έναν σταθμό στον άλλον
-    const walk = this.add.graphics().setDepth(39);
-    objs.push(walk);
+    const walk = this.add.graphics();
+    map.add(walk);
     const a = pts[from], b = pts[to];
     const step = { u: 0 };
     this.tweens.add({
       targets: step, u: 1, duration: 1000, delay: 700, ease: 'Sine.easeInOut',
       onUpdate: () => {
         walk.clear();
-        walk.lineStyle(6, NUM.flame, .95);
+        walk.lineStyle(6, NUM.flameDeep, .95);
         walk.lineBetween(a.x, a.y, a.x + (b.x - a.x) * step.u, a.y + (b.y - a.y) * step.u);
       }
     });
-    const marker = this.add.image(a.x, a.y - 4, 'flame').setOrigin(.5, 1).setScale(.4).setDepth(40)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    objs.push(marker);
+    const marker = this.add.image(a.x, a.y - 4, 'flame').setOrigin(.5, 1).setScale(.45);
+    map.add(marker);
     this.tweens.add({ targets: marker, x: b.x, y: b.y - 4, duration: 1000, delay: 700, ease: 'Sine.easeInOut' });
     this.time.delayedCall(1750, () => {
       audio.cast();
-      this.sealRing(b.x, b.y, NUM.lantern);
+      this.sealRing(b.x, b.y, NUM.flame);
     });
 
-    const label = this.add.text(b.x, b.y + 44, TXT.stations[to], {
-      fontFamily: FONT.ui, fontSize: '22px', fontStyle: '700', color: HEX.parchment
-    }).setOrigin(.5).setDepth(39).setAlpha(0);
-    objs.push(label);
+    const label = this.add.text(b.x, b.y + 46, TXT.stations[to], {
+      fontFamily: FONT.ui, fontSize: '22px', fontStyle: '700', color: HEX.ink
+    }).setOrigin(.5).setAlpha(0);
+    map.add(label);
     this.tweens.add({ targets: label, alpha: 1, duration: 400, delay: 1700 });
 
-    let end = 4000;
+    let canGo = 2300, end = 6000;
     if (newPower) {
-      end = 5400;
-      const pw = this.add.text(W / 2, 590, `${TXT.newPower}: ${TXT.powers[newPower]}`, {
-        fontFamily: FONT.ui, fontSize: '34px', fontStyle: '700', color: HEX.lantern
-      }).setOrigin(.5).setDepth(40).setAlpha(0);
-      pw.setShadow(0, 0, HEX.flame, 22, false, true);
-      objs.push(pw);
-      this.tweens.add({ targets: pw, alpha: 1, scale: { from: .7, to: 1 }, duration: 500, delay: 2500, ease: 'Back.easeOut' });
-      this.time.delayedCall(2500, () => { audio.cast(); this.sealRing(W / 2, 590, NUM.lantern); });
+      canGo = 3300;
+      end = 7000;
+      const pwr = this.add.text(W / 2, py + ph - 96, `${TXT.newPower}: ${TXT.powers[newPower]}`, {
+        fontFamily: FONT.ui, fontSize: '34px', fontStyle: '700', color: HEX.flameDeep
+      }).setOrigin(.5).setAlpha(0);
+      map.add(pwr);
+      this.tweens.add({ targets: pwr, alpha: 1, scale: { from: .7, to: 1 }, duration: 500, delay: 2500, ease: 'Back.easeOut' });
+      this.time.delayedCall(2500, () => { audio.cast(); this.sealRing(W / 2, py + ph - 96, NUM.flame); });
     }
-    this.time.delayedCall(end - 500, () => this.tweens.add({ targets: objs, alpha: 0, duration: 450 }));
-    this.time.delayedCall(end, () => { objs.forEach((o) => o.destroy()); done(); });
+
+    // Πάνω από ΟΛΑ τα κουμπιά (και την μπάρα δύναμης, βάθος 47)
+    const tap = this.add.zone(0, 0, W, H).setOrigin(0).setDepth(48);
+    objs.push(tap);
+    const hint = this.add.text(W / 2, py + ph - 40, TXT.tapToGo, {
+      fontFamily: FONT.ui, fontSize: '20px', color: HEX.ink
+    }).setOrigin(.5).setAlpha(0);
+    map.add(hint);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      this.tweens.add({ targets: objs, alpha: 0, duration: 450 });
+      this.time.delayedCall(480, () => { objs.forEach((o) => o.destroy()); done(); });
+    };
+    this.time.delayedCall(canGo, () => {
+      if (closed) return;
+      tap.setInteractive().on('pointerdown', close);
+      this.tweens.add({ targets: hint, alpha: .6, duration: 400 });
+      if (!this.calm) this.tweens.add({ targets: hint, alpha: .3, duration: 900, delay: 400, yoyo: true, repeat: -1 });
+    });
+    this.time.delayedCall(end, close);
   }
 
   // Το κάστρο έπεσε: ο Δρόμος ολοκληρώθηκε. Πυροτεχνήματα, νέα ζώνη που
@@ -3223,10 +3292,14 @@ export default class BattleScene extends Phaser.Scene {
     const belt = this.add.text(W / 2, 390, `${TXT.newBelt}: ${TXT.belts[journey.beltIndex(this.cycle)]}`, {
       fontFamily: FONT.ui, fontSize: '36px', fontStyle: '700', color: beltHex
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    const again = this.add.text(W / 2, 460, TXT.againHarder, {
+    const gift = this.add.text(W / 2, 436, TXT.beltGift, {
+      fontFamily: FONT.ui, fontSize: '20px', color: HEX.lantern
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const again = this.add.text(W / 2, 490, TXT.againHarder, {
       fontFamily: FONT.ui, fontSize: '22px', color: HEX.smoke
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    objs.push(big, sub, belt, again);
+    objs.push(big, sub, belt, gift, again);
+    this.tweens.add({ targets: gift, alpha: .9, duration: 500, delay: 3200 });
 
     this.tweens.add({ targets: big, alpha: 1, scale: { from: .6, to: 1 }, duration: 600, ease: 'Back.easeOut' });
     this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 900 });

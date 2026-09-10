@@ -604,10 +604,105 @@ export function cast() {
   for (let i = 0; i < 3; i++) setTimeout(() => crackle(1.3, fxGain), 200 + i * 50);
 }
 
+// ------------------------------------------------ οι τρεις δυνάμεις (Ε3)
+// Κάθε δύναμη έχει ΔΙΚΟ της ήχο — το παιδί πρέπει να την αναγνωρίζει και
+// με κλειστά μάτια. Πριν, ο ανεμοστρόβιλος δανειζόταν το φλογοβόλο, ο
+// κεραυνός το χτύπημα του Μάστερ Γου και ο πάγος το whoosh της βολής.
+
+/** Ανεμοστρόβιλος: θόρυβος που ΣΤΡΙΦΟΓΥΡΙΖΕΙ (φίλτρο με γρήγορη ταλάντωση) και ανεβαίνει. */
+export function gust() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const dur = 1.25;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(2);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 3.2;
+  bp.frequency.setValueAtTime(300, t);
+  bp.frequency.exponentialRampToValueAtTime(1300, t + dur);
+  const lfo = ctx.createOscillator();             // το στροβίλισμα
+  lfo.frequency.setValueAtTime(5, t);
+  lfo.frequency.linearRampToValueAtTime(11, t + dur);
+  const lfoG = ctx.createGain();
+  lfoG.gain.value = 260;
+  lfo.connect(lfoG).connect(bp.frequency);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.26, t + 0.25);
+  g.gain.setValueAtTime(0.26, t + dur * 0.7);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.2);
+  src.connect(bp).connect(g).connect(fxGain);
+  src.start(t); lfo.start(t);
+  src.stop(t + dur + 0.3); lfo.stop(t + dur + 0.3);
+  for (let i = 0; i < 8; i++) setTimeout(() => crackle(1.5, fxGain), 120 + i * 120);
+}
+
+/** Κεραυνός: ξερό κρακ από πάνω και βροντή που κυλά. power < 1 για τις δευτερεύουσες αστραπές. */
+export function thunder(power = 1) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const crack = ctx.createBufferSource();
+  crack.buffer = noiseBuffer(0.3);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 1800;
+  const cg = ctx.createGain();
+  cg.gain.setValueAtTime(0.0001, t);
+  cg.gain.exponentialRampToValueAtTime(0.30 * power, t + 0.004);
+  cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  crack.connect(hp).connect(cg).connect(fxGain);
+  crack.start(t); crack.stop(t + 0.2);
+  if (power < 0.8) return;
+  const roll = ctx.createBufferSource();
+  roll.buffer = noiseBuffer(2);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(520, t + 0.05);
+  lp.frequency.exponentialRampToValueAtTime(90, t + 1.6);
+  const rg = ctx.createGain();
+  rg.gain.setValueAtTime(0.0001, t + 0.04);
+  rg.gain.exponentialRampToValueAtTime(0.34, t + 0.16);
+  rg.gain.exponentialRampToValueAtTime(0.0001, t + 1.7);
+  roll.connect(lp).connect(rg).connect(fxGain);
+  roll.start(t + 0.04); roll.stop(t + 1.8);
+}
+
+/** Πάγος: γυάλινα τσιν που κατεβαίνουν (η κλίμακα «ίν» ψηλά) και παγωμένη ανάσα. */
+export function frost() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  [2349, 1865, 1760, 1568, 1175, 1397].forEach((f, i) => {
+    const at = t + i * 0.085;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.045, at + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.7);
+    o.connect(g).connect(fxGain);
+    o.start(at); o.stop(at + 0.75);
+  });
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(1.4);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.setValueAtTime(3000, t);
+  hp.frequency.exponentialRampToValueAtTime(7000, t + 1.1);
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.09, t + 0.3);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+  src.connect(hp).connect(ng).connect(fxGain);
+  src.start(t); src.stop(t + 1.3);
+}
+
 /**
- * Ο οιωνός του Μάστερ Γου: δεν μιλάει ποτέ, οπότε η είσοδός του χρειάζεται
- * ήχο. Δύο τόνοι σε μικρό δεύτερο — το διάστημα που ο εγκέφαλος διαβάζει ως
- * απειλή — μαζί με ένα βαθύ φούσκωμα από κάτω.
+ * Ο οιωνός του Μάστερ Γου: υπόκωφο μουγκρητό που συνοδεύει την είσοδό του
+ * και τις ατάκες του (μιλάει από 10/09 — πριν ήταν ο μόνος του ήχος). Δύο
+ * τόνοι σε μικρό δεύτερο — το διάστημα που ο εγκέφαλος διαβάζει ως απειλή —
+ * μαζί με ένα βαθύ φούσκωμα από κάτω.
  */
 export function omen() {
   if (!ctx) return;
