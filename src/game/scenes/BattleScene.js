@@ -586,70 +586,160 @@ export default class BattleScene extends Phaser.Scene {
    * είναι ο χρόνος αλλά ότι δεν φεύγει: μένει μπροστά σου και τρώει σωστές
    * απαντήσεις. Πλατύ και χαμηλό, ώστε να διαβάζεται ως όγκος.
    */
+  //
+  // NEXT-FIXES Δ3: ήταν ζωγραφιά που απλώς λικνιζόταν. Τώρα ξαναζωγραφίζεται
+  // κάθε καρέ: πατάει βαριά (σηκώνεται το ένα πόδι, μετά το άλλο, και το σώμα
+  // πέφτει σε κάθε πάτημα), οι ώμοι κουβαλούν την κίνηση, τα χέρια
+  // ταλαντεύονται σαν εκκρεμή με καθυστέρηση. Κάθε λίγο σηκώνεται και χτυπά
+  // το έδαφος. pose.k: 0 βάδισμα · 1 όρθιο, χέρια πάνω από το κεφάλι ·
+  // αρνητικό = το χτύπημα κάτω.
   drawHeavy(c, size) {
     const S = size;
-    const P = (x, y) => new Phaser.Geom.Point(x * S, y * S);
     const g = this.add.graphics();
-
-    // Πόδια κοντά και χοντρά
-    g.fillStyle(shade(NUM.ridgeNear, .8), 1);
-    g.fillRoundedRect(-46 * S, -40 * S, 36 * S, 40 * S, 10 * S);
-    g.fillRoundedRect(12 * S, -40 * S, 36 * S, 40 * S, 10 * S);
-
-    // Κορμός: καμπουριασμένος, ο ένας ώμος ψηλότερα — όγκος, όχι κουτί
-    g.fillStyle(NUM.ridgeNear, 1);
-    g.fillPoints([
-      P(-70, -128), P(-46, -156), P(30, -162), P(72, -134),
-      P(52, -38), P(-48, -38)
-    ], true);
-    g.fillStyle(shade(NUM.ridgeNear, 1.5), .42);         // φως στον μπροστινό ώμο
-    g.fillPoints([P(-70, -128), P(-46, -156), P(-24, -152), P(-40, -38), P(-48, -38)], true);
-    g.fillStyle(shade(NUM.ridgeNear, .55), .5);          // σκιά στην κοιλιά
-    g.fillPoints([P(-30, -70), P(46, -74), P(52, -38), P(-36, -38)], true);
-
-    // Αγκάθια στην πλάτη
-    g.fillStyle(shade(NUM.ridgeNear, .5), 1);
-    for (const [bx, by, h] of [[46, -150, 26], [64, -128, 20], [72, -104, 15]]) {
-      g.fillTriangle(bx * S, by * S, (bx + h) * S, (by + h * .4) * S, (bx + 4) * S, (by + h) * S);
-    }
-
-    // Δύο γραμμές θώρακα — λίγες, καθαρές
-    g.lineStyle(3 * S, shade(NUM.ridgeNear, .5), .75);
-    g.lineBetween(-52 * S, -112 * S, 48 * S, -118 * S);
-    g.lineBetween(-44 * S, -86 * S, 46 * S, -90 * S);
-
-    // Κεφάλι βυθισμένο ανάμεσα στους ώμους, με βαρύ φρύδι
-    g.fillStyle(shade(NUM.ridgeNear, .72), 1);
-    g.fillEllipse(-8 * S, -172 * S, 74 * S, 52 * S);
-    g.fillStyle(shade(NUM.ridgeNear, .45), 1);
-    g.fillPoints([P(-46, -184), P(28, -190), P(26, -172), P(-44, -168)], true);
-    g.fillStyle(NUM.lantern, .92);
-    g.fillEllipse(-24 * S, -168 * S, 13 * S, 9 * S);
-    g.fillEllipse(4 * S, -170 * S, 13 * S, 9 * S);
-    g.fillStyle(NUM.parchment, .8);                      // δύο χαυλιόδοντες
-    g.fillTriangle(-26 * S, -152 * S, -16 * S, -152 * S, -21 * S, -136 * S);
-    g.fillTriangle(2 * S, -152 * S, 12 * S, -152 * S, 7 * S, -138 * S);
-
-    // Χέρια που κρέμονται ως το χώμα, δεμένα στον ώμο
-    g.fillStyle(shade(NUM.ridgeNear, .85), 1);
-    g.fillPoints([P(-72, -142), P(-40, -140), P(-52, -44), P(-88, -46)], true);
-    g.fillPoints([P(46, -146), P(76, -138), P(88, -44), P(56, -44)], true);
-    g.fillCircle(-70 * S, -36 * S, 24 * S);
-    g.fillCircle(72 * S, -34 * S, 24 * S);
-    g.lineStyle(2.6 * S, shade(NUM.ridgeNear, .5), .7);  // δάχτυλα, μία γραμμή
-    g.lineBetween(-88 * S, -30 * S, -52 * S, -30 * S);
-    g.lineBetween(54 * S, -28 * S, 90 * S, -28 * S);
-
     c.add(g);
 
-    // Βαρύ βήμα: το σώμα πέφτει και ανεβαίνει, δεν αιωρείται
-    c.behave = (time) => {
-      const t = Math.sin(time * .0022);
-      c.y = LINE_Y + Math.abs(t) * 5 * S;
-      c.scaleY = c.baseScaleY * (1 - Math.abs(t) * .022);
-      c.angle = t * 1.4;
+    const calm = this.calm;
+    const seed = Math.random() * 10;
+    const pose = { k: 0 };
+    c.pose = pose;                                        // για ελέγχους
+    const lerp = (a, b, u) => a + (b - a) * u;
+    const pt = (x, y) => new Phaser.Geom.Point(x * S, y * S);
+
+    const draw = (time) => {
+      const p = calm ? 0 : time * .0022 + seed;
+      const step = Math.sin(p);
+      const rear = Math.max(0, pose.k), slam = Math.max(0, -pose.k);
+      const walk = 1 - Math.min(1, rear + slam);         // στο χτύπημα σταματά το βάδισμα
+      const drop = Math.abs(step) * 5 * walk;
+      const rock = step * walk;
+      const breath = calm ? 0 : Math.sin(time * .0031 + seed) * 1.5;
+
+      // Κάθε σημείο μετακινείται ανάλογα με το ΥΨΟΣ του: οι γοφοί μένουν στη
+      // θέση τους, οι ώμοι κουβαλούν όλη την κίνηση. Έτσι το σώμα λυγίζει
+      // ενιαίο, δεν σπάει σε κομμάτια.
+      const F = (x, y, extra = 1) => {
+        const w = Math.max(0, Math.min(1, (-y - 38) / 124)) * extra;
+        return [x + (rock * 4 + rear * 6 - slam * 12) * w,
+                y + drop + (breath - rear * 20 + slam * 14) * w];
+      };
+      const T = (x, y, extra) => { const [a, b] = F(x, y, extra); return pt(a, b); };
+
+      const arm = (sx, sy, idleDx, idleDy, phase, up) => {
+        const [ax, ay] = F(sx, sy);
+        const swing = calm ? 0 : Math.sin(p - .9 + phase) * .14 * walk;   // καθυστερεί πίσω από το σώμα
+        let th = Math.atan2(idleDx, idleDy) + swing;
+        th = lerp(th, up, rear);                          // πάνω από το κεφάλι
+        th = lerp(th, -.75, slam);                        // κάτω, μπροστά, στο χώμα
+        const L = 104;
+        const fx = ax + Math.sin(th) * L, fy = ay + Math.cos(th) * L;
+        const mx = ax + Math.sin(th) * L * .5 - 4, my = ay + Math.cos(th) * L * .5;
+        g.fillStyle(shade(NUM.ridgeNear, .85), 1);
+        g.fillPoints(ribbonOutline([
+          { cx: ax * S, cy: ay * S, r: 17 * S }, { cx: mx * S, cy: my * S, r: 14 * S },
+          { cx: fx * S, cy: fy * S, r: 13 * S }
+        ]), true);
+        g.fillCircle(fx * S, fy * S, 24 * S);
+        g.lineStyle(2.6 * S, shade(NUM.ridgeNear, .5), .7);                  // δάχτυλα, μία γραμμή
+        g.lineBetween((fx - 18) * S, (fy + 6) * S, (fx + 18) * S, (fy + 6) * S);
+      };
+
+      g.clear();
+
+      // Πόδια κοντά και χοντρά — σηκώνεται το ένα, μετά το άλλο
+      const liftL = Math.max(0, step) * 9 * walk, liftR = Math.max(0, -step) * 9 * walk;
+      g.fillStyle(shade(NUM.ridgeNear, .8), 1);
+      g.fillRoundedRect(-46 * S, (-40 + drop) * S, 36 * S, (40 - drop - liftL) * S, 10 * S);
+      g.fillRoundedRect(12 * S, (-40 + drop) * S, 36 * S, (40 - drop - liftR) * S, 10 * S);
+
+      arm(61, -142, 11, 108, Math.PI, 2.7);               // το πίσω χέρι, πίσω από τον κορμό
+
+      // Κορμός: καμπουριασμένος, ο ένας ώμος ψηλότερα — όγκος, όχι κουτί
+      g.fillStyle(NUM.ridgeNear, 1);
+      g.fillPoints([T(-70, -128), T(-46, -156), T(30, -162), T(72, -134), T(52, -38), T(-48, -38)], true);
+      g.fillStyle(shade(NUM.ridgeNear, 1.5), .42);        // φως στον μπροστινό ώμο
+      g.fillPoints([T(-70, -128), T(-46, -156), T(-24, -152), T(-40, -38), T(-48, -38)], true);
+      g.fillStyle(shade(NUM.ridgeNear, .55), .5);         // σκιά στην κοιλιά
+      g.fillPoints([T(-30, -70), T(46, -74), T(52, -38), T(-36, -38)], true);
+
+      // Αγκάθια στην πλάτη
+      g.fillStyle(shade(NUM.ridgeNear, .5), 1);
+      for (const [bx, by, h] of [[46, -150, 26], [64, -128, 20], [72, -104, 15]]) {
+        g.fillPoints([T(bx, by), T(bx + h, by + h * .4), T(bx + 4, by + h)], true);
+      }
+
+      // Δύο γραμμές θώρακα — λίγες, καθαρές
+      g.lineStyle(3 * S, shade(NUM.ridgeNear, .5), .75);
+      for (const [x1, y1, x2, y2] of [[-52, -112, 48, -118], [-44, -86, 46, -90]]) {
+        const a = T(x1, y1), b = T(x2, y2);
+        g.lineBetween(a.x, a.y, b.x, b.y);
+      }
+
+      // Κεφάλι βυθισμένο ανάμεσα στους ώμους: γνέφει σε κάθε πάτημα,
+      // στο σήκωμα βρυχάται — ανοίγει στόμα, τα μάτια φουντώνουν
+      const [hx, hy0] = F(-8, -172, 1.15);
+      const hy = hy0 + drop * .6;
+      const H = (x, y) => pt(hx + x, hy + y);
+      g.fillStyle(shade(NUM.ridgeNear, .72), 1);
+      g.fillEllipse(hx * S, hy * S, 74 * S, 52 * S);
+      if (rear > .05) {
+        g.fillStyle(NUM.shadow, .9);
+        g.fillEllipse((hx - 7) * S, (hy + 24) * S, 34 * S, (4 + rear * 16) * S);
+      }
+      g.fillStyle(shade(NUM.ridgeNear, .45), 1);          // βαρύ φρύδι
+      g.fillPoints([H(-38, -12 - rear * 4), H(36, -18 - rear * 4), H(34, 0), H(-36, 4)], true);
+      const eg = 1 + rear * .45;
+      g.fillStyle(rear > .4 ? NUM.flameCore : NUM.lantern, .92);
+      g.fillEllipse((hx - 16) * S, (hy + 4) * S, 13 * eg * S, 9 * eg * S);
+      g.fillEllipse((hx + 12) * S, (hy + 2) * S, 13 * eg * S, 9 * eg * S);
+      g.fillStyle(NUM.parchment, .8);                     // δύο χαυλιόδοντες
+      g.fillPoints([H(-18, 20), H(-8, 20), H(-13, 36)], true);
+      g.fillPoints([H(10, 20), H(20, 20), H(15, 34)], true);
+
+      arm(-56, -141, -14, 105, 0, -2.7);                  // το μπροστινό χέρι, μπροστά απ' όλα
     };
-    c.baseScaleY = 1;
+
+    // Σκόνη εκεί που χτυπούν οι γροθιές
+    const dust = () => {
+      for (const side of [-1, 1]) {
+        const em = this.add.particles(c.x + side * 60 * S, LINE_Y - 4, 'puff', {
+          speed: { min: 20, max: 90 },
+          angle: side < 0 ? { min: 190, max: 250 } : { min: 290, max: 350 },
+          scale: { start: .8, end: 0 }, alpha: { start: .45, end: 0 },
+          lifespan: { min: 400, max: 800 }, tint: NUM.smoke, emitting: false
+        }).setDepth(12);
+        em.explode(10);
+        this.time.delayedCall(900, () => em.destroy());
+      }
+    };
+
+    // Σήκωμα → χτύπημα → σκόνη → επαναφορά. Στο λάθος του παιδιού (fast)
+    // όλα πιο απότομα. Δεν αλλάζει την ταχύτητά του: η απειλή του Τέρατος
+    // είναι ότι δεν φεύγει, όχι ότι τρέχει.
+    const strike = (fast) => {
+      this.tweens.killTweensOf(pose);
+      this.tweens.add({
+        targets: pose, k: fast ? 1 : .7, duration: fast ? 180 : 420,
+        ease: fast ? 'Quad.easeOut' : 'Sine.easeInOut',
+        onComplete: () => this.tweens.add({
+          targets: pose, k: -1, duration: fast ? 120 : 160, ease: 'Quad.easeIn',
+          onComplete: () => {
+            dust();
+            this.tweens.add({ targets: pose, k: 0, duration: 520, delay: 120, ease: 'Sine.easeInOut' });
+          }
+        })
+      });
+    };
+    c.windUp = () => { if (!calm) strike(true); };
+
+    let nextSlamAt = null;
+    c.behave = (time) => {
+      if (nextSlamAt === null) nextSlamAt = time + Phaser.Math.Between(3500, 6000);
+      draw(time);
+      if (calm || time < nextSlamAt) return;
+      nextSlamAt = time + Phaser.Math.Between(4500, 7000);
+      if (!this.tweens.isTweening(pose)) strike(false);
+    };
+    draw(0);
   }
 
   /**
