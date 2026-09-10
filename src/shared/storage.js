@@ -161,6 +161,7 @@ export function resetProgress(state, id) {
   if (!p) return false;
   p.words = p.words.map((w) => freshWord(w));
   p.profile.sparks = 0;
+  delete p.profile.journey;                // και ο Δρόμος από τον πρώτο σταθμό
   p.profile.updatedAt = now();
   saveState(state);
   return true;
@@ -219,6 +220,38 @@ export function addSparks(state, n) {
   return p.profile.sparks;
 }
 
+// --- Ο Δρόμος της Φλόγας (NEXT-FIXES Ε3): μόνιμη πρόοδος ιστορίας ---
+// station: ο σταθμός που παίζεται τώρα (0-based) · cycle: πόσες φορές έχει
+// ολοκληρωθεί ο Δρόμος (το χρώμα της ζώνης) · storySeen: είδε την ιστορία.
+// Ζει στο προφίλ, όπως οι σπίθες. Είναι checkpoint: δεν χάνεται ποτέ.
+
+export function getJourney(state) {
+  const j = activeProfile(state)?.profile.journey || {};
+  return { station: j.station || 0, cycle: j.cycle || 0, storySeen: !!j.storySeen };
+}
+
+function setJourney(state, j) {
+  const p = activeProfile(state);
+  if (!p) return;
+  p.profile.journey = j;
+  p.profile.updatedAt = now();
+  saveState(state);
+}
+
+export function markStorySeen(state) {
+  setJourney(state, { ...getJourney(state), storySeen: true });
+}
+
+// Νίκη στον σταθμό: ένας σταθμός μπροστά. Νίκη στον ΤΕΛΕΥΤΑΙΟ σταθμό =
+// ο Δρόμος ολοκληρώθηκε: νέος κύκλος (ανώτερη ζώνη) από τον πρώτο σταθμό.
+export function advanceJourney(state, stations) {
+  const j = getJourney(state);
+  const finished = j.station + 1 >= stations;
+  const next = finished ? { ...j, station: 0, cycle: j.cycle + 1 } : { ...j, station: j.station + 1 };
+  setJourney(state, next);
+  return { ...next, finished, from: j.station };
+}
+
 export function removeWord(state, wordId) {
   const p = activeProfile(state);
   p.words = p.words.filter((w) => w.id !== wordId);
@@ -238,6 +271,7 @@ export function exportJSON(state, { progress = true } = {}) {
     out.profiles.forEach((p) => {
       p.words = p.words.map((w) => freshWord(w));
       p.profile.sparks = 0;
+      delete p.profile.journey;
     });
   }
   return JSON.stringify({ ...out, kind: progress ? 'full' : 'words', exportedAt: now() }, null, 2);

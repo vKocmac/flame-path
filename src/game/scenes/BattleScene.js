@@ -15,6 +15,7 @@ import * as store from '../../shared/storage.js';
 import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
 import { archetype, dragonStage, waveComposition, waveSpeed, BOSS_EVERY } from '../enemies.js';
+import * as journey from '../journey.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
@@ -48,6 +49,12 @@ const FOCUS_DIST = 190;      // πόσο κοντά πρέπει να φτάσε
 const FOCUS_MS = 1800;
 
 const COMBO_BRIGHT = 3, COMBO_TRAIL = 6, COMBO_ZOOM = 9;
+
+// Μπάρα δύναμης (HYPER-NOTE §8, §17.9): γεμίζει με τα σωστά — πιο γρήγορα
+// με σερί 3+ — και πέφτει λίγο στο λάθος. Γεμάτη ΔΕΝ ξαδειάζει: την κέρδισε.
+// ~5 σωστά με σερί τη γεμίζουν.
+const RAGE_MAX = 100, RAGE_HIT = 18, RAGE_COMBO = 26, RAGE_MISS = 12;
+const ICE_MS = 8000;
 
 // Δίχτυ ασφαλείας. Καμία σκηνή δεν κρατά νόμιμα το «απασχολημένη» πάνω από
 // λίγα δευτερόλεπτα: το πιο αργό animation (ο πάπυρος) τελειώνει πολύ πριν.
@@ -133,19 +140,33 @@ export default class BattleScene extends Phaser.Scene {
     this.focusedFor = null;
     this.hardTargets = new Set();   // νέοι ή λαθεμένοι στόχοι αυτής της session
 
+    // Ο Δρόμος (NEXT-FIXES Ε3): σε ποιον σταθμό είμαστε — μόνιμο, ανά προφίλ.
+    // Φορτώνεται ΠΡΙΝ τις μορφές: η ζώνη του νίντζα βάφεται από τον κύκλο.
+    const state = store.loadState();
+    this.profileId = state.activeProfileId;
+    const jr = store.getJourney(state);
+    this.station = jr.station;
+    this.cycle = jr.cycle;
+    this.rage = 0;              // η μπάρα δύναμης ζει μόνο μέσα στη μάχη
+    this.rageReady = false;
+    this.powerTurn = 0;
+    engine.resetSession();
+
     this.buildBackdrop();
     this.master = this.buildMaster();
     this.ninja = this.makeNinja(NINJA_X, LINE_Y);
     this.buildScroll();
     this.buildHUD();
 
-    const state = store.loadState();
-    this.profileId = state.activeProfileId;
-    engine.resetSession();
-
     this.cameras.main.fadeIn(420, 0xFF, 0x7A, 0x1A);
     this.spawnWave();
-    this.time.delayedCall(500, () => this.openLevel());
+    // Πριν τον πάπυρο: πού βρίσκεσαι στον Δρόμο. Την πρώτη φορά, η ιστορία.
+    if (!jr.storySeen) {
+      store.markStorySeen(state);
+      this.showStory(() => this.showStationBanner(() => this.openLevel()));
+    } else {
+      this.showStationBanner(() => this.openLevel());
+    }
   }
 
   buildBackdrop() {
@@ -180,17 +201,33 @@ export default class BattleScene extends Phaser.Scene {
       new Phaser.Geom.Point(-24, -100), new Phaser.Geom.Point(-58, -112),
       new Phaser.Geom.Point(-52, -96), new Phaser.Geom.Point(-24, -92)
     ], true);
-    g.fillStyle(NUM.lantern, 1);
-    g.fillRect(-26, -40, 52, 8);                        // ζώνη
     g.fillStyle(NUM.parchment, .95);
     g.fillRoundedRect(-17, -99, 34, 8, 4);              // μάτια
-    c.add(g);
+
+    // Η ζώνη: το χρώμα της είναι ο ΚΥΚΛΟΣ του Δρόμου — μόνιμη, ορατή
+    // ενδυνάμωση (SPEC κεφ. 7). Δικό της Graphics, για να αλλάζει στη νίκη.
+    this.belt = this.add.graphics();
+    this.paintBelt(journey.beltColor(this.cycle));
+
+    // Η αύρα όταν η μπάρα δύναμης είναι γεμάτη: ο νίντζα «ντοπάρεται»
+    this.aura = this.add.image(0, -56, 'glow-flame').setScale(2.2)
+      .setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
+    c.add([this.aura, g, this.belt]);
     c.setScale(1.3);   // ο ήρωας πρέπει να διαβάζεται από απόσταση σε tablet
 
     // Το χέρι που κρατά τη φλόγα
     this.hand = this.add.image(x + 48, y - 78, 'glow-flame')
       .setScale(.5).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setDepth(13);
     return c;
+  }
+
+  paintBelt(color) {
+    const P = (x, y) => new Phaser.Geom.Point(x, y);
+    this.belt.clear();
+    this.belt.fillStyle(color, 1);
+    this.belt.fillRect(-26, -40, 52, 8);
+    this.belt.fillStyle(color, .85);                    // οι άκρες που κρέμονται
+    this.belt.fillPoints([P(16, -34), P(28, -18), P(22, -16), P(11, -32)], true);
   }
 
   // ------------------------------------------------------------ Μάστερ Γου
@@ -1002,8 +1039,10 @@ export default class BattleScene extends Phaser.Scene {
     this.wave = (this.wave || 0) + 1;
     // Όταν τελειώσουν οι ορδές που στέλνει, κατεβαίνει ο ίδιος.
     if (this.wave % BOSS_EVERY === 0) { this.summonMaster(done); return; }
-    const comp = waveComposition(this.wave);
-    const rush = waveSpeed(this.wave);
+    // Η δυσκολία προχωρά με τον ΣΤΑΘΜΟ του Δρόμου, όχι μόνο μέσα στη μάχη
+    const dw = journey.difficultyWave(this.station, this.cycle, ((this.wave - 1) % BOSS_EVERY) + 1);
+    const comp = waveComposition(dw);
+    const rush = waveSpeed(dw);
     comp.forEach((archId, i) => {
       const e = this.makeEnemy(SPAWN_X + i * ENEMY_GAP, archId, 1.22 - i * .05);
       e.speed *= rush;                 // κλιμάκωση κύματος (HYPER-NOTE §6)
@@ -1030,8 +1069,8 @@ export default class BattleScene extends Phaser.Scene {
     const m = this.master;
     const arch = archetype('master');
     m.arch = arch;
-    m.hp = arch.hp;
-    m.maxHp = arch.hp;
+    m.hp = journey.bossHp(this.station);       // στο κάστρο του αντέχει περισσότερο
+    m.maxHp = m.hp;
     m.speed = arch.speed;
     m.mult = 1;
     m.multMs = 0;
@@ -1204,6 +1243,10 @@ export default class BattleScene extends Phaser.Scene {
 
     const dt = delta / 1000;
     for (const e of this.enemies) {
+      if (e.frozenUntil) {                       // Πάγος: ακίνητος ώσπου να λιώσει
+        if (this.sceneMs < e.frozenUntil) continue;
+        this.thaw(e);
+      }
       if (e.multMs > 0) {
         e.multMs -= delta;
         if (e.multMs <= 0) { e.mult = 1; e.multMs = 0; }
@@ -1949,8 +1992,11 @@ export default class BattleScene extends Phaser.Scene {
     // Combo: μόνο ΠΡΟΣΘΕΤΕΙ. Όταν σπάει, σβήνει σιωπηλά — κανένας μετρητής,
     // κανένα «έχασες το combo», κανένας ήχος. Αλλιώς είναι τιμωρητικό UI
     // από την πίσω πόρτα (SPEC κεφ. 3).
-    if (correct) this.combo += 1;
-    else {
+    if (correct) {
+      this.combo += 1;
+      this.addRage(this.combo >= COMBO_BRIGHT ? RAGE_COMBO : RAGE_HIT);
+    } else {
+      this.addRage(-RAGE_MISS);
       this.combo = 0;
       this.hardTargets.add(ch.targetId);
       this.tries = (this.tries || 0) + 1;
@@ -2070,18 +2116,25 @@ export default class BattleScene extends Phaser.Scene {
     this.pushBackLine();
 
     // Η σωστή λέξη μένει ολόκληρη για μια ανάσα, μετά επόμενη πρόκληση
-    const bossCleared = this.wave % BOSS_EVERY === 0;
     this.time.delayedCall(820, () => {
-      this.hideScroll(() => {
-        if (!this.enemies.length) {
-          this.time.delayedCall(420, () => this.spawnWave(() => {
-            // Νίκησες τον Μάστερ Γου → τέλος λεβελ, νέος πάπυρος με νέες λέξεις
-            if (bossCleared) this.openLevel(); else this.nextChallenge();
-          }));
-        } else {
-          this.nextChallenge();
-        }
-      });
+      this.hideScroll(() => this.advanceIfCleared(() => this.nextChallenge()));
+    });
+  }
+
+  // Άδειασε το πεδίο; → νέο κύμα. Αν ήταν ο Μάστερ Γου, ο ΣΤΑΘΜΟΣ κερδήθηκε:
+  // χάρτης του Δρόμου (ή σκηνή νίκης στο κάστρο), νέο λεβελ, νέος πάπυρος.
+  // Αλλιώς η μάχη συνεχίζει με ό,τι ορίσει ο καλών.
+  advanceIfCleared(onContinue) {
+    if (this.enemies.length) { onContinue(); return; }
+    const bossCleared = this.wave % BOSS_EVERY === 0;
+    this.time.delayedCall(420, () => {
+      if (bossCleared) {
+        this.clearOrbs();
+        this.current = null;
+        this.completeStation(() => this.spawnWave(() => this.openLevel()));
+      } else {
+        this.spawnWave(onContinue);
+      }
     });
   }
 
@@ -2247,6 +2300,7 @@ export default class BattleScene extends Phaser.Scene {
       // Στη δεύτερη αστοχία η γραμμή ορμάει: διπλό βήμα, όχι το ίδιο.
       const step = this.lostWord ? ERROR_STEP * 1.9 : ERROR_STEP;
       this.enemies.forEach((e, i) => {
+        if (e.frozenUntil) return;     // παγωμένος: δεν κάνει βήμα
         if (e.windUp) e.windUp();      // η δική του προειδοποίηση (Δ3)
         this.tweens.add({
           targets: e, x: e.x - step, duration: 260, delay: i * 40, ease: 'Back.easeOut'
@@ -2454,5 +2508,419 @@ export default class BattleScene extends Phaser.Scene {
     this.sparkLabel = this.add.text(W - 70, 36, String(store.getSparks(store.loadState())), {
       fontFamily: FONT.ui, fontSize: '26px', fontStyle: '700', color: HEX.lantern
     }).setOrigin(0, .5).setDepth(46);
+
+    this.buildRageBar();
+  }
+
+  // ======================================== Ο ΔΡΟΜΟΣ ΤΗΣ ΦΛΟΓΑΣ (NEXT-FIXES Ε3)
+
+  stationText() {
+    return `${TXT.station} ${this.station + 1}/${journey.STATIONS} · ${TXT.stations[this.station]}`;
+  }
+
+  // --------------------------------------------------------- μπάρα δύναμης
+
+  buildRageBar() {
+    const x = 24, y = 70, w = 250, h = 18;
+    this.rageBox = { x, y, w, h };
+    this.rageG = this.add.graphics().setDepth(46);
+    this.rageLabel = this.add.text(x + w + 14, y + h / 2, '', {
+      fontFamily: FONT.ui, fontSize: '17px', fontStyle: '700', color: HEX.flameCore
+    }).setOrigin(0, .5).setDepth(46);
+    this.stationLabel = this.add.text(x, y + h + 16, this.stationText(), {
+      fontFamily: FONT.ui, fontSize: '15px', color: HEX.smoke
+    }).setOrigin(0, .5).setDepth(46).setAlpha(.85);
+    // Δύο μεγάλοι στόχοι αφής για την απελευθέρωση: η μπάρα ΚΑΙ ο νίντζας
+    this.add.zone(x - 10, y - 14, w + 200, h + 28).setOrigin(0).setDepth(47)
+      .setInteractive({ useHandCursor: true }).on('pointerdown', () => this.unleash());
+    this.add.zone(NINJA_X, LINE_Y - 70, 150, 170).setOrigin(.5).setDepth(47)
+      .setInteractive().on('pointerdown', () => this.unleash());
+    this.drawRage();
+  }
+
+  nextPower() {
+    const list = journey.unlockedPowers(this.station, this.cycle);
+    return list[this.powerTurn % list.length];
+  }
+
+  drawRage() {
+    const { x, y, w, h } = this.rageBox;
+    const g = this.rageG;
+    const f = Math.max(0, Math.min(1, this.rage / RAGE_MAX));
+    g.clear();
+    g.fillStyle(NUM.shadow, .65);
+    g.fillRoundedRect(x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
+    if (f > 0) {
+      g.fillStyle(this.rageReady ? NUM.lantern : NUM.flame, 1);
+      g.fillRoundedRect(x, y, Math.max(h, w * f), h, h / 2);
+      g.fillStyle(NUM.flameCore, .45);                  // φως στην πάνω μεριά
+      g.fillRoundedRect(x + 4, y + 3, Math.max(h - 8, w * f - 8), h / 3, h / 6);
+    }
+    g.lineStyle(2, this.rageReady ? NUM.flameCore : NUM.smoke, this.rageReady ? .95 : .5);
+    g.strokeRoundedRect(x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
+    const name = TXT.powers[this.nextPower()];
+    this.rageLabel.setText(this.rageReady ? `${name} · ${TXT.powerReady}` : name);
+    if (!this.barPulse) this.rageLabel.setAlpha(this.rageReady ? 1 : .5);
+  }
+
+  addRage(n) {
+    if (this.rageReady && n < 0) return;               // γεμάτη δεν ξαδειάζει
+    this.rage = Math.max(0, Math.min(RAGE_MAX, this.rage + n));
+    if (this.rage >= RAGE_MAX && !this.rageReady) {
+      this.rageReady = true;
+      audio.cast();
+      this.tweens.add({ targets: this.aura, alpha: .8, scale: 2.7, duration: 380, ease: 'Quad.easeOut' });
+      if (!this.calm) {
+        this.auraPulse = this.tweens.add({ targets: this.aura, alpha: .45, scale: 2.2,
+          duration: 700, delay: 380, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        this.barPulse = this.tweens.add({ targets: [this.rageG, this.rageLabel], alpha: .5,
+          duration: 480, yoyo: true, repeat: -1 });
+      }
+    }
+    this.drawRage();
+  }
+
+  /**
+   * Απελευθέρωση της δύναμης (HYPER-NOTE §17.9): όλα παγώνουν, ο νίντζας
+   * πηδά στο κέντρο, η δύναμη χτυπά ΟΛΟΥΣ, και η μάχη συνεχίζει με την
+   * ΙΔΙΑ λέξη — η δύναμη δεν απαντά ποτέ στη θέση του παιδιού.
+   */
+  unleash() {
+    if (!this.rageReady || this.busy || !this.current || !this.enemies.length) return;
+    const power = this.nextPower();
+    this.powerTurn += 1;
+    this.rageReady = false;
+    this.rage = 0;
+    if (this.auraPulse) { this.auraPulse.stop(); this.auraPulse = null; }
+    if (this.barPulse) { this.barPulse.stop(); this.barPulse = null; }
+    this.rageG.setAlpha(1);
+    this.drawRage();
+    this.tweens.add({ targets: this.aura, alpha: 0, scale: 2.2, duration: 600, delay: 1400 });
+
+    this.busy = true;
+    this.ninja.frozen = true;
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(9).setAlpha(0);
+    this.tweens.add({ targets: veil, alpha: .5, duration: 260, hold: 1500, yoyo: true });
+    this.tweens.add({ targets: this.ninja, x: W / 2 - 170, y: LINE_Y - 50,
+      duration: 320, ease: 'Quad.easeOut' });
+    this.cameras.main.shake(300, .004);
+    this.sealRing(W / 2 - 170, LINE_Y - 120, NUM.flame);
+
+    const name = this.add.text(W / 2, 250, TXT.powers[power], {
+      fontFamily: FONT.ui, fontSize: '46px', fontStyle: '700', color: HEX.flameCore
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    name.setShadow(0, 0, HEX.flame, 24, false, true);
+    this.tweens.add({ targets: name, alpha: 1, y: 230, duration: 300, hold: 1100, yoyo: true });
+
+    const fx = { tornado: () => this.fxTornado(), lightning: () => this.fxLightning(), ice: () => this.fxIce() };
+    this.time.delayedCall(360, fx[power]);
+    this.time.delayedCall(1500, () => this.applyPower(power));
+    this.time.delayedCall(2200, () => {
+      veil.destroy();
+      name.destroy();
+      this.tweens.add({ targets: this.ninja, x: NINJA_X, y: LINE_Y, duration: 360, ease: 'Quad.easeInOut' });
+    });
+    // Η συνέχεια είναι χρονόμετρο, όχι tween (ο κανόνας των κολλημάτων)
+    this.time.delayedCall(2600, () => {
+      this.ninja.setX(NINJA_X).setY(LINE_Y);
+      this.ninja.frozen = false;
+      this.busy = false;
+      this.advanceIfCleared(() => {});
+    });
+  }
+
+  // Το ΑΠΟΤΕΛΕΣΜΑ κάθε δύναμης είναι διαφορετικό (HYPER-NOTE §8)
+  applyPower(power) {
+    const dmg = power === 'lightning' ? 2 : 1;
+    [...this.enemies].forEach((e) => {
+      e.hp -= dmg;
+      if (e.hp > 0) this.flinchEnemy(e);
+      else { this.enemies = this.enemies.filter((x) => x !== e); this.killEnemy(e); }
+    });
+    if (power === 'tornado') {                         // παρασύρει: όλοι πίσω
+      this.enemies.forEach((e, i) => this.tweens.add({
+        targets: e, x: Math.max(e.x, SPAWN_X + i * ENEMY_GAP), duration: 520, ease: 'Quad.easeOut'
+      }));
+    }
+    if (power === 'ice') this.enemies.forEach((e) => this.freeze(e));
+  }
+
+  fxTornado() {
+    audio.flamethrower(1100);
+    const col = this.add.container(this.ninja.x + 70, LINE_Y).setDepth(16);
+    for (let i = 0; i < 7; i++) {
+      const f = this.add.image(0, -i * 34, 'flame').setOrigin(.5, 1)
+        .setScale(.5 + i * .12, .5).setAlpha(.9).setBlendMode(Phaser.BlendModes.ADD);
+      col.add(f);
+      this.tweens.add({ targets: f, angle: { from: -25, to: 25 }, duration: 160 + i * 30, yoyo: true, repeat: -1 });
+    }
+    const em = this.add.particles(0, 0, 'spark', {
+      speed: { min: 60, max: 220 }, angle: { min: 200, max: 340 },
+      scale: { start: .8, end: 0 }, alpha: { start: 1, end: 0 }, lifespan: 600,
+      blendMode: 'ADD', tint: [NUM.flameCore, NUM.flame, NUM.lantern],
+      follow: col, followOffset: { y: -110 }
+    }).setDepth(16);
+    em.setFrequency(12, 2);
+    em.start();
+    this.tweens.add({
+      targets: col, x: W + 160, duration: 1100, ease: 'Quad.easeIn',
+      onComplete: () => {
+        col.destroy();
+        em.stop();
+        this.time.delayedCall(700, () => em.destroy());
+      }
+    });
+  }
+
+  fxLightning() {
+    this.cameras.main.flash(180, 201, 207, 234);
+    this.enemies.forEach((e, i) => this.time.delayedCall(140 + i * 160, () => {
+      if (!e.scene) return;
+      const g = this.add.graphics().setDepth(17).setBlendMode(Phaser.BlendModes.ADD);
+      const pts = [];
+      let x = e.x + Phaser.Math.Between(-40, 40), y = 0;
+      while (y < e.y - 90) {
+        pts.push(new Phaser.Geom.Point(x, y));
+        y += Phaser.Math.Between(40, 80);
+        x += Phaser.Math.Between(-36, 36);
+      }
+      pts.push(new Phaser.Geom.Point(e.x, e.y - 90));
+      g.lineStyle(10, NUM.spirit, .5);
+      g.strokePoints(pts);
+      g.lineStyle(3, NUM.moon, 1);
+      g.strokePoints(pts);
+      audio.strike();
+      this.sealRing(e.x, e.y - 80, NUM.spirit);
+      this.tweens.add({ targets: g, alpha: 0, duration: 380, onComplete: () => g.destroy() });
+    }));
+  }
+
+  fxIce() {
+    audio.whoosh();
+    this.cameras.main.flash(220, 87, 199, 184);
+    const mist = this.add.particles(this.ninja.x, LINE_Y - 20, 'puff', {
+      speedX: { min: 300, max: 620 }, speedY: { min: -40, max: 20 },
+      scale: { start: 1.2, end: 2 }, alpha: { start: .5, end: 0 },
+      lifespan: 1400, tint: [NUM.spirit, NUM.star], emitting: false
+    }).setDepth(16);
+    mist.explode(60);
+    this.time.delayedCall(1700, () => mist.destroy());
+  }
+
+  // Πάγος: κέλυφος πάνω στον εχθρό· το update() δεν τον κινεί ώσπου να λιώσει.
+  freeze(e) {
+    e.frozenUntil = this.sceneMs + ICE_MS;
+    if (e.iceG) return;
+    const S = e.size || 1;
+    const g = this.add.graphics();
+    g.fillStyle(NUM.spirit, .28);
+    g.fillEllipse(0, -70 * S, 130 * S, 170 * S);
+    g.lineStyle(2, NUM.star, .6);
+    g.strokeEllipse(0, -70 * S, 130 * S, 170 * S);
+    g.fillStyle(NUM.star, .55);
+    for (const [x, y, k] of [[-40, -130, 14], [36, -100, 11], [-20, -30, 10], [44, -40, 13], [0, -150, 9]]) {
+      g.fillTriangle(x * S, (y - k) * S, (x + k * .6) * S, y * S, (x - k * .6) * S, y * S);
+      g.fillTriangle(x * S, (y + k) * S, (x + k * .6) * S, y * S, (x - k * .6) * S, y * S);
+    }
+    e.add(g);
+    e.iceG = g;
+  }
+
+  thaw(e) {
+    e.frozenUntil = 0;
+    if (!e.iceG) return;
+    const g = e.iceG;
+    e.iceG = null;
+    this.tweens.add({ targets: g, alpha: 0, duration: 400, onComplete: () => g.destroy() });
+  }
+
+  // ------------------------------------------- ιστορία, σταθμοί, χάρτης, νίκη
+
+  // Την πρώτη φορά: ποιος, τι έκλεψε, πού πάμε. Την ιστορία τη λέει το
+  // παιχνίδι — ο Μάστερ Γου φαίνεται αλλά δεν μιλάει ποτέ.
+  showStory(done) {
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(38).setAlpha(0);
+    this.tweens.add({ targets: veil, alpha: .82, duration: 500 });
+    const lines = TXT.story.map((line, i) => this.add.text(W / 2, 300 + i * 60, line, {
+      fontFamily: FONT.ui, fontSize: i ? '26px' : '32px', fontStyle: i ? '400' : '700',
+      color: i ? HEX.parchment : HEX.flameCore, align: 'center', wordWrap: { width: 1000 }
+    }).setOrigin(.5).setDepth(39).setAlpha(0));
+    lines.forEach((l, i) => this.tweens.add({ targets: l, alpha: 1, duration: 600, delay: 400 + i * 1300 }));
+    this.time.delayedCall(5600, () => this.tweens.add({ targets: [veil, ...lines], alpha: 0, duration: 500 }));
+    this.time.delayedCall(6150, () => {
+      veil.destroy();
+      lines.forEach((l) => l.destroy());
+      done();
+    });
+  }
+
+  showStationBanner(done) {
+    const final = journey.isFinal(this.station);
+    const t1 = this.add.text(W / 2, 300, `${TXT.station} ${this.station + 1} ${TXT.of} ${journey.STATIONS}`, {
+      fontFamily: FONT.ui, fontSize: '24px', color: HEX.smoke
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const t2 = this.add.text(W / 2, 348,
+      final ? `${TXT.stations[this.station]} — ${TXT.finalBattle}` : TXT.stations[this.station], {
+        fontFamily: FONT.ui, fontSize: '40px', fontStyle: '700', color: HEX.flameCore
+      }).setOrigin(.5).setDepth(40).setAlpha(0);
+    t2.setShadow(0, 0, HEX.flame, 20, false, true);
+    this.tweens.add({ targets: [t1, t2], alpha: 1, duration: 420, hold: 1300, yoyo: true });
+    this.time.delayedCall(2300, () => { t1.destroy(); t2.destroy(); done(); });
+  }
+
+  // Ο Μάστερ Γου διώχτηκε από τον σταθμό: μόνιμη πρόοδος, και μετά ο χάρτης
+  // (ή, στο κάστρο, η νίκη και νέα ζώνη).
+  completeStation(done) {
+    this.busy = true;
+    const res = store.advanceJourney(store.loadState(), journey.STATIONS);
+    const from = this.station;
+    this.station = res.station;
+    this.cycle = res.cycle;
+    this.stationLabel.setText(this.stationText());
+    this.drawRage();
+    const cont = () => { this.busy = false; done(); };
+    if (res.finished) this.showVictory(cont);
+    else this.showPath(from, res.station, journey.powerUnlockedAt(res.station, res.cycle), cont);
+  }
+
+  // Ο χάρτης: επτά σταθμοί ως το κάστρο. Ο νίντζας περπατά ένα βήμα.
+  showPath(from, to, newPower, done) {
+    const objs = [];
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(38).setAlpha(0);
+    this.tweens.add({ targets: veil, alpha: .88, duration: 400 });
+    objs.push(veil);
+    const title = this.add.text(W / 2, 150, TXT.pathTitle, {
+      fontFamily: FONT.ui, fontSize: '40px', fontStyle: '700', color: HEX.flameCore
+    }).setOrigin(.5).setDepth(39);
+    title.setShadow(0, 0, HEX.flame, 24, false, true);
+    objs.push(title);
+
+    const n = journey.STATIONS;
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push({ x: 170 + i * (940 / (n - 1)), y: 400 + Math.sin(i * 1.1) * 60 });
+    const P = (q) => new Phaser.Geom.Point(q.x, q.y);
+
+    const g = this.add.graphics().setDepth(39);
+    objs.push(g);
+    g.lineStyle(6, NUM.nightHigh, 1);
+    g.strokePoints(pts.map(P));
+    if (from > 0) {
+      g.lineStyle(6, NUM.flame, .9);
+      g.strokePoints(pts.slice(0, from + 1).map(P));
+    }
+    pts.forEach((q, i) => {
+      if (i === n - 1) {                                  // το κάστρο
+        g.fillStyle(NUM.nightHigh, 1);
+        g.fillRect(q.x - 30, q.y - 50, 60, 50);
+        g.fillRect(q.x - 42, q.y - 70, 18, 70);
+        g.fillRect(q.x + 24, q.y - 70, 18, 70);
+        g.fillTriangle(q.x - 46, q.y - 70, q.x - 20, q.y - 70, q.x - 33, q.y - 96);
+        g.fillTriangle(q.x + 20, q.y - 70, q.x + 46, q.y - 70, q.x + 33, q.y - 96);
+        g.fillStyle(to === i ? NUM.lantern : NUM.flameDeep, .8);
+        g.fillRect(q.x - 6, q.y - 30, 12, 18);
+        return;
+      }
+      if (i <= from) { g.fillStyle(NUM.lantern, 1); g.fillCircle(q.x, q.y, 14); }
+      else { g.fillStyle(NUM.shadow, 1); g.fillCircle(q.x, q.y, 11); g.lineStyle(2, NUM.smoke, .6); g.strokeCircle(q.x, q.y, 11); }
+    });
+
+    // Το βήμα: η φωτιά του δρόμου απλώνεται από τον έναν σταθμό στον άλλον
+    const walk = this.add.graphics().setDepth(39);
+    objs.push(walk);
+    const a = pts[from], b = pts[to];
+    const step = { u: 0 };
+    this.tweens.add({
+      targets: step, u: 1, duration: 1000, delay: 700, ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        walk.clear();
+        walk.lineStyle(6, NUM.flame, .95);
+        walk.lineBetween(a.x, a.y, a.x + (b.x - a.x) * step.u, a.y + (b.y - a.y) * step.u);
+      }
+    });
+    const marker = this.add.image(a.x, a.y - 4, 'flame').setOrigin(.5, 1).setScale(.4).setDepth(40)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    objs.push(marker);
+    this.tweens.add({ targets: marker, x: b.x, y: b.y - 4, duration: 1000, delay: 700, ease: 'Sine.easeInOut' });
+    this.time.delayedCall(1750, () => {
+      audio.cast();
+      this.sealRing(b.x, b.y, NUM.lantern);
+    });
+
+    const label = this.add.text(b.x, b.y + 44, TXT.stations[to], {
+      fontFamily: FONT.ui, fontSize: '22px', fontStyle: '700', color: HEX.parchment
+    }).setOrigin(.5).setDepth(39).setAlpha(0);
+    objs.push(label);
+    this.tweens.add({ targets: label, alpha: 1, duration: 400, delay: 1700 });
+
+    let end = 4000;
+    if (newPower) {
+      end = 5400;
+      const pw = this.add.text(W / 2, 590, `${TXT.newPower}: ${TXT.powers[newPower]}`, {
+        fontFamily: FONT.ui, fontSize: '34px', fontStyle: '700', color: HEX.lantern
+      }).setOrigin(.5).setDepth(40).setAlpha(0);
+      pw.setShadow(0, 0, HEX.flame, 22, false, true);
+      objs.push(pw);
+      this.tweens.add({ targets: pw, alpha: 1, scale: { from: .7, to: 1 }, duration: 500, delay: 2500, ease: 'Back.easeOut' });
+      this.time.delayedCall(2500, () => { audio.cast(); this.sealRing(W / 2, 590, NUM.lantern); });
+    }
+    this.time.delayedCall(end - 500, () => this.tweens.add({ targets: objs, alpha: 0, duration: 450 }));
+    this.time.delayedCall(end, () => { objs.forEach((o) => o.destroy()); done(); });
+  }
+
+  // Το κάστρο έπεσε: ο Δρόμος ολοκληρώθηκε. Πυροτεχνήματα, νέα ζώνη που
+  // φαίνεται ΑΜΕΣΩΣ πάνω στον νίντζα, και ο Δρόμος ξαναρχίζει πιο δύσκολος.
+  showVictory(done) {
+    const objs = [];
+    const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(38).setAlpha(0);
+    this.tweens.add({ targets: veil, alpha: .85, duration: 500 });
+    objs.push(veil);
+    this.ninja.setDepth(41);
+    audio.cast();
+
+    this.time.addEvent({
+      delay: 380, repeat: 10,
+      callback: () => {
+        const p = this.add.particles(Phaser.Math.Between(200, 1080), Phaser.Math.Between(120, 360), 'spark', {
+          speed: { min: 80, max: 260 }, scale: { start: .9, end: 0 }, alpha: { start: 1, end: 0 },
+          lifespan: 900, blendMode: 'ADD', tint: [NUM.flameCore, NUM.lantern, NUM.flame, NUM.spirit],
+          emitting: false
+        }).setDepth(40);
+        p.explode(40);
+        audio.chime(Phaser.Math.Between(0, 3));
+        this.time.delayedCall(1100, () => p.destroy());
+      }
+    });
+
+    const big = this.add.text(W / 2, 230, TXT.victory, {
+      fontFamily: FONT.ui, fontSize: '56px', fontStyle: '700', color: HEX.flameCore
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    big.setShadow(0, 0, HEX.flame, 30, false, true);
+    const sub = this.add.text(W / 2, 300, TXT.victorySub, {
+      fontFamily: FONT.ui, fontSize: '28px', color: HEX.parchment
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const beltHex = '#' + journey.beltColor(this.cycle).toString(16).padStart(6, '0');
+    const belt = this.add.text(W / 2, 390, `${TXT.newBelt}: ${TXT.belts[journey.beltIndex(this.cycle)]}`, {
+      fontFamily: FONT.ui, fontSize: '36px', fontStyle: '700', color: beltHex
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const again = this.add.text(W / 2, 460, TXT.againHarder, {
+      fontFamily: FONT.ui, fontSize: '22px', color: HEX.smoke
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    objs.push(big, sub, belt, again);
+
+    this.tweens.add({ targets: big, alpha: 1, scale: { from: .6, to: 1 }, duration: 600, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 900 });
+    this.time.delayedCall(2400, () => {
+      this.paintBelt(journey.beltColor(this.cycle));
+      this.sealRing(this.ninja.x, this.ninja.y - 50, journey.beltColor(this.cycle));
+      audio.cast();
+      this.tweens.add({ targets: belt, alpha: 1, scale: { from: .7, to: 1 }, duration: 500, ease: 'Back.easeOut' });
+    });
+    this.tweens.add({ targets: again, alpha: 1, duration: 500, delay: 4200 });
+    this.time.delayedCall(6300, () => this.tweens.add({ targets: objs, alpha: 0, duration: 500 }));
+    this.time.delayedCall(6850, () => {
+      objs.forEach((o) => o.destroy());
+      this.ninja.setDepth(12);
+      done();
+    });
   }
 }

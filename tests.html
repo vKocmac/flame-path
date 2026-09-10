@@ -553,6 +553,48 @@ await test('Εισαγωγή λέξεων: ΠΡΟΣΘΕΤΕΙ μόνο όσες 
   eq(p.words[0].targets[0].level, 3, 'η υπάρχουσα πρόοδος έμεινε');
 });
 
+// ---------------------------------------------- Ο Δρόμος της Φλόγας (NEXT-FIXES Ε3)
+
+await test('Ο Δρόμος: αρχή στον σταθμό 1· η νίκη προχωρά σταθμό και σώζεται', () => {
+  seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState();
+  eq(store.getJourney(s), { station: 0, cycle: 0, storySeen: false }, 'αρχή');
+  const r = store.advanceJourney(s, 7);
+  eq([r.station, r.cycle, r.finished], [1, 0, false], 'σταθμός 2');
+  eq(store.getJourney(store.loadState()).station, 1, 'σώθηκε');
+});
+
+await test('Ο Δρόμος: νίκη στο κάστρο (7ος σταθμός) → νέος κύκλος, νέα ζώνη', () => {
+  seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState();
+  for (let i = 0; i < 6; i++) store.advanceJourney(s, 7);
+  eq(store.getJourney(store.loadState()).station, 6, 'στο κάστρο');
+  const r = store.advanceJourney(s, 7);
+  eq([r.station, r.cycle, r.finished], [0, 1, true], 'νέος κύκλος');
+});
+
+await test('Μηδενισμός και εξαγωγή «μόνο λέξεις» σβήνουν και τον Δρόμο', () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState();
+  store.advanceJourney(s, 7);
+  store.markStorySeen(s);
+  const data = JSON.parse(store.exportJSON(store.loadState(), { progress: false }));
+  assert(!data.profiles[0].profile.journey, 'χωρίς Δρόμο στο αρχείο');
+  store.resetProgress(store.loadState(), pid);
+  eq(store.getJourney(store.loadState()), { station: 0, cycle: 0, storySeen: false }, 'από την αρχή');
+});
+
+await test('Δυνάμεις: ξεκλειδώνουν με τους σταθμούς· στον 2ο κύκλο όλες', async () => {
+  const journey = await import('./src/game/journey.js');
+  eq(journey.unlockedPowers(0, 0), ['tornado'], 'σταθμός 1');
+  eq(journey.unlockedPowers(2, 0), ['tornado', 'lightning'], 'σταθμός 3');
+  eq(journey.unlockedPowers(4, 0), ['tornado', 'lightning', 'ice'], 'σταθμός 5');
+  eq(journey.unlockedPowers(0, 1), ['tornado', 'lightning', 'ice'], '2ος κύκλος');
+  eq(journey.powerUnlockedAt(2, 0), 'lightning', 'ο κεραυνός ανακοινώνεται στον 3ο');
+  eq(journey.powerUnlockedAt(0, 0), null, 'ο ανεμοστρόβιλος υπάρχει από την αρχή');
+  eq(journey.bossHp(6), 8, 'στο κάστρο πιο ανθεκτικός');
+});
+
 // --- Επαναφορά πραγματικών δεδομένων ---
 if (BACKUP === null) localStorage.removeItem('flame.state.v1');
 else localStorage.setItem('flame.state.v1', BACKUP);

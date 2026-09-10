@@ -7,6 +7,7 @@ import * as audio from '../../theme/audio.js';
 import { buildTextures } from '../textures.js';
 import * as world from '../world.js';
 import * as store from '../../shared/storage.js';
+import * as journey from '../journey.js';
 
 const { W, H } = world;
 
@@ -184,6 +185,15 @@ export default class TitleScene extends Phaser.Scene {
       this.add.text(14, H - 42, who.profile.name, {
         fontFamily: FONT.ui, fontSize: '17px', color: HEX.smoke
       }).setAlpha(.6).setDepth(45);
+    }
+
+    // Πού βρίσκεται στον Δρόμο (NEXT-FIXES Ε3) — ο λόγος να ξαναπατήσει τη φωτιά
+    if (who) {
+      const jr = store.getJourney(st);
+      this.add.text(W / 2, 178,
+        `${TXT.station} ${jr.station + 1} ${TXT.of} ${journey.STATIONS} · ${TXT.stations[jr.station]}`, {
+          fontFamily: FONT.ui, fontSize: '21px', color: HEX.lantern
+        }).setOrigin(.5).setAlpha(.75).setDepth(45);
     }
   }
 }
