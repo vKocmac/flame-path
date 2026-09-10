@@ -45,6 +45,11 @@
 .pm-check { display: flex; gap: 10px; align-items: center; color: #7C86A0;
   font-size: .85rem; margin: 10px 0; cursor: pointer; }
 .pm-check input { width: 20px; height: 20px; accent-color: #FF7A1A; }
+/* Μαζική προσθήκη και πρόοδος */
+.pm-bulk summary { color: #57C7B8; cursor: pointer; margin: 16px 0 8px; font-size: .92rem; }
+.pm-area { min-height: 120px; font-size: 1.05rem; resize: vertical; margin-bottom: 10px; }
+.pm-stat { font-size: .95rem; margin: 6px 0; }
+.pm-stat b { color: #FFC857; }
 /* Λίστα προφίλ */
 .pm-prof { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
   background: #141A33; border: 2px solid transparent; border-radius: 10px;

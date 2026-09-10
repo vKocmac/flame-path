@@ -4,6 +4,8 @@
 
 import * as store from '../shared/storage.js';
 import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
+import { errorCounts, hardestTargets } from '../learning/telemetry.js';
+import * as journey from '../game/journey.js';
 
 const root = document.getElementById('parent-root');
 let state = store.loadState();
@@ -178,13 +180,57 @@ function download(text, name) {
   URL.revokeObjectURL(a.href);
 }
 
+// Αυτόματα σημεία ελέγχου για τη μαζική προσθήκη: ό,τι θα προεπέλεγε και
+// η οθόνη της μίας λέξης (φωνήεντα, διαλυτικά). Αν η λέξη δεν έχει κανένα
+// τέτοιο (π.χ. «ουρά»), παίρνει ό,τι έχει κλάση — το «ου» ρωτιέται πια στη
+// Μεγάλη Τεχνική.
+function autoTargets(text) {
+  const units = splitGraphemes(text);
+  const starts = [];
+  let pos = 0;
+  units.forEach((u) => { starts.push(pos); pos += u.length; });
+  const all = units.map((u, i) => i);
+  let idx = all.filter((i) => AUTO_CLASSES.includes(classForGrapheme(units[i])));
+  if (!idx.length) idx = all.filter((i) => classForGrapheme(units[i]));
+  return idx.map((i) => ({
+    gap: { start: starts[i], length: units[i].length },
+    grapheme: units[i],
+    confusionClass: classForGrapheme(units[i]),
+    distractors: distractorsFor(units[i])
+  }));
+}
+
+// Η πρόοδος με μια ματιά (BUILD_PLAN βήμα 7 — «στοιχειώδης λίστα προόδου»).
+function progressHTML(p) {
+  const all = p.words.flatMap((w) => w.targets);
+  if (!all.length) return '<p class="pm-note">Δεν υπάρχουν λέξεις ακόμα.</p>';
+  const mastered = all.filter((t) => t.level >= journey.MASTERY_LEVEL).length;
+  const asked = all.filter((t) => t.attempts > 0).length;
+  const j = store.getJourney(state);
+  const conf = [];
+  for (const m of Object.values(errorCounts(p))) {
+    for (const [g, n] of Object.entries(m)) conf.push({ g, n });
+  }
+  conf.sort((a, b) => b.n - a.n);
+  const hard = hardestTargets(p, 5).filter((r) => r.failRate > 0);
+  return `
+    <p class="pm-stat"><b>${mastered}</b> από ${all.length} σημεία κατακτημένα · ${asked} έχουν ρωτηθεί</p>
+    <p class="pm-stat">Σταθμός <b>${j.station + 1}</b> από ${journey.STATIONS} · ${j.cycle ? `${j.cycle + 1}ος γύρος του Δρόμου` : 'πρώτος γύρος του Δρόμου'} · ${p.profile.sparks || 0} σπίθες</p>
+    <p class="pm-note">Γράμματα που διαλέγει λάθος: ${conf.length
+      ? conf.slice(0, 8).map((c) => `<b>${esc(c.g)}</b> ×${c.n}`).join(' · ')
+      : 'κανένα ακόμα'}</p>
+    ${hard.length ? `<p class="pm-note">Δυσκολεύουν: ${hard.map((r) =>
+      `${esc(r.word)} (${esc(r.grapheme)}, ${Math.round(r.failRate * 100)}% σε ${r.attempts})`).join(' · ')}</p>` : ''}
+    <p class="pm-note">«Κατακτημένο» = σωστό σε δύο διαφορετικές μέρες. Οι κατακτημένες λέξεις ξεκλειδώνουν τεχνικές του νίντζα.</p>`;
+}
+
 function renderMain(note = '') {
   const p = store.activeProfile(state);
   const name = esc(p.profile.name);
   const words = p.words.map((wd) => `
     <div class="pm-word" data-id="${wd.id}">
       <span class="w">${wordHTML(wd)}</span>
-      <span class="meta">${plural(wd.targets.length, 'σημείο', 'σημεία')} · επ. ${wd.targets.map((t) => t.level).join('/')}</span>
+      <span class="meta">${plural(wd.targets.length, 'σημείο', 'σημεία')} · κατακτημένα ${wd.targets.filter((t) => t.level >= journey.MASTERY_LEVEL).length}/${wd.targets.length}</span>
       <button class="del" aria-label="Διαγραφή">🗑</button>
     </div>`).join('') || '<p class="pm-note">Καμία λέξη ακόμα.</p>';
 
@@ -199,8 +245,17 @@ function renderMain(note = '') {
       <button class="pm-btn primary" id="next">Συνέχεια</button>
     </div>
     <div id="pick"></div>
+    <details class="pm-bulk">
+      <summary>Πολλές λέξεις μαζί</summary>
+      <textarea class="pm-input pm-area" id="bulk" rows="5" placeholder="μία λέξη σε κάθε γραμμή (ή με κόμματα)"></textarea>
+      <button class="pm-btn primary" id="bulkadd">Προσθήκη όλων</button>
+      <p class="pm-note">Τα σημεία ελέγχου μπαίνουν αυτόματα (φωνήεντα και διαλυτικά). Για διπλά σύμφωνα, πρόσθεσε τη λέξη μόνη της πιο πάνω και διάλεξε το σημείο.</p>
+    </details>
     <h3>Λίστα (${p.words.length})</h3>
     <div id="list">${words}</div>
+
+    <h3>Πρόοδος — ${name}</h3>
+    <div id="progress">${progressHTML(p)}</div>
 
     <h3>Προφίλ</h3>
     <p class="pm-note">Κάθε προφίλ έχει δικές του λέξεις, πρόοδο και σπίθες. Για δοκιμές φτιάξε ένα «Δοκιμή» — δεν αγγίζει κανέναν άλλον.</p>
@@ -237,6 +292,27 @@ function renderMain(note = '') {
 
   w.querySelector('#next').addEventListener('click', () => renderPick(w));
   w.querySelector('#word').addEventListener('keydown', (e) => { if (e.key === 'Enter') renderPick(w); });
+
+  // Οι λέξεις της εβδομάδας σε μία κίνηση (BUILD_PLAN βήμα 7: < 2 λεπτά)
+  w.querySelector('#bulkadd').addEventListener('click', () => {
+    const list = w.querySelector('#bulk').value.split(/[\n,;]+/).map(normalizeWord).filter(Boolean);
+    const have = new Set(p.words.map((x) => x.text));
+    let added = 0;
+    const dup = [], skipped = [];
+    for (const text of list) {
+      if (text.includes(' ')) { skipped.push(text); continue; }
+      if (have.has(text)) { dup.push(text); continue; }
+      const targets = autoTargets(text);
+      if (!targets.length) { skipped.push(text); continue; }
+      store.addWord(state, store.newWord({ text, targets }));
+      have.add(text);
+      added++;
+    }
+    let msg = `Μπήκαν ${plural(added, 'λέξη', 'λέξεις')}.`;
+    if (dup.length) msg += ` Υπήρχαν ήδη: ${dup.join(', ')}.`;
+    if (skipped.length) msg += ` Χωρίς σημείο ελέγχου: ${skipped.join(', ')}.`;
+    renderMain(msg);
+  });
 
   w.querySelectorAll('.pm-word .del').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -372,14 +448,14 @@ function renderPick(w) {
       const g = units[i];
       return canBeGap(g)
         ? `${g} → ${[g, ...distractorsFor(g)].join('/')}`
-        : `${g} → (δεν ρωτιέται ακόμα)`;
+        : `${g} → (Μεγάλη Τεχνική)`;
     });
-    // Τίμια προειδοποίηση: ένα «ου» δεν έχει εναλλακτικές, άρα δεν γίνεται
-    // κενό. Αν η λέξη ΔΕΝ έχει κανένα άλλο σημείο, δεν θα εμφανιστεί ποτέ
-    // στη μάχη — και ο γονιός πρέπει να το ξέρει πριν την αποθηκεύσει.
+    // Τίμια ενημέρωση: ένα «ου» δεν έχει εναλλακτικές, άρα δεν γίνεται κενό.
+    // Ρωτιέται πια στη Μεγάλη Τεχνική (συναρμολόγηση), απέναντι σε μεγάλους
+    // εχθρούς — πιο αραιά από τις λέξεις με κενό.
     const playable = chosen.filter((i) => canBeGap(units[i])).length;
     const warn = chosen.length && !playable
-      ? ' ⚠ Καμία από αυτές τις επιλογές δεν ρωτιέται με τον σημερινό μηχανισμό — η λέξη δεν θα εμφανιστεί στη μάχη.'
+      ? ' Θα ρωτιέται μόνο στη Μεγάλη Τεχνική (συναρμολόγηση), απέναντι σε μεγάλους εχθρούς.'
       : '';
     pick.querySelector('#suggest').textContent = parts.length
       ? `Σημεία ελέγχου: ${parts.join(' · ')}${warn}`
