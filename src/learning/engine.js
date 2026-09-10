@@ -78,6 +78,10 @@ export function getNextChallenge(profileId, { types = ['gap', 'assembly'], intro
   const state = store.loadState();
   const p = state.profiles.find((x) => x.profile.id === profileId);
   if (!p) return null;
+  // Ο αποκλεισμός ισχύει για ΑΥΤΟ το αίτημα μόνο: ένα «ου» που δεν παίζεται
+  // με κενό πρέπει να μπορεί να έρθει στο επόμενο αίτημα που επιτρέπει
+  // συναρμολόγηση.
+  session.skip = new Set();
 
   // Προσπερνάμε στόχους που δεν παίζονται με τους ζητούμενους τύπους
   // (π.χ. «ου» όταν η σκηνή υποστηρίζει μόνο κενό γράφημα).

@@ -553,6 +553,26 @@ await test('Εισαγωγή λέξεων: ΠΡΟΣΘΕΤΕΙ μόνο όσες 
   eq(p.words[0].targets[0].level, 3, 'η υπάρχουσα πρόοδος έμεινε');
 });
 
+// ------------------------------------------ Μεγάλη Τεχνική (BUILD_PLAN βήμα 5)
+
+await test('«ου»: με κενό δεν σερβίρεται — στο ΕΠΟΜΕΝΟ αίτημα με συναρμολόγηση ναι', async () => {
+  const { pid } = seed([{ text: 'ουρά', targets: [{ g: 'ου', start: 0, len: 2, cls: 'u', d: [], introduced: true, due: PAST }] }]);
+  engine.resetSession();
+  eq(engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' }), null, 'μόνο κενό → τίποτα');
+  const ch = engine.getNextChallenge(pid, { types: ['gap', 'assembly'], intro: 'never' });
+  assert(ch, 'με συναρμολόγηση πρέπει να έρθει');
+  eq(ch.type, 'assembly', 'τύπος');
+  eq([...ch.pieces].sort(), ['ου', 'ρ', 'ά'].sort(), 'μόνο τα γνήσια γραφήματα');
+});
+
+await test('Άνοιγμα λεβελ: η λέξη με «ου» παρουσιάζεται όταν επιτρέπεται συναρμολόγηση', async () => {
+  const { pid } = seed([{ text: 'ουρά', targets: [{ g: 'ου', start: 0, len: 2, cls: 'u', d: [] }] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap', 'assembly'], intro: 'first' });
+  eq(ch.type, 'intro', 'τελετή');
+  eq(ch.text, 'ουρά', 'η λέξη');
+});
+
 // ---------------------------------------------- Ο Δρόμος της Φλόγας (NEXT-FIXES Ε3)
 
 await test('Ο Δρόμος: αρχή στον σταθμό 1· η νίκη προχωρά σταθμό και σώζεται', () => {

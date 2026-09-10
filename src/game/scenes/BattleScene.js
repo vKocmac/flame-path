@@ -16,6 +16,7 @@ import * as engine from '../../learning/engine.js';
 import { buildTextures } from '../textures.js';
 import { archetype, dragonStage, waveComposition, waveSpeed, BOSS_EVERY } from '../enemies.js';
 import * as journey from '../journey.js';
+import { splitGraphemes } from '../../shared/graphemes.js';
 import * as world from '../world.js';
 
 const { W, H } = world;
@@ -1258,9 +1259,15 @@ export default class BattleScene extends Phaser.Scene {
         e.multMs -= delta;
         if (e.multMs <= 0) { e.mult = 1; e.multMs = 0; }
       }
-      e.x -= e.speed * e.mult * dt;
+      // Η Μεγάλη Τεχνική θέλει περισσότερο χρόνο: η πίεση πέφτει στο μισό
+      e.x -= e.speed * e.mult * dt * (this.assembling ? .45 : 1);
     }
-    if (this.enemies[0].x <= RETREAT_X) this.regroup();
+    if (this.enemies[0].x <= RETREAT_X) {
+      // Μέσα στη συναρμολόγηση ο εχθρός σταματά στη γραμμή — η ανασύνταξη
+      // θα έσβηνε τα μισοτοποθετημένα πλακίδια.
+      if (this.assembling) this.enemies[0].x = RETREAT_X + 1;
+      else this.regroup();
+    }
   }
 
   // Ξεκόλλημα: αν οι φούσκες είναι ακόμα στην οθόνη αρκεί να ξαναδεχτούμε
@@ -1722,7 +1729,9 @@ export default class BattleScene extends Phaser.Scene {
     const words = [];
     let held = null;
     for (let i = 0; i < 60; i++) {
-      const ch = engine.getNextChallenge(this.profileId, { types: ['gap'], intro: 'first' });
+      // Και συναρμολόγηση: έτσι παρουσιάζονται στον πάπυρο και οι λέξεις
+      // που ΔΕΝ ρωτιούνται με κενό (το «ου») — θα τις ζητήσει η Μεγάλη Τεχνική.
+      const ch = engine.getNextChallenge(this.profileId, { types: ['gap', 'assembly'], intro: 'first' });
       if (!ch) break;
       if (ch.type !== 'intro') { held = ch; break; }
       if (!words.includes(ch.text)) {
@@ -1751,7 +1760,10 @@ export default class BattleScene extends Phaser.Scene {
     // Φρουρά: η σκηνή ξέρει να δείχνει ΜΟΝΟ προκλήσεις με κενό και υποψήφια.
     // Μια τελετή (intro) δεν έχει ούτε τα δύο· αν έφτανε ως εδώ, το
     // layoutWord έσκαγε και το παιχνίδι κολλούσε με άδεια περγαμηνή.
-    if (!ch.gap || !ch.candidates || !ch.candidates.length) {
+    const playable = ch.type === 'assembly'
+      ? ch.pieces && ch.pieces.length > 1
+      : ch.gap && ch.candidates && ch.candidates.length;
+    if (!playable) {
       if (ch.type === 'intro') this.consumeIntro(ch);
       this.nextChallenge();
       return;
@@ -1765,10 +1777,196 @@ export default class BattleScene extends Phaser.Scene {
     // μία — η «δεύτερη προσπάθεια» θα ήταν σίγουρη νίκη. Με τρεις, μένουν
     // δύο: κορώνα-γράμματα. Και στις δύο περιπτώσεις το παιδί θα έπαιζε
     // στην τύχη αντί να θυμηθεί (απαίτηση ιδιοκτήτη 10/09).
-    this.maxTries = ch.candidates.length >= 4 ? MAX_TRIES : 1;
+    this.maxTries = ch.type === 'assembly' ? 1 : (ch.candidates.length >= 4 ? MAX_TRIES : 1);
+    this.assembling = false;
+    this.assemblyMiss = null;
     this.lostWord = false;
     this.startedAt = performance.now();
-    this.showGap(ch);
+    if (ch.type === 'assembly') this.showAssembly(ch);
+    else this.showGap(ch);
+  }
+
+  // Η Μεγάλη Τεχνική ζητείται μόνο απέναντι σε ΜΕΓΑΛΟ εχθρό (BUILD_PLAN
+  // βήμα 5, DESIGN). Το αν θα δοθεί το αποφασίζει το Learning Engine, που
+  // εναλλάσσει τους τύπους ανά στόχο.
+  challengeTypes() {
+    const f = this.enemies[0];
+    const big = f && (f.isMaster || ['dragon', 'heavy'].includes(f.arch && f.arch.id));
+    return big ? ['gap', 'assembly'] : ['gap'];
+  }
+
+  // ---------------------------------------- Μεγάλη Τεχνική (συναρμολόγηση)
+  //
+  // Όλα τα γραφήματα της λέξης πέφτουν ανακατεμένα ως πυρωμένα πλακίδια· το
+  // παιδί τα αγγίζει ΜΕ ΤΗ ΣΕΙΡΑ. Η δεξαμενή έχει ΜΟΝΟ τα γνήσια γραφήματα
+  // (invariant 1) και ένα πλακίδιο μπαίνει στην περγαμηνή ΜΟΝΟ αν είναι το
+  // σωστό επόμενο — άρα η λάθος μορφή δεν σχηματίζεται ποτέ.
+  // Το άγγιγμα αντικαθιστά το σύρσιμο του DESIGN: ίδιο μάθημα, πιο σίγουρο
+  // για παιδικό δάχτυλο σε κινητό.
+
+  showAssembly(ch) {
+    this.clearOrbs();
+    this.busy = false;
+    this.assembling = true;
+    this.placed = 0;
+    this.units = splitGraphemes(ch.text);
+    this.label.setText(TXT.bigTechnique).setAlpha(1);
+    this.showScroll();
+    this.layoutSlots(this.units);
+    this.spawnTiles(ch.pieces);
+    audio.cast();
+  }
+
+  // Κουτάκια ΙΣΟΥ πλάτους: αν το κουτάκι του «ει» ήταν φαρδύτερο από του
+  // «ι», το ίδιο το κουτάκι θα έλεγε πού πάει κάθε πλακίδιο.
+  layoutSlots(units) {
+    this.wordParts?.forEach((o) => o.destroy());
+    const style = { fontFamily: FONT.word, fontSize: '58px', color: HEX.ink };
+    const texts = units.map((u) => this.add.text(0, 0, u, style).setOrigin(.5).setDepth(22).setAlpha(0));
+    const slotW = Math.max(46, ...texts.map((t) => t.width)) + 12;
+    const k = Math.min(1, 620 / (slotW * units.length));
+    const w = slotW * k;
+    const y = 152;
+    let x = W / 2 - (w * units.length) / 2;
+    const line = this.add.graphics().setDepth(22);
+    line.fillStyle(NUM.flame, .9);
+    texts.forEach((t) => {
+      t.setScale(k).setPosition(x + w / 2, y);
+      line.fillRoundedRect(x + 5, y + 30, w - 10, 5, 2.5);
+      x += w;
+    });
+    this.wordParts = [...texts, line];
+    this.slotTexts = texts;
+  }
+
+  spawnTiles(pieces) {
+    const n = pieces.length;
+    const boost = this.orbBoost();
+    const rows = n > 6 ? [pieces.slice(0, Math.ceil(n / 2)), pieces.slice(Math.ceil(n / 2))] : [pieces];
+    let idx = 0;
+    rows.forEach((row, r) => {
+      const spread = Math.min(122, 700 / Math.max(row.length - 1, 1));
+      const startX = W / 2 - (spread * (row.length - 1)) / 2;
+      row.forEach((p, i) => {
+        const x = startX + i * spread + (rows.length > 1 && r ? spread / 2 - spread / 2 : 0);
+        const y = rows.length > 1 ? (r ? 382 : 292) : 330 + (i % 2 ? 16 : -8);
+        const tile = this.add.container(x, y).setDepth(25);
+        const glow = this.add.image(0, 0, 'glow-flame').setScale(.7).setAlpha(.5)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        const g = this.add.graphics();
+        g.fillStyle(NUM.flameDeep, 1);
+        g.fillRoundedRect(-38, -38, 76, 76, 14);
+        g.fillStyle(NUM.lantern, .92);
+        g.fillRoundedRect(-32, -34, 64, 64, 11);
+        const txt = this.add.text(0, 0, p, {
+          fontFamily: FONT.word, fontSize: '40px', fontStyle: '700', color: HEX.ink
+        }).setOrigin(.5);
+        tile.add(this.add.container(0, 0, [glow, g, txt]).setScale(boost));
+        tile.setData('grapheme', p);
+        tile.setSize(ORB_HIT * boost, ORB_HIT * boost).setInteractive({ useHandCursor: true });
+        tile.on('pointerdown', () => this.chooseTile(tile));
+        tile.setScale(0);
+        this.tweens.add({ targets: tile, scale: 1, duration: 320, delay: idx * 70, ease: 'Back.easeOut' });
+        this.orbs.push(tile);
+        idx += 1;
+      });
+    });
+  }
+
+  chooseTile(tile) {
+    if (this.busy || !this.assembling || !tile.input || !tile.input.enabled) return;
+    const want = this.units[this.placed];
+    const got = tile.getData('grapheme');
+    if (got === want) {
+      tile.disableInteractive();
+      this.tweens.killTweensOf(tile);
+      const slot = this.slotTexts[this.placed];
+      audio.chime(Math.min(this.placed, 3));
+      this.placed += 1;
+      this.tweens.add({
+        targets: tile, x: slot.x, y: slot.y, scale: .45, alpha: 0, duration: 260, ease: 'Quad.easeIn',
+        onComplete: () => {
+          tile.destroy();
+          slot.setAlpha(1);
+          const flash = this.add.image(slot.x, slot.y, 'glow-lantern').setScale(.35).setAlpha(.9)
+            .setBlendMode(Phaser.BlendModes.ADD).setDepth(21);
+          this.tweens.add({ targets: flash, alpha: 0, scale: 1, duration: 420, onComplete: () => flash.destroy() });
+        }
+      });
+      if (this.placed >= this.units.length) {
+        this.assembling = false;
+        this.busy = true;
+        this.time.delayedCall(360, () => this.assemblyDone());
+      }
+      return;
+    }
+    // Λάθος σειρά: το πλακίδιο τινάζεται και σβήνει για λίγο. Κανένα
+    // κόκκινο, και ΔΕΝ μπαίνει στην περγαμηνή — η λάθος μορφή δεν φαίνεται.
+    this.assemblyMiss = got;
+    this.combo = 0;
+    this.addRage(-RAGE_MISS);
+    this.hardTargets.add(this.current.targetId);
+    audio.fizzle();
+    this.pace(HASTE_FACTOR, HASTE_MS);
+    this.tweens.add({ targets: tile, angle: 9, duration: 55, yoyo: true, repeat: 3,
+      onComplete: () => tile.setAngle(0) });
+    this.tweens.add({ targets: tile, alpha: .45, duration: 120, hold: 260, yoyo: true });
+  }
+
+  // Κλείδωσε και το τελευταίο: η λέξη φαίνεται ολόκληρη σε κανονική γραφή
+  // και ένα κύμα φωτιάς σαρώνει το πεδίο (DESIGN «Μεγάλη Τεχνική»).
+  assemblyDone() {
+    const ch = this.current;
+    const correct = !this.assemblyMiss;
+    if (!this.reported) {
+      this.reported = true;
+      engine.reportResult({
+        challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId,
+        profileId: this.profileId, type: ch.type, correct,
+        // Ένα γνήσιο γράφημα σε λάθος θέση ΔΕΝ είναι σύγχυση γραφήματος —
+        // δεν μπαίνει στο ιστορικό λαθών της κλάσης.
+        chosenGrapheme: null,
+        revealUsed: false,
+        durationMs: Math.round(performance.now() - this.startedAt)
+      });
+    }
+    if (correct) { this.combo += 1; this.addRage(RAGE_COMBO); }
+    this.layoutWord(ch.text, ch.gap, { revealed: true, candidates: [] });
+    this.label.setAlpha(0);
+    this.fireWave();
+  }
+
+  fireWave() {
+    audio.cast();
+    audio.flamethrower(900);
+    this.cameras.main.shake(380, .005);
+    const wall = this.add.container(this.ninja.x + 40, LINE_Y).setDepth(16);
+    for (let i = 0; i < 6; i++) {
+      wall.add(this.add.image(0, -i * 58, 'flame').setOrigin(.5, 1).setScale(.95, .7)
+        .setAlpha(.85).setBlendMode(Phaser.BlendModes.ADD));
+    }
+    const em = this.add.particles(0, 0, 'spark', {
+      speed: { min: 60, max: 240 }, angle: { min: 180, max: 360 },
+      scale: { start: .8, end: 0 }, alpha: { start: 1, end: 0 }, lifespan: 600,
+      blendMode: 'ADD', tint: [NUM.flameCore, NUM.flame, NUM.lantern],
+      follow: wall, followOffset: { y: -150 }
+    }).setDepth(16);
+    em.setFrequency(10, 3);
+    em.start();
+    this.tweens.add({
+      targets: wall, x: W + 220, duration: 820, ease: 'Quad.easeIn',
+      onComplete: () => { wall.destroy(); em.stop(); this.time.delayedCall(700, () => em.destroy()); }
+    });
+    // Ο μπροστινός (ο μεγάλος) τρώει διπλό, οι υπόλοιποι ένα
+    this.time.delayedCall(430, () => {
+      [...this.enemies].forEach((e, i) => {
+        e.hp -= i === 0 ? 2 : 1;
+        if (e.hp > 0) this.flinchEnemy(e);
+        else { this.enemies = this.enemies.filter((x) => x !== e); this.killEnemy(e); }
+      });
+      this.pushBackLine();
+    });
+    this.time.delayedCall(1400, () => this.hideScroll(() => this.advanceIfCleared(() => this.nextChallenge())));
   }
 
   nextChallenge() {
@@ -1779,7 +1977,7 @@ export default class BattleScene extends Phaser.Scene {
     // λέξη περνούσε αθέατη ΚΑΙ μετρούσε ως τελευταία λέξη, οπότε μετά από
     // χαμένη λέξη ξαναερχόταν η ίδια. Ο βρόχος μένει μόνο ως δίχτυ.
     for (let i = 0; i < 12; i++) {
-      ch = engine.getNextChallenge(this.profileId, { types: ['gap'], intro: 'never' });
+      ch = engine.getNextChallenge(this.profileId, { types: this.challengeTypes(), intro: 'never' });
       if (!ch) break;
       if (ch.type !== 'intro') break;
       this.consumeIntro(ch);
@@ -2141,6 +2339,7 @@ export default class BattleScene extends Phaser.Scene {
         this.clearOrbs();
         this.hideScroll();
         this.current = null;
+        this.assembling = false;
         this.completeStation(() => this.spawnWave(() => this.startLevel()));
       } else {
         this.spawnWave(onContinue);
