@@ -41,6 +41,7 @@ export default class TitleScene extends Phaser.Scene {
     world.lantern(this, 930, 656, .9, calm);
     world.lantern(this, 1158, 640, .8, calm);
 
+    this.buildHero(522, 668, journey.beltColor(store.getJourney(store.loadState()).cycle));
     this.buildBrazier(640, 676);
     this.buildTitle();
     this.buildOverlay();
@@ -56,6 +57,62 @@ export default class TitleScene extends Phaser.Scene {
       taps.push(t);
       if (taps.length >= 5) { taps = []; window.flameParent?.open(); }
     });
+  }
+
+  // Ο ήρωας στον τίτλο (φινίρισμα 11/09): στέκεται δίπλα στη φωτιά και την
+  // κοιτά, με τη ζώνη του κύκλου του — η πρόοδος φαίνεται πριν καν αρχίσει
+  // η μάχη. Ίδια σιλουέτα με τη μάχη· το φως εδώ έρχεται από τη φωτιά.
+  buildHero(x, y, beltColor) {
+    const P = (px, py) => new Phaser.Geom.Point(px, py);
+    const shadow = this.add.ellipse(0, 3, 90, 14, NUM.shadow).setAlpha(.45);
+    const tails = this.add.graphics();
+    const g = this.add.graphics();
+    g.fillStyle(NUM.dojoRoof, 1);
+    g.fillRect(-19, -14, 15, 14);
+    g.fillRect(6, -14, 15, 14);
+    g.fillRoundedRect(-26, -74, 52, 62, 15);
+    g.fillCircle(0, -92, 27);
+    const rim = this.add.graphics();                    // η φωτιά φωτίζει τη δεξιά κόψη
+    rim.lineStyle(2.5, NUM.flame, .4);
+    rim.beginPath();
+    rim.arc(0, -92, 26, -1.2, .9, false);
+    rim.strokePath();
+    rim.lineStyle(2, NUM.flame, .28);
+    rim.lineBetween(25.5, -62, 25.5, -24);
+    const eyes = this.add.graphics();
+    eyes.fillStyle(NUM.parchment, .95);
+    eyes.fillRoundedRect(-17, -99, 34, 8, 4);
+    const belt = this.add.graphics();
+    belt.fillStyle(beltColor, 1);
+    belt.fillRect(-26, -40, 52, 8);
+    belt.fillStyle(beltColor, .85);
+    belt.fillPoints([P(16, -34), P(28, -18), P(22, -16), P(11, -32)], true);
+    const hero = this.add.container(x, y, [shadow, tails, g, rim, eyes, belt]).setScale(1.15);
+
+    // Οι δύο ουρές της κορδέλας κυματίζουν (από το update της σκηνής — ένας
+    // listener θα στοιβαζόταν σε κάθε επιστροφή στον τίτλο)
+    this.heroTails = (time) => {
+      tails.clear();
+      tails.fillStyle(NUM.dojoRoof, 1);
+      for (const [ph, len, base, lift] of [[0, 44, -100, 10], [1.9, 34, -94, 3]]) {
+        const top = [], bot = [];
+        for (let i = 0; i <= 8; i++) {
+          const s = i / 8, w = 4.2 - 2.6 * s;
+          const px = -20 - s * len, py = base - s * lift + Math.sin(time * .009 + s * 3.2 + ph) * 5.5 * s;
+          top.push(P(px, py - w));
+          bot.push(P(px, py + w));
+        }
+        tails.fillPoints([...top, ...bot.reverse()], true);
+      }
+    };
+    this.heroTails(0);
+    if (!this.calm) {
+      this.tweens.add({ targets: hero, scaleY: 1.17, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+  }
+
+  update(time) {
+    if (this.heroTails && !this.calm) this.heroTails(time);
   }
 
   // Το Ντότζο (BUILD_PLAN βήμα 6): τι έχει κερδίσει ο νίντζα — ζώνη, δυνάμεις,
