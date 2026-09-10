@@ -2129,7 +2129,10 @@ export default class BattleScene extends Phaser.Scene {
     const bossCleared = this.wave % BOSS_EVERY === 0;
     this.time.delayedCall(420, () => {
       if (bossCleared) {
+        // Αν τον Μάστερ Γου τον έριξε ΔΥΝΑΜΗ, η περγαμηνή με την τρέχουσα
+        // λέξη είναι ακόμα ανοιχτή — δεν πρέπει να φαίνεται πίσω από τον χάρτη.
         this.clearOrbs();
+        this.hideScroll();
         this.current = null;
         this.completeStation(() => this.spawnWave(() => this.openLevel()));
       } else {
