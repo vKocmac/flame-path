@@ -47,6 +47,36 @@ export function beltColor(cycle) {
   return NUM[BELTS[beltIndex(cycle)]];
 }
 
+// Τεχνικές (BUILD_PLAN βήμα 6, PROJECT_SPEC κεφ. 7): ξεκλειδώνουν όταν οι
+// λέξεις ΚΑΤΑΚΤΙΟΥΝΤΑΙ — όχι με σπίθες και όχι με σταθμούς. Κατακτημένο
+// σημείο = απαντήθηκε σωστά σε δύο διαφορετικές μέρες (επίπεδο Leitner ≥ 2).
+// Κάθε τεχνική ΦΑΙΝΕΤΑΙ και ΑΛΛΑΖΕΙ τη μάχη:
+//   swift — Γρήγορη Φόρτιση: η φλόγα φεύγει σχεδόν αμέσως
+//   blaze — Μεγάλη Φλόγα: μεγαλύτερη, φωτεινότερη βολή
+//   twin  — Δίδυμη Φλόγα: δεύτερη βολή χτυπά και τον επόμενο εχθρό
+//   ember — Φλογερή Καρδιά: η μπάρα δύναμης ξεκινά μισογεμάτη
+export const MASTERY_LEVEL = 2;
+export const PERKS = [
+  { id: 'swift', need: 2 },
+  { id: 'blaze', need: 5 },
+  { id: 'twin', need: 10 },
+  { id: 'ember', need: 16 }
+];
+
+/** Πόσα σημεία ελέγχου έχει κατακτήσει το προφίλ. */
+export function masteredCount(profileEntry) {
+  if (!profileEntry) return 0;
+  let n = 0;
+  for (const w of profileEntry.words) {
+    for (const t of w.targets) if (t.level >= MASTERY_LEVEL) n++;
+  }
+  return n;
+}
+
+export function unlockedPerks(mastered) {
+  return PERKS.filter((p) => mastered >= p.need).map((p) => p.id);
+}
+
 export function isFinal(station) {
   return station === STATIONS - 1;
 }

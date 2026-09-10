@@ -151,6 +151,10 @@ export default class BattleScene extends Phaser.Scene {
     this.rage = 0;              // η μπάρα δύναμης ζει μόνο μέσα στη μάχη
     this.rageReady = false;
     this.powerTurn = 0;
+    // Οι τεχνικές που κέρδισαν οι ΚΑΤΑΚΤΗΜΕΝΕΣ λέξεις (BUILD_PLAN βήμα 6)
+    this.perks = journey.unlockedPerks(journey.masteredCount(store.activeProfile(state)));
+    this.newPerks = this.perks.filter((p) => !store.getPerksSeen(state).includes(p));
+    if (this.perks.includes('ember')) this.rage = RAGE_MAX / 2;     // Φλογερή Καρδιά
     engine.resetSession();
 
     this.buildBackdrop();
@@ -162,11 +166,12 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.fadeIn(420, 0xFF, 0x7A, 0x1A);
     this.spawnWave();
     // Πριν τον πάπυρο: πού βρίσκεσαι στον Δρόμο. Την πρώτη φορά, η ιστορία.
+    const begin = () => this.showStationBanner(() => this.announcePerks(() => this.startLevel()));
     if (!jr.storySeen) {
       store.markStorySeen(state);
-      this.showStory(() => this.showStationBanner(() => this.startLevel()));
+      this.showStory(begin);
     } else {
-      this.showStationBanner(() => this.startLevel());
+      begin();
     }
   }
 
@@ -2247,13 +2252,15 @@ export default class BattleScene extends Phaser.Scene {
     audio.cast();
     this.ninja.frozen = true;
     const bright = this.combo >= COMBO_BRIGHT;   // 3 σωστά: πιο φωτεινή φλόγα
+    // Γρήγορη Φόρτιση (τεχνική): το μάζεμα σχεδόν στο μισό
+    const charge = this.perks.includes('swift') ? 170 : 320;
     this.tweens.add({
       targets: this.ninja, x: NINJA_X - 18, angle: 8,
-      duration: 320, ease: 'Quad.easeOut'
+      duration: charge, ease: 'Quad.easeOut'
     });
     this.tweens.add({
       targets: this.hand, scale: bright ? 1.55 : 1.2, alpha: bright ? 1 : .9,
-      duration: 320, ease: 'Quad.easeOut',
+      duration: charge, ease: 'Quad.easeOut',
       onComplete: () => this.fireBolt()
     });
   }
@@ -2269,14 +2276,15 @@ export default class BattleScene extends Phaser.Scene {
     const target = this.frontEnemy();
     const tx = target ? target.x : W + 60;
 
+    const big = this.perks.includes('blaze');            // Μεγάλη Φλόγα (τεχνική)
     const bolt = this.add.image(this.ninja.x + 56, this.ninja.y - 78, 'flame')
-      .setScale(.42).setAngle(96).setDepth(14);
+      .setScale(big ? .62 : .42).setAngle(96).setDepth(14);
     const trail = this.add.particles(0, 0, 'spark', {
       speed: { min: 10, max: 50 }, scale: { start: .5, end: 0 },
       alpha: { start: .8, end: 0 }, lifespan: 420, blendMode: 'ADD',
       tint: [NUM.flameCore, NUM.flame], follow: bolt
     });
-    trail.setFrequency(18, 1);
+    trail.setFrequency(big ? 9 : 18, big ? 2 : 1);
     trail.start();
 
     // 6 σωστά στη σειρά: ίχνος σκιάς πίσω από την επίθεση
@@ -2293,7 +2301,7 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: this.hand, alpha: 0, scale: .5, duration: 200 });
 
     this.tweens.add({
-      targets: bolt, x: tx, scale: .62, duration: 300, ease: 'Quad.easeIn',
+      targets: bolt, x: tx, scale: big ? .95 : .62, duration: 300, ease: 'Quad.easeIn',
       onComplete: () => {
         bolt.destroy();
         trail.stop();
@@ -2317,6 +2325,11 @@ export default class BattleScene extends Phaser.Scene {
       e.hp -= 1;
       if (e.hp > 0) this.flinchEnemy(e);
       else { this.enemies.shift(); this.killEnemy(e); }
+    }
+    // Δίδυμη Φλόγα (τεχνική): δεύτερη, μικρότερη βολή στον επόμενο της γραμμής
+    if (this.perks.includes('twin')) {
+      const e2 = this.enemies.find((x) => x !== e);
+      if (e2) this.twinStrike(e2);
     }
     this.pushBackLine();
 
@@ -2345,6 +2358,16 @@ export default class BattleScene extends Phaser.Scene {
         this.spawnWave(onContinue);
       }
     });
+  }
+
+  twinStrike(e) {
+    e.hp -= 1;
+    if (e.hp > 0) this.flinchEnemy(e);
+    else { this.enemies = this.enemies.filter((x) => x !== e); this.killEnemy(e); }
+    const b = this.add.image(this.ninja.x + 56, this.ninja.y - 60, 'flame')
+      .setScale(.3).setAngle(96).setDepth(14).setTint(NUM.lantern);
+    this.tweens.add({ targets: b, x: e.x, y: e.y - 60, duration: 260, ease: 'Quad.easeIn',
+      onComplete: () => b.destroy() });
   }
 
   // ΜΟΝΟ ο μπροστινός υποχωρεί (ποτέ πάνω στον επόμενο), και η γραμμή
@@ -2825,7 +2848,8 @@ export default class BattleScene extends Phaser.Scene {
 
   addRage(n) {
     if (this.rageReady && n < 0) return;               // γεμάτη δεν ξαδειάζει
-    this.rage = Math.max(0, Math.min(RAGE_MAX, this.rage + n));
+    const k = n > 0 && this.perks.includes('ember') ? 1.25 : 1;   // Φλογερή Καρδιά
+    this.rage = Math.max(0, Math.min(RAGE_MAX, this.rage + n * k));
     if (this.rage >= RAGE_MAX && !this.rageReady) {
       this.rageReady = true;
       audio.cast();
@@ -3012,6 +3036,29 @@ export default class BattleScene extends Phaser.Scene {
       lines.forEach((l) => l.destroy());
       done();
     });
+  }
+
+  // «Η τεχνική σου ωρίμασε» (DESIGN «Ξεκλείδωμα»): μία φορά ανά τεχνική, στην
+  // πρώτη μάχη αφού κατακτηθούν αρκετές λέξεις.
+  announcePerks(done) {
+    if (!this.newPerks.length) { done(); return; }
+    const st = store.loadState();
+    store.markPerksSeen(st, [...store.getPerksSeen(st), ...this.newPerks]);
+    audio.cast();
+    this.sealRing(this.ninja.x, this.ninja.y - 60, NUM.lantern);
+    this.tweens.add({ targets: this.aura, alpha: .8, scale: 2.7, duration: 400, yoyo: true, hold: 1600 });
+    const t1 = this.add.text(W / 2, 290, TXT.perkMatured, {
+      fontFamily: FONT.ui, fontSize: '24px', color: HEX.parchment
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const t2 = this.add.text(W / 2, 338, this.newPerks.map((p) => TXT.perks[p]).join(' · '), {
+      fontFamily: FONT.ui, fontSize: '40px', fontStyle: '700', color: HEX.lantern
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    t2.setShadow(0, 0, HEX.flame, 22, false, true);
+    const t3 = this.add.text(W / 2, 386, TXT.perkDesc[this.newPerks[this.newPerks.length - 1]], {
+      fontFamily: FONT.ui, fontSize: '20px', color: HEX.smoke
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    this.tweens.add({ targets: [t1, t2, t3], alpha: 1, duration: 420, hold: 1900, yoyo: true });
+    this.time.delayedCall(2800, () => { t1.destroy(); t2.destroy(); t3.destroy(); done(); });
   }
 
   showStationBanner(done) {

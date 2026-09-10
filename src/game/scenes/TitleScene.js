@@ -55,6 +55,33 @@ export default class TitleScene extends Phaser.Scene {
     });
   }
 
+  // Το Ντότζο (BUILD_PLAN βήμα 6): τι έχει κερδίσει ο νίντζα — ζώνη, δυνάμεις,
+  // τεχνικές — και πόσες κατακτημένες λέξεις λείπουν για την επόμενη.
+  buildDojoPanel(jr, who) {
+    const mastered = journey.masteredCount(who);
+    const belt = TXT.belts[journey.beltIndex(jr.cycle)];
+    const powers = journey.unlockedPowers(jr.station, jr.cycle).map((p) => TXT.powers[p]).join(' · ');
+    const info = this.add.text(W / 2, 210, `${belt} · ${powers}`, {
+      fontFamily: FONT.ui, fontSize: '17px', color: HEX.smoke
+    }).setOrigin(.5).setAlpha(.85).setDepth(45);
+
+    const have = journey.unlockedPerks(mastered);
+    const objs = journey.PERKS.map((p) => {
+      const on = have.includes(p.id);
+      return this.add.text(0, 236, on ? TXT.perks[p.id] : `${TXT.perks[p.id]} ${mastered}/${p.need}`, {
+        fontFamily: FONT.ui, fontSize: '15px', fontStyle: on ? '700' : '400',
+        color: on ? HEX.lantern : HEX.smoke
+      }).setOrigin(0, .5).setAlpha(on ? .95 : .5).setDepth(45);
+    });
+    const gap = 24;
+    const total = objs.reduce((a, o) => a + o.width, 0) + gap * (objs.length - 1);
+    let x = W / 2 - total / 2;
+    objs.forEach((o) => { o.setX(x); x += o.width + gap; });
+    // Η κορυφή της παγόδας περνά πίσω από αυτές τις γραμμές: σκιά για να
+    // διαβάζονται πάνω στη σιλουέτα.
+    [info, ...objs].forEach((o) => o.setShadow(0, 0, HEX.shadow, 8, false, true));
+  }
+
   // ------------------------------------------------------- η φωτιά (κουμπί)
 
   buildBrazier(cx, baseY) {
@@ -194,6 +221,7 @@ export default class TitleScene extends Phaser.Scene {
         `${TXT.station} ${jr.station + 1} ${TXT.of} ${journey.STATIONS} · ${TXT.stations[jr.station]}`, {
           fontFamily: FONT.ui, fontSize: '21px', color: HEX.lantern
         }).setOrigin(.5).setAlpha(.75).setDepth(45);
+      this.buildDojoPanel(jr, who);
     }
   }
 }

@@ -615,6 +615,34 @@ await test('Δυνάμεις: ξεκλειδώνουν με τους σταθμ�
   eq(journey.bossHp(6), 8, 'στο κάστρο πιο ανθεκτικός');
 });
 
+// ------------------------------------------ Τεχνικές από κατακτημένες λέξεις (βήμα 6)
+
+await test('Τεχνικές: ξεκλειδώνουν με ΚΑΤΑΚΤΗΜΕΝΑ σημεία (επίπεδο ≥ 2), όχι με σπίθες', async () => {
+  const journey = await import('./src/game/journey.js');
+  seed([
+    { text: 'λιμάνι', targets: [iT({ level: 2 }), iT({ start: 5, level: 1 })] },
+    { text: 'ωδείο', targets: [{ ...oT, level: 3 }] }
+  ]);
+  const s = store.loadState();
+  store.addSparks(s, 500);
+  const p = store.activeProfile(store.loadState());
+  eq(journey.masteredCount(p), 2, 'δύο κατακτημένα — οι σπίθες δεν μετράνε');
+  eq(journey.unlockedPerks(1), [], 'στο 1 καμία');
+  eq(journey.unlockedPerks(2), ['swift'], 'στα 2 η πρώτη');
+  eq(journey.unlockedPerks(16), ['swift', 'blaze', 'twin', 'ember'], 'στα 16 όλες');
+});
+
+await test('Οι τεχνικές που ανακοινώθηκαν μένουν — και δεν χαλάνε τον Δρόμο', () => {
+  seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState();
+  store.advanceJourney(s, 7);
+  store.markPerksSeen(s, ['swift']);
+  store.advanceJourney(s, 7);
+  const s2 = store.loadState();
+  eq(store.getPerksSeen(s2), ['swift'], 'θυμάται ποιες ανακοινώθηκαν');
+  eq(store.getJourney(s2).station, 2, 'ο Δρόμος προχώρησε κανονικά');
+});
+
 // --- Επαναφορά πραγματικών δεδομένων ---
 if (BACKUP === null) localStorage.removeItem('flame.state.v1');
 else localStorage.setItem('flame.state.v1', BACKUP);

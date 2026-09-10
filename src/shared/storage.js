@@ -230,12 +230,24 @@ export function getJourney(state) {
   return { station: j.station || 0, cycle: j.cycle || 0, storySeen: !!j.storySeen };
 }
 
+// Συγχωνεύει: ό,τι άλλο ζει στο journey (π.χ. perksSeen) δεν χάνεται.
 function setJourney(state, j) {
   const p = activeProfile(state);
   if (!p) return;
-  p.profile.journey = j;
+  p.profile.journey = { ...(p.profile.journey || {}), ...j };
   p.profile.updatedAt = now();
   saveState(state);
+}
+
+// Ποιες τεχνικές έχει ήδη δει να ωριμάζουν — για να ανακοινώνεται μόνο
+// η καινούργια, μία φορά.
+export function getPerksSeen(state) {
+  const j = activeProfile(state)?.profile.journey;
+  return j && Array.isArray(j.perksSeen) ? j.perksSeen : [];
+}
+
+export function markPerksSeen(state, ids) {
+  setJourney(state, { perksSeen: [...ids] });
 }
 
 export function markStorySeen(state) {
