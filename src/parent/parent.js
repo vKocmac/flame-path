@@ -6,6 +6,7 @@ import * as store from '../shared/storage.js';
 import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
 import { errorCounts, hardestTargets, learningFlow } from '../learning/telemetry.js';
 import * as journey from '../game/journey.js';
+import { TXT } from '../theme/strings.js';
 
 const root = document.getElementById('parent-root');
 let state = store.loadState();
@@ -232,6 +233,7 @@ function progressHTML(p) {
 function renderMain(note = '') {
   const p = store.activeProfile(state);
   const name = esc(p.profile.name);
+  const j0 = store.getJourney(state);
   const words = p.words.map((wd) => `
     <div class="pm-word" data-id="${wd.id}">
       <span class="w">${wordHTML(wd)}</span>
@@ -291,6 +293,16 @@ function renderMain(note = '') {
       <button class="pm-btn danger" id="wipe">Διαγραφή όλων</button>
     </div>
     <p class="pm-note">Και τα δύο ζητούν ξανά το PIN.</p>
+
+    <details class="pm-bulk">
+      <summary>Για δοκιμές: άλμα σταθμού</summary>
+      <div class="pm-row">
+        <select class="pm-input" id="jump">${TXT.stations.slice(0, journey.STATIONS).map((n, i) =>
+          `<option value="${i}"${i === j0.station ? ' selected' : ''}>${i + 1}. ${esc(n)}</option>`).join('')}</select>
+        <button class="pm-btn" id="jumpgo">Πήγαινε</button>
+      </div>
+      <p class="pm-note">Αλλάζει ΜΟΝΟ τον σταθμό του «${name}» — λέξεις, πρόοδος και ζώνη μένουν. Για να δεις τα τοπία χωρίς να παίξεις 7 λεβελ.</p>
+    </details>
     <p class="pm-error" id="err"></p>`);
 
   const err = w.querySelector('#err');
@@ -418,6 +430,13 @@ function renderMain(note = '') {
       return 'Η συσκευή καθάρισε.';
     }
   }));
+
+  // --- για δοκιμές ---
+  w.querySelector('#jumpgo').addEventListener('click', () => {
+    const st = Number(w.querySelector('#jump').value);
+    store.jumpToStation(state, st);
+    renderMain(`Το «${p.profile.name}» πάει στον σταθμό ${st + 1}: ${TXT.stations[st]}.`);
+  });
 }
 
 // Επιλογή στόχων: η λέξη τεμαχίζεται σε γραφήματα και ΠΡΟΕΠΙΛΕΓΟΝΤΑΙ όλα

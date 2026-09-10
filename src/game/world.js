@@ -386,10 +386,82 @@ function buildCastle(scene, cx, baseY, s = 1) {
   }
 }
 
+// ------------------------------------------ η ζωή των τοπίων (φινίρισμα Ε3)
+//
+// Κάθε σταθμός έχει και κάτι που ΚΙΝΕΙΤΑΙ, αργά και στο βάθος — ίδια αρχή με
+// τις μορφές: τίποτα δεν μοιάζει με ακίνητη ζωγραφιά. Χαμηλή ένταση, πίσω
+// από τη μάχη: δεν πρέπει να τραβούν το μάτι από την περγαμηνή. Σε ήρεμη
+// κίνηση (isCalm) δεν χτίζονται καθόλου. `advance`: η οθόνη ξεκινά ήδη
+// «ζωντανή», όχι άδεια.
+
+const zone = (x, y, w, h) => ({ type: 'random', source: new Phaser.Geom.Rectangle(x, y, w, h) });
+
+// Πυγολαμπίδες: μικρά φώτα που ανάβουν, περιπλανιούνται και σβήνουν
+function fireflies(scene, x, y, w, h, tint, every) {
+  scene.add.particles(0, 0, 'spark', {
+    emitZone: zone(x, y, w, h), frequency: every, lifespan: { min: 2400, max: 4200 },
+    speedX: { min: -16, max: 16 }, speedY: { min: -14, max: 8 },
+    scale: { start: .34, end: .08 }, alpha: { start: .85, end: 0 },
+    tint, blendMode: 'ADD', advance: 4000
+  });
+}
+
+// Φύλλα μπαμπού που πέφτουν στριφογυρίζοντας, φωτισμένα από το φεγγάρι
+function leaves(scene) {
+  scene.add.particles(0, 0, 'spark', {
+    emitZone: zone(0, -20, W + 240, 10), frequency: 620, lifespan: 12000,
+    speedX: { min: -48, max: -14 }, speedY: { min: 34, max: 60 },
+    scaleX: { min: .5, max: .75 }, scaleY: .15,
+    rotate: { onEmit: () => Phaser.Math.Between(0, 360), onUpdate: (p, k, t, v) => v + 1.4 },
+    alpha: { min: .3, max: .5 }, tint: NUM.smoke, advance: 12000
+  });
+}
+
+// Ουράνια φανάρια που ανεβαίνουν αργά από τη γέφυρα
+function skyLanterns(scene) {
+  scene.add.particles(0, 0, 'glow-lantern', {
+    emitZone: zone(420, 450, 760, 30), frequency: 2400, lifespan: 17000,
+    speedX: { min: -6, max: 9 }, speedY: { min: -24, max: -13 },
+    scale: { start: .1, end: .045 }, alpha: { start: .85, end: 0 },
+    blendMode: 'ADD', advance: 14000
+  });
+}
+
+// Θυμίαμα: καπνός που ανεβαίνει από τον ναό και γέρνει με τον αέρα
+function incense(scene, x, y) {
+  scene.add.particles(x, y, 'puff', {
+    frequency: 420, lifespan: 7000,
+    speedX: { min: 4, max: 16 }, speedY: { min: -26, max: -14 },
+    scale: { start: .35, end: 1.6 }, alpha: { start: .2, end: 0 },
+    tint: NUM.smoke, advance: 6000
+  });
+}
+
+// Χιόνι που το σπρώχνει ο αέρας της κορυφής
+function snow(scene) {
+  scene.add.particles(0, 0, 'spark', {
+    emitZone: zone(-40, -40, 20, H * .8), frequency: 160, lifespan: 13000,
+    speedX: { min: 70, max: 150 }, speedY: { min: 8, max: 34 },
+    scale: { min: .1, max: .22 }, alpha: { min: .25, max: .6 },
+    tint: NUM.star, advance: 13000
+  });
+}
+
+// Σπίθες από το κάστρο: η φωτιά του Μάστερ Γου καίει εκεί μέσα
+function embers(scene) {
+  scene.add.particles(0, 0, 'spark', {
+    emitZone: zone(600, 380, 520, 90), frequency: 170, lifespan: { min: 3500, max: 6000 },
+    speedX: { min: -12, max: 14 }, speedY: { min: -46, max: -18 },
+    scale: { start: .32, end: 0 }, alpha: { start: .9, end: 0 },
+    tint: [NUM.flame, NUM.flameDeep, NUM.lantern], blendMode: 'ADD', advance: 5000
+  });
+}
+
 const STATION_LAYERS = [
   { // 1. Το Ντότζο της Αυγής — το ντότζο μένει πίσω μας
     mid: (s, c) => buildDojo(s, 176, H * .653, .72, c),
-    front: (s) => { buildBamboo(s, 60, H * .885, .8); buildBamboo(s, 1240, H * .89, .7); }
+    front: (s) => { buildBamboo(s, 60, H * .885, .8); buildBamboo(s, 1240, H * .89, .7); },
+    life: (s) => fireflies(s, 20, 470, 460, 140, NUM.lantern, 520)
   },
   { // 2. Το Δάσος με τα Μπαμπού
     back: (s) => {
@@ -397,25 +469,31 @@ const STATION_LAYERS = [
         buildBamboo(s, x, H * .70, k, NUM.ridgeMid);
       }
     },
-    front: (s) => { buildBamboo(s, 40, H * .9, 1.15); buildBamboo(s, 250, H * .9, .75); buildBamboo(s, 1190, H * .9, 1.05); }
+    front: (s) => { buildBamboo(s, 40, H * .9, 1.15); buildBamboo(s, 250, H * .9, .75); buildBamboo(s, 1190, H * .9, 1.05); },
+    life: (s) => leaves(s)
   },
   { // 3. Η Γέφυρα των Φαναριών
     mid: (s, c) => buildBridge(s, c),
-    front: (s) => buildBamboo(s, 60, H * .885, .7)
+    front: (s) => buildBamboo(s, 60, H * .885, .7),
+    life: (s) => skyLanterns(s)
   },
   { // 4. Η Λίμνη του Φεγγαριού
     mid: (s, c) => buildLake(s, c),
-    front: (s) => buildReeds(s)
+    front: (s) => buildReeds(s),
+    life: (s) => fireflies(s, 0, 470, W, 150, NUM.spirit, 300)
   },
   { // 5. Ο Ναός των Σκιών
-    mid: (s, c) => { buildTemple(s, 860, H * .665, 1.05); buildTorii(s, 330, H * .74, c); }
+    mid: (s, c) => { buildTemple(s, 860, H * .665, 1.05); buildTorii(s, 330, H * .74, c); },
+    life: (s) => incense(s, 860, 290)
   },
   { // 6. Η Κορυφή της Ομίχλης
     back: (s) => buildPeak(s),
-    mid: (s) => buildPines(s)
+    mid: (s) => buildPines(s),
+    life: (s) => snow(s)
   },
   { // 7. Το Κάστρο του Μάστερ Γου
-    back: (s) => buildCastle(s, 860, H * .66, 1)
+    back: (s) => buildCastle(s, 860, H * .66, 1),
+    life: (s) => embers(s)
   }
 ];
 

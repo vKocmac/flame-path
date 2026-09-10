@@ -197,6 +197,7 @@ export default class BattleScene extends Phaser.Scene {
     world.buildStation(this, st, 'mid', calm);
     world.ridge(this, world.RIDGE_NEAR, NUM.ridgeNear);
     world.buildStation(this, st, 'front', calm);
+    if (!calm) world.buildStation(this, st, 'life', calm);   // ζωή του τοπίου (όχι σε ήρεμη κίνηση)
     world.buildGround(this, { path: 'wide' });
     world.lantern(this, 470, 604, .7, calm);
     world.lantern(this, 1010, 600, .7, calm);

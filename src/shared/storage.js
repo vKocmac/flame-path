@@ -254,6 +254,12 @@ export function markStorySeen(state) {
   setJourney(state, { ...getJourney(state), storySeen: true });
 }
 
+// Εργαλείο δοκιμών του γονιού (Parent Mode): κατευθείαν σε σταθμό, για να
+// δει τα τοπία χωρίς να παίξει 7 λεβελ. Κύκλος/ζώνη, λέξεις, πρόοδος μένουν.
+export function jumpToStation(state, station) {
+  setJourney(state, { station: Math.max(0, Math.floor(station)), storySeen: true });
+}
+
 // Νίκη στον σταθμό: ένας σταθμός μπροστά. Νίκη στον ΤΕΛΕΥΤΑΙΟ σταθμό =
 // ο Δρόμος ολοκληρώθηκε: νέος κύκλος (ανώτερη ζώνη) από τον πρώτο σταθμό.
 export function advanceJourney(state, stations) {

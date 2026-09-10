@@ -783,6 +783,16 @@ await test('Δυνάμεις: ξεκλειδώνουν με τους σταθμ�
   eq(journey.bossHp(6), 8, 'στο κάστρο πιο ανθεκτικός');
 });
 
+await test('Άλμα σταθμού (Parent, για δοκιμές): αλλάζει ΜΟΝΟ τον σταθμό', () => {
+  seedWithProgress();
+  const s = store.loadState();
+  store.advanceJourney(s, 7); store.advanceJourney(s, 7);
+  store.jumpToStation(s, 5);
+  const j = store.getJourney(store.loadState());
+  eq([j.station, j.cycle], [5, 0], 'σταθμός 6, ίδιος κύκλος');
+  eq(store.activeProfile(store.loadState()).words[0].targets[0].level, 3, 'η πρόοδος μένει');
+});
+
 await test('Ζώνη: κάθε ζώνη ξεκινά τη μπάρα +10, ως την ασημένια', async () => {
   const journey = await import('./src/game/journey.js');
   eq(journey.beltRage(0), 0, 'πρώτη ζώνη: τίποτα');
