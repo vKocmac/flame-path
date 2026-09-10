@@ -18,6 +18,11 @@ export default class TitleScene extends Phaser.Scene {
     buildTextures(this);
     const calm = world.isCalm();
     this.calm = calm;
+    // Το Phaser ξαναχρησιμοποιεί το αντικείμενο της σκηνής: χωρίς αυτό, μετά
+    // την πρώτη μάχη και ‹ (πίσω), το «leaving» έμενε true και η φωτιά ΔΕΝ
+    // ξαναπατιόταν — το παιδί κολλούσε στον τίτλο ώσπου να κλείσει η
+    // εφαρμογή (βρέθηκε 11/09).
+    this.leaving = false;
 
     world.buildSky(this);
     world.buildStars(this, calm);

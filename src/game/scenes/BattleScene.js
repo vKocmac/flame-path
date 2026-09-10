@@ -156,6 +156,11 @@ export default class BattleScene extends Phaser.Scene {
     this.barPulse = null;
     this.glowPulse = null;
     this.auraPulse = null;
+    // Φτιάχνονται «μία φορά» (if (!this.fog)) — από τη 2η μάχη έδειχναν σε
+    // αντικείμενα ήδη καταστραμμένα: η ομίχλη της ανασύνταξης και το
+    // σκοτείνιασμα του Shadow Focus απλώς δεν φαίνονταν πια.
+    this.fog = null;
+    this.focusVeil = null;
 
     // Ο Δρόμος (NEXT-FIXES Ε3): σε ποιον σταθμό είμαστε — μόνιμο, ανά προφίλ.
     // Φορτώνεται ΠΡΙΝ τις μορφές: η ζώνη του νίντζα βάφεται από τον κύκλο.
