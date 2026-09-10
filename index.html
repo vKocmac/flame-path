@@ -22,8 +22,21 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  #game { position: fixed; inset: 0; }
+  #game { position: fixed; inset: 0; z-index: 1; }
   #game canvas { display: block; }
+
+  /* Φόρτωση: μια φλόγα που ανασαίνει όσο κατεβαίνει το Phaser (πρώτο
+     άνοιγμα στο κινητό — αλλιώς σκέτη σκοτεινή οθόνη). Κάθεται ΠΙΣΩ από
+     το #game: μόλις ζωγραφίσει ο καμβάς, τη σκεπάζει μόνος του. */
+  #boot { position: fixed; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: center; }
+  #boot .f { animation: breathe 1.4s ease-in-out infinite; filter: drop-shadow(0 0 22px rgba(255, 122, 26, .6)); }
+  #boot .d {
+    width: 46px; height: 46px; transform: rotate(45deg);
+    border-radius: 0 50% 50% 50%;
+    background: radial-gradient(circle at 62% 62%, #FFE8A3 0 16%, #FFC857 30%, #FF7A1A 58%, #E8491D 100%);
+  }
+  @keyframes breathe { 0%, 100% { transform: scale(1, 1); opacity: .8; } 50% { transform: scale(1.08, 1.16); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #boot .f { animation: none; } }
 
   /* Μία λωρίδα, δύο ρόλοι — ποιον παίζει τον αποφασίζει το main.js:
        όρθιο         → «γύρισε το κινητό» (υπόδειξη, ΔΕΝ δέχεται άγγιγμα)
@@ -67,6 +80,7 @@
 </style>
 </head>
 <body>
+  <div id="boot"><div class="f"><div class="d"></div></div></div>
   <div id="game"></div>
 
   <div id="rotate">
