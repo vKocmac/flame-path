@@ -181,24 +181,52 @@ export function fizzle() {
   src.stop(t + 0.5);
 }
 
-// Κουδούνισμα σπίθας — ζεστό, μικρό, χαρούμενο.
+// Σπίθα που μαζεύεται (NEXT-FIXES Δ2). Ήταν καθαρό «κλινγκ» παιχνιδομηχανής·
+// ο ιδιοκτήτης ζήτησε κάτι «πιο μαγικό». Τώρα: κρυστάλλινο τσιν από δύο
+// ελαφρά ξεκούρδιστα ημίτονα (κυματίζουν σαν φως), μεταλλικό μη-αρμονικό
+// τόνο καμπάνας, φύσημα σπίθας και δύο αχνές ηχούς στη νύχτα.
+// Τα βήματα πατούν στην ιαπωνική κλίμακα «ίν» (Σολ-Λα-Σι♭-Ρε): οι τρεις
+// σπίθες ενός χτυπήματος χτίζουν μια μικρή μυστηριακή φράση, όχι σκάλα.
 export function chime(step = 0) {
   if (!ctx) return;
   const t = ctx.currentTime;
-  const notes = [880, 1108, 1318, 1760];
+  const notes = [784, 880, 932, 1175];
   const f = notes[Math.min(step, notes.length - 1)];
-  for (const [mult, vol] of [[1, 0.09], [2, 0.035]]) {
+  const cents = (c) => Math.pow(2, c / 1200);
+
+  const tone = (freq, at, vol, tail) => {
     const o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.value = f * mult;
+    o.frequency.value = freq;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + tail);
     o.connect(g).connect(fxGain);
-    o.start(t);
-    o.stop(t + 0.5);
-  }
+    o.start(at);
+    o.stop(at + tail + 0.05);
+  };
+
+  tone(f * cents(-6), t, 0.05, 0.9);          // η λάμψη: δύο τόνοι που κυματίζουν
+  tone(f * cents(+6), t, 0.05, 0.9);
+  tone(f * 2.76, t, 0.018, 0.35);             // το μέταλλο της καμπάνας, σύντομο
+  tone(f * 2, t + 0.03, 0.02, 0.6);           // η οκτάβα ανοίγει τον ήχο
+  tone(f * 2, t + 0.17, 0.012, 0.5);          // ηχώ
+  tone(f * 2, t + 0.34, 0.006, 0.45);         // πιο μακρινή ηχώ
+
+  // Το φύσημα της σπίθας: σύντομος, ψηλός θόρυβος
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.1);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 6500;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.03, t + 0.005);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  src.connect(hp).connect(ng).connect(fxGain);
+  src.start(t);
+  src.stop(t + 0.08);
 }
 
 // Χαμηλός υπόκωφος χτύπος: ο εχθρός κάνει βήμα μπροστά.
