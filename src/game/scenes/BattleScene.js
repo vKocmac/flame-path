@@ -747,52 +747,125 @@ export default class BattleScene extends Phaser.Scene {
    * σβηστή τρέχει. ΔΕΝ γίνεται ποτέ αόρατη (μένει στο 0,3): εχθρός που
    * χάνεται τελείως δεν είναι δύσκολος, είναι άδικος.
    */
+  //
+  // NEXT-FIXES Δ3: αιωρούνταν και έσβηνε, χωρίς σώμα που ζει. Τώρα
+  // ξαναζωγραφίζεται κάθε καρέ: κύμα που ταξιδεύει από την κουκούλα προς τα
+  // κάτω σαν πανί στον αέρα, κουρέλια που ανεμίζουν ξεχωριστά, μανίκι με
+  // νύχια. Anticipation: ΠΡΙΝ σβήσει και τρέξει τεντώνεται ψηλά και
+  // στενεύει, και στις άδειες κόγχες φέγγει κάτι. Στο λάθος του παιδιού
+  // απλώνει το μανίκι προς τον νίντζα.
   drawWraith(c, size) {
     const S = size;
-    const g = this.add.graphics();
-
-    // Σώμα γύρω από ραχοκοκαλιά που στενεύει προς τα κάτω — δεν έχει πόδια
-    const spine = [[0, -172, 26], [2, -136, 33], [0, -96, 31], [-2, -56, 24], [0, -22, 13]]
-      .map(([x, y, r]) => ({ cx: x * S, cy: y * S, r: r * S }));
-    g.fillStyle(NUM.shadow, .88);
-    g.fillPoints(ribbonOutline(spine), true);
-
-    // Κουρελιασμένος ποδόγυρος: ζιγκ-ζαγκ αντί για ίσια άκρη
-    const hem = [];
-    for (let i = 0; i <= 8; i++) {
-      const x = (-26 + i * 6.5) * S;
-      hem.push(new Phaser.Geom.Point(x, (i % 2 ? -4 : -26) * S));
-    }
-    hem.push(new Phaser.Geom.Point(26 * S, -40 * S));
-    hem.push(new Phaser.Geom.Point(-26 * S, -40 * S));
-    g.fillStyle(NUM.shadow, .88);
-    g.fillPoints(hem, true);
-
-    // Κουκούλα και δύο άδεια μάτια — «άδεια» σημαίνει σκοτεινά, όχι φωτεινά
-    g.fillStyle(shade(NUM.nightHigh, .8), 1);
-    g.fillEllipse(0, -168 * S, 46 * S, 40 * S);
-    g.fillStyle(NUM.shadow, 1);
-    g.fillEllipse(-11 * S, -170 * S, 13 * S, 17 * S);
-    g.fillEllipse(11 * S, -170 * S, 13 * S, 17 * S);
-    g.lineStyle(2.4 * S, shade(NUM.nightHigh, 1.6), .5);   // μία ακμή φωτός
-    g.lineBetween(-22 * S, -176 * S, 0 * S, -190 * S);
-
     const halo = this.add.image(0, -140 * S, 'glow-moon')
       .setScale(1.2 * S).setAlpha(.12).setTint(NUM.star)
       .setBlendMode(Phaser.BlendModes.ADD);
+    const g = this.add.graphics();
     c.add([halo, g]);
 
-    c.nextFadeAt = this.time.now + Phaser.Math.Between(2400, 4000);
-    c.behave = (time) => {
-      c.y = LINE_Y + Math.sin(time * .0013) * 7 * S;      // αιωρείται
-      if (time < c.nextFadeAt) return;
-      c.nextFadeAt = time + Phaser.Math.Between(3400, 5200);
+    const calm = this.calm;
+    const seed = Math.random() * 10;
+    const pose = { k: 0 };                                // 1 = τεντωμένη, έτοιμη να σβήσει
+    const arm = { r: 0 };                                 // 1 = μανίκι απλωμένο μπροστά
+    c.pose = pose; c.reach = arm;                         // για ελέγχους
+    const lerp = (a, b, u) => a + (b - a) * u;
+    // Σώμα γύρω από ραχοκοκαλιά που στενεύει προς τα κάτω — δεν έχει πόδια
+    const base = [[0, -172, 26], [2, -136, 33], [0, -96, 31], [-2, -56, 24], [0, -22, 13]];
+
+    const draw = (time) => {
+      const t = time * .001 + seed;
+      const k = pose.k, r = arm.r;
+      const bob = calm ? 0 : Math.sin(time * .0013 + seed) * 7;      // αιωρείται
+      const stretch = 1 + k * .12, thin = 1 - k * .22;
+      const spine = base.map(([x, y, rad], i) => ({
+        cx: (x + (calm ? 0 : Math.sin(t * 2.2 - i * .8) * i * 2.2) - r * (4 - i) * 5) * S,
+        cy: (y * stretch + bob) * S,
+        r: rad * thin * (1 + (calm ? 0 : Math.sin(t * 1.6 + i) * .04)) * S
+      }));
+      g.clear();
+
+      // Κουρέλια του ποδόγυρου: το καθένα ανεμίζει μόνο του, σέρνονται πίσω
+      g.fillStyle(NUM.shadow, .88);
+      const top = -44 * stretch + bob;
+      for (let j = 0; j < 6; j++) {
+        const bx = (-24 + j * 9.6) * thin;
+        const sw = calm ? 0 : Math.sin(t * 3 + j * 1.3);
+        const len = 30 + (calm ? 0 : Math.sin(t * 1.1 + j * 2.1) * 6);
+        g.fillPoints(ribbonOutline([
+          { cx: bx * S, cy: top * S, r: 5 * S },
+          { cx: (bx + sw * 3 + 4) * S, cy: (top + len * .55) * S, r: 3.2 * S },
+          { cx: (bx + sw * 7 + 9) * S, cy: (top + len) * S, r: 1 * S }
+        ]), true);
+      }
+      g.fillPoints(ribbonOutline(spine), true);
+
+      // Μανίκι: κρέμεται μπροστά· στο άπλωμα τεντώνεται προς τον νίντζα
+      const shx = spine[1].cx / S - 20, shy = spine[1].cy / S + 6;
+      const ang = (calm ? 0 : Math.sin(t * 1.4) * .12) + lerp(.35, 1.45, r);
+      const L = 62 + r * 30;
+      const ex = shx - Math.sin(ang) * L, ey = shy + Math.cos(ang) * L;
+      const mx = shx - Math.sin(ang) * L * .5 + 4, my = shy + Math.cos(ang) * L * .5 + 3;
+      g.fillStyle(NUM.shadow, .82);
+      g.fillPoints(ribbonOutline([
+        { cx: shx * S, cy: shy * S, r: 9 * S }, { cx: mx * S, cy: my * S, r: 7 * S },
+        { cx: ex * S, cy: ey * S, r: 3 * S }
+      ]), true);
+      g.lineStyle(2 * S, shade(NUM.nightHigh, 1.4), .35 + r * .4);   // νύχια: ανοίγουν στο άπλωμα
+      for (let f = -1; f <= 1; f++) {
+        const fa = ang + f * (.18 + r * .25);
+        g.lineBetween(ex * S, ey * S, (ex - Math.sin(fa) * 14) * S, (ey + Math.cos(fa) * 14) * S);
+      }
+
+      // Κουκούλα και δύο άδεια μάτια — «άδεια» σημαίνει σκοτεινά, όχι φωτεινά.
+      // Μόνο όταν ετοιμάζεται φέγγει κάτι μέσα τους.
+      const hx = spine[0].cx / S, hy = spine[0].cy / S + 4;
+      g.fillStyle(shade(NUM.nightHigh, .8), 1);
+      g.fillEllipse(hx * S, hy * S, 46 * S, 40 * S);
+      g.fillStyle(NUM.shadow, 1);
+      g.fillEllipse((hx - 11) * S, (hy - 2) * S, 13 * S, 17 * S);
+      g.fillEllipse((hx + 11) * S, (hy - 2) * S, 13 * S, 17 * S);
+      const glint = Math.max(k, r);
+      if (glint > .05) {
+        g.fillStyle(NUM.star, .9 * glint);
+        g.fillCircle((hx - 12) * S, (hy - 1) * S, 2.2 * S);
+        g.fillCircle((hx + 10) * S, (hy - 1) * S, 2.2 * S);
+      }
+      g.lineStyle(2.4 * S, shade(NUM.nightHigh, 1.6), .5);   // μία ακμή φωτός
+      g.lineBetween((hx - 22) * S, (hy - 8) * S, hx * S, (hy - 22) * S);
+      halo.setY((-140 * stretch + bob) * S).setAlpha(.12 + glint * .1);
+    };
+
+    // 1. τεντώνεται, οι κόγχες φέγγουν  2. σβήνει (ποτέ κάτω από 0,3) και
+    // τρέχει  3. ξαναφαίνεται και μαζεύεται
+    const fade = () => {
       c.mult = 2.1; c.multMs = 900;
+      this.tweens.add({ targets: c, alpha: .3, duration: 260, ease: 'Quad.easeOut', yoyo: true, hold: 640 });
+    };
+    const vanish = () => {
+      this.tweens.killTweensOf(pose);
       this.tweens.add({
-        targets: c, alpha: .3, duration: 260, ease: 'Quad.easeOut',
-        yoyo: true, hold: 640
+        targets: pose, k: 1, duration: 320, ease: 'Sine.easeOut',
+        onComplete: () => {
+          fade();
+          this.tweens.add({ targets: pose, k: 0, duration: 700, ease: 'Sine.easeInOut' });
+        }
       });
     };
+    c.windUp = () => {
+      if (calm) return;
+      this.tweens.killTweensOf(arm);
+      this.tweens.add({ targets: arm, r: 1, duration: 160, hold: 180, yoyo: true, ease: 'Quad.easeOut' });
+    };
+
+    let nextFadeAt = null;
+    c.behave = (time) => {
+      if (nextFadeAt === null) nextFadeAt = time + Phaser.Math.Between(2400, 4000);
+      draw(time);
+      if (time < nextFadeAt) return;
+      nextFadeAt = time + Phaser.Math.Between(3400, 5200);
+      if (calm) fade();                                   // το σβήσιμο μένει (παιχνίδι), χωρίς κίνηση
+      else vanish();
+    };
+    draw(0);
   }
 
   // Ο δράκος. Χτισμένος σε ΤΜΗΜΑΤΑ που κυματίζουν με καθυστέρηση το ένα από
