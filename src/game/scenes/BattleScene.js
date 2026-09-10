@@ -329,37 +329,109 @@ export default class BattleScene extends Phaser.Scene {
     return c;
   }
 
+  /**
+   * Καπνοδαίμονας (NEXT-FIXES Δ3). Ήταν στατική ζωγραφιά πάνω σε ένα tween
+   * πάνω-κάτω. Τώρα το σώμα ΞΑΝΑΖΩΓΡΑΦΙΖΕΤΑΙ κάθε καρέ, όπως του δράκου:
+   * λοβοί καπνού που ανασαίνουν ο καθένας με δική του φάση, ουρά από
+   * κουβάρια που ξεκολλούν από πίσω και σβήνουν, κέρατα που λικνίζονται,
+   * μάτια που ανοιγοκλείνουν.
+   *
+   * Anticipation: πριν κερδίσει έδαφος ΦΟΥΣΚΩΝΕΙ — τα μάτια ανάβουν,
+   * ανοίγει στόμα (windUp). Και κάθε λίγο μαζεύεται μόνος του, ώστε η απειλή
+   * να φαίνεται και χωρίς λάθος.
+   */
   drawSmoke(c, size) {
-    const glow = this.add.image(0, -34 * size, 'glow-moon')
-      .setScale(.7 * size).setAlpha(.10);
+    const S = size;
+    const glow = this.add.image(0, -34 * S, 'glow-moon').setScale(.7 * S).setAlpha(.10);
     const g = this.add.graphics();
-    g.fillStyle(NUM.ridgeHaze, .95);
-    g.fillEllipse(0, -40 * size, 62 * size, 76 * size);   // σώμα καπνού
-    g.fillEllipse(-16 * size, -12 * size, 34 * size, 26 * size);
-    g.fillEllipse(18 * size, -10 * size, 30 * size, 22 * size);
-    g.fillPoints([                                        // δύο σουβλερά «κέρατα» καπνού
-      new Phaser.Geom.Point(-22 * size, -66 * size),
-      new Phaser.Geom.Point(-30 * size, -96 * size),
-      new Phaser.Geom.Point(-8 * size, -70 * size)
-    ], true);
-    g.fillPoints([
-      new Phaser.Geom.Point(22 * size, -66 * size),
-      new Phaser.Geom.Point(31 * size, -94 * size),
-      new Phaser.Geom.Point(9 * size, -70 * size)
-    ], true);
-    g.fillStyle(NUM.star, .92);                           // χλωμά μάτια
-    g.fillCircle(-11 * size, -48 * size, 5.5 * size);
-    g.fillCircle(11 * size, -48 * size, 5.5 * size);
     c.add([glow, g]);
 
-    if (!this.calm) {
-      this.tweens.add({
-        targets: c, y: LINE_Y - 6, scaleX: 1.04, scaleY: .97,
-        duration: Phaser.Math.Between(1100, 1700),
-        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        delay: Phaser.Math.Between(0, 700)
-      });
-    }
+    // [x, y, ακτίνα x, ακτίνα y, φάση]
+    const lobes = [
+      [0, -40, 31, 38, 0], [-16, -14, 17, 13, 1.7], [18, -12, 15, 11, 3.1],
+      [-6, -62, 20, 18, 4.4], [10, -26, 18, 16, 2.3]
+    ];
+    const seed = Math.random() * 10;
+    const calm = this.calm;
+    // Το φούσκωμα ζει σε δικό του αντικείμενο: έτσι ένα νέο φούσκωμα σβήνει
+    // το προηγούμενο χωρίς να αγγίξει τα tween θέσης του ίδιου του εχθρού.
+    const sw = { v: 0 };
+    c.swell = sw;             // για ελέγχους: πόσο φουσκωμένος είναι (0-1)
+    c.eyeOpen = 1;            // για ελέγχους: 1 ανοιχτά, <1 ανοιγοκλείνει
+    let blinkUntil = 0;
+    // Οι χρόνοι ξεκινούν από το ΠΡΩΤΟ καρέ που βλέπει ο εχθρός — όχι από
+    // ρολόι που μπορεί να είναι άλλο από το `time` του update().
+    let nextBlinkAt = null;
+    let nextGatherAt = null;
+
+    c.windUp = () => {
+      this.tweens.killTweensOf(sw);
+      this.tweens.add({ targets: sw, v: 1, duration: 150, hold: 160, yoyo: true, ease: 'Quad.easeOut' });
+    };
+
+    c.behave = (time) => {
+      if (nextBlinkAt === null) {
+        nextBlinkAt = time + Phaser.Math.Between(1500, 4000);
+        nextGatherAt = time + Phaser.Math.Between(2500, 4500);
+      }
+      const t = time * .001 + seed;
+      const s = sw.v;
+      const bob = calm ? 0 : Math.sin(t * 1.6) * 4 * S;
+      const lift = bob - s * 6 * S;               // φουσκώνοντας ανασηκώνεται
+      g.clear();
+
+      // Ουρά: τρία κουβάρια ξεκολλούν από πίσω και σβήνουν ψηλά
+      if (!calm) {
+        for (let k = 0; k < 3; k++) {
+          const p = (t * .55 + k / 3) % 1;
+          g.fillStyle(NUM.ridgeHaze, (1 - p) * .55);
+          g.fillCircle((22 + p * 46) * S, (-10 - p * 34) * S + bob, (13 - p * 8) * S);
+        }
+      }
+
+      // Σώμα
+      g.fillStyle(NUM.ridgeHaze, .95);
+      for (const [x, y, rx, ry, ph] of lobes) {
+        const k = 1 + (calm ? 0 : Math.sin(t * 2.2 + ph) * .07) + s * .22;
+        const dx = calm ? 0 : Math.sin(t * 1.3 + ph) * 2.5;
+        g.fillEllipse((x + dx) * S, y * S + lift, rx * 2 * k * S, ry * 2 * k * S);
+      }
+      g.fillStyle(shade(NUM.ridgeHaze, .7), .5);  // σκιά χαμηλά — όγκος χωρίς gradient
+      g.fillEllipse(2 * S, -18 * S + lift, 46 * S, 20 * S);
+
+      // Κέρατα που λικνίζονται και τεντώνονται στο φούσκωμα
+      const hs = calm ? 0 : Math.sin(t * 1.9) * 3;
+      g.fillStyle(NUM.ridgeHaze, .95);
+      g.fillTriangle(-22 * S, -66 * S + lift, (-30 + hs) * S, (-96 - s * 10) * S + lift, -8 * S, -70 * S + lift);
+      g.fillTriangle(22 * S, -66 * S + lift, (31 + hs) * S, (-94 - s * 10) * S + lift, 9 * S, -70 * S + lift);
+
+      // Μάτια: ανοιγοκλείνουν· στο φούσκωμα μεγαλώνουν και ανάβουν
+      if (time > nextBlinkAt) {
+        blinkUntil = time + 130;
+        nextBlinkAt = time + Phaser.Math.Between(2200, 5200);
+      }
+      const eh = time < blinkUntil ? .18 : 1;
+      c.eyeOpen = eh;
+      const er = (5.5 + s * 2.4) * S;
+      g.fillStyle(s > .25 ? NUM.lantern : NUM.star, .92);
+      g.fillEllipse(-11 * S, -48 * S + lift, er * 2, er * 2 * eh);
+      g.fillEllipse(11 * S, -48 * S + lift, er * 2, er * 2 * eh);
+
+      // Στόμα: σχισμή που ανοίγει μόνο όταν φουσκώνει
+      if (s > .05) {
+        g.fillStyle(NUM.shadow, .85 * s);
+        g.fillEllipse(0, -31 * S + lift, 18 * S, 8 * s * S);
+      }
+      glow.setAlpha(.10 + s * .2);
+
+      // Κάθε λίγο μαζεύεται μόνος του — μισό φούσκωμα, αργό
+      if (!calm && time > nextGatherAt) {
+        nextGatherAt = time + Phaser.Math.Between(3200, 5200);
+        if (!this.tweens.isTweening(sw)) {
+          this.tweens.add({ targets: sw, v: .45, duration: 420, yoyo: true, ease: 'Sine.easeInOut' });
+        }
+      }
+    };
   }
 
   /**
@@ -1942,6 +2014,7 @@ export default class BattleScene extends Phaser.Scene {
       // Στη δεύτερη αστοχία η γραμμή ορμάει: διπλό βήμα, όχι το ίδιο.
       const step = this.lostWord ? ERROR_STEP * 1.9 : ERROR_STEP;
       this.enemies.forEach((e, i) => {
+        if (e.windUp) e.windUp();      // η δική του προειδοποίηση (Δ3)
         this.tweens.add({
           targets: e, x: e.x - step, duration: 260, delay: i * 40, ease: 'Back.easeOut'
         });
