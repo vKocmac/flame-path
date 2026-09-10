@@ -63,6 +63,7 @@ const ICE_MS = 8000;
 // ξέρει να κάνει ανανέωση. Ξεκολλάμε μόνοι μας.
 const STUCK_MS = 9000;
 const IDLE_MS = 20000;       // χωρίς πρόκληση και χωρίς «απασχολημένη» (δες update)
+const HUD_W = 400, HUD_H = 180;   // η γωνία του HUD που «ψήνεται» σε εικόνα (bakeHud)
 
 // Ελάχιστο ορατό μέγεθος φούσκας (HYPER-NOTE §16.7). Το FIT σε 1280×720
 // συρρικνώνει τα πάντα σε κινητό (×0,52): οι 96px της φούσκας γίνονται 50
@@ -2931,26 +2932,47 @@ export default class BattleScene extends Phaser.Scene {
 
   // --------------------------------------------------------- μπάρα δύναμης
 
+  // Τα Graphics του Phaser ξαναχτίζονται σε ΚΑΘΕ καρέ. Για το HUD, που
+  // αλλάζει σπάνια, κόστιζαν ~2 ms/καρέ (μετρημένο 11/09) — σε κινητό,
+  // χαμένα καρέ. Ζωγραφίζουμε σε Graphics ΕΚΤΟΣ σκηνής και «ψήνουμε» εικόνα
+  // μόνο όταν αλλάξει κάτι (bakeHud).
+  hudLayer(name) {
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    g.hudKey = `hud-${name}`;
+    g.hudImg = this.add.image(0, 0, '__DEFAULT').setOrigin(0).setDepth(46);
+    return g;
+  }
+
+  bakeHud(g) {
+    if (!g || !g.hudImg) return;
+    if (this.textures.exists(g.hudKey)) {            // ο καμβάς ξαναχρησιμοποιείται: πρώτα καθαρίζει
+      const tex = this.textures.get(g.hudKey);
+      tex.context.clearRect(0, 0, tex.width, tex.height);
+    }
+    g.generateTexture(g.hudKey, HUD_W, HUD_H);
+    g.hudImg.setTexture(g.hudKey);
+  }
+
   buildRageBar() {
     // 200 πλάτος: με τα εικονίδια δίπλα, το HUD τελειώνει πριν την περγαμηνή (x 320)
     const x = 24, y = 70, w = 200, h = 18;
     this.rageBox = { x, y, w, h };
-    this.rageG = this.add.graphics().setDepth(46);
+    this.rageG = this.hudLayer('rage');
     // Όλο το HUD είναι ΣΧΗΜΑΤΑ που γεμίζουν, όχι λέξεις (ιδιοκτήτης 11/09):
     //   μπάρα δύναμης → εικονίδια δυνάμεων (η επόμενη μεγάλη, οι κλειδωμένες σβηστές)
     //   μπάρα κυμάτων → πόσο απέχει ο Μάστερ Γου μέσα στο λεβελ
     //   μικρός Δρόμος → 7 σταθμοί, η ζώνη στην αρχή, το κάστρο στο τέλος
     this.powerGlow = this.add.image(0, 0, 'glow-lantern').setScale(.42).setAlpha(0)
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
-    this.powerG = this.add.graphics().setDepth(46);
-    this.waveG = this.add.graphics().setDepth(46);
+    this.powerG = this.hudLayer('power');
+    this.waveG = this.hudLayer('wave');
     this.pathGlow = this.add.image(0, 0, 'glow-flame').setScale(.22).setAlpha(.7)
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
     if (!this.calm) {
       this.tweens.add({ targets: this.pathGlow, alpha: .25, scale: .3, duration: 900,
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
-    this.pathG = this.add.graphics().setDepth(46);
+    this.pathG = this.hudLayer('path');
     this.hudKey = '';
     this.drawMiniPath();
     // Δύο μεγάλοι στόχοι αφής για την απελευθέρωση: η μπάρα ΚΑΙ ο νίντζας
@@ -2981,6 +3003,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     g.lineStyle(2, this.rageReady ? NUM.flameCore : NUM.smoke, this.rageReady ? .95 : .5);
     g.strokeRoundedRect(x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
+    this.bakeHud(g);
     this.drawPowers();
   }
 
@@ -3010,6 +3033,7 @@ export default class BattleScene extends Phaser.Scene {
       if (main) this.powerGlow.setPosition(cx, cy);
     }
     if (!this.barPulse) this.powerGlow.setAlpha(this.rageReady ? .8 : 0);
+    this.bakeHud(g);
   }
 
   // Κύματα μέχρι να κατέβει ο Μάστερ Γου: ένα κομμάτι ανά κύμα, το τελευταίο
@@ -3051,6 +3075,7 @@ export default class BattleScene extends Phaser.Scene {
     g.fillStyle(his ? NUM.flameDeep : NUM.smoke, his ? 1 : .6);
     g.fillRect(mx - 5, my - 2, 3.5, 2.5);
     g.fillRect(mx + 1.5, my - 2, 3.5, 2.5);
+    this.bakeHud(g);
   }
 
   // Ο μικρός Δρόμος: η ζώνη (ο κύκλος) στην αρχή, 7 σταθμοί, το κάστρο στο
@@ -3099,6 +3124,7 @@ export default class BattleScene extends Phaser.Scene {
       }
       if (here) this.pathGlow.setPosition(cx, y - (i === n - 1 ? 4 : 0));
     }
+    this.bakeHud(g);
   }
 
   // Το HUD ζωγραφίζεται ξανά μόνο όταν αλλάξει κάτι που δείχνει
@@ -3121,7 +3147,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.calm) {
         this.auraPulse = this.tweens.add({ targets: this.aura, alpha: .45, scale: 2.2,
           duration: 700, delay: 380, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        this.barPulse = this.tweens.add({ targets: this.rageG, alpha: .5,
+        this.barPulse = this.tweens.add({ targets: this.rageG.hudImg, alpha: .5,
           duration: 480, yoyo: true, repeat: -1 });
         this.powerGlow.setAlpha(.8);
         this.glowPulse = this.tweens.add({ targets: this.powerGlow, alpha: .3, scale: .55,
@@ -3146,7 +3172,7 @@ export default class BattleScene extends Phaser.Scene {
     if (this.barPulse) { this.barPulse.stop(); this.barPulse = null; }
     if (this.glowPulse) { this.glowPulse.stop(); this.glowPulse = null; }
     this.powerGlow.setAlpha(0).setScale(.42);
-    this.rageG.setAlpha(1);
+    this.rageG.hudImg.setAlpha(1);
     this.drawRage();
     this.tweens.add({ targets: this.aura, alpha: 0, scale: 2.2, duration: 600, delay: 1400 });
 
