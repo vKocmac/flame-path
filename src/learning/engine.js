@@ -148,11 +148,19 @@ export function reportResult(r) {
     target.introduced = true;
     target.nextDueAt = at; // διαθέσιμος αμέσως μέσα στο ίδιο session
   } else if (served.isPractice) {
-    // Προπόνηση: μετράει στο telemetry, ΔΕΝ αγγίζει επίπεδο/χρονοδιάγραμμα.
+    // Προπόνηση: μετράει στο telemetry, ΔΕΝ αγγίζει επίπεδο.
     target.attempts += 1;
     if (r.correct) target.successes += 1;
-    else if (r.chosenGrapheme) {
-      target.errorHistory.push({ grapheme: r.chosenGrapheme, type: served.type, at, practice: true });
+    else {
+      if (r.chosenGrapheme) {
+        target.errorHistory.push({ grapheme: r.chosenGrapheme, type: served.type, at, practice: true });
+      }
+      // Λάθος σε παλιά λέξη = σημάδι ότι ξεχνιέται (11/09). Το επίπεδο μένει
+      // (δεν ήταν προγραμματισμένη ερώτηση), αλλά η ΚΑΝΟΝΙΚΗ επανάληψη
+      // έρχεται το αργότερο αύριο — εκεί κρίνεται στα σοβαρά. Όχι αμέσως:
+      // αμέσως μετά την αποκάλυψη θα ήταν αντιγραφή, όχι ανάκληση.
+      const soon = new Date(new Date(at).getTime() + intervalMs(cfg, 1)).toISOString();
+      if (!target.nextDueAt || target.nextDueAt > soon) target.nextDueAt = soon;
     }
   } else {
     target.attempts += 1;

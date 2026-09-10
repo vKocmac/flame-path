@@ -22,6 +22,33 @@ export function allPairs(profileEntry) {
   return pairs;
 }
 
+// ------------------------------------------ Η λίστα που μεγαλώνει (11/09)
+// Ο γονιός προσθέτει 10-20 λέξεις την εβδομάδα. Αν τις παρουσιάζαμε όλες
+// αμέσως, το παιδί θα «μάθαινε» δεκάδες σημεία μαζί και δεν θα κατακτούσε
+// κανένα. Όριο μάθησης: το πολύ `learning_cap_targets` σημεία σε εκμάθηση
+// (παρουσιασμένα, όχι ακόμα κατακτημένα). Οι υπόλοιπες νέες περιμένουν
+// σειρά — με τη σειρά που μπήκαν — και μπαίνουν μόλις κατακτηθούν οι
+// τρέχουσες. Οι κατακτημένες δεν αποσύρονται ποτέ: ξανάρχονται στα
+// διαστήματα του Leitner και, ανάμεσα, στην προπόνηση (practicePick).
+
+export function masteryLevel(cfg) { return cfg.mastery_level ?? 2; }
+
+/** Πόσα σημεία «μαθαίνει» τώρα το παιδί: παρουσιασμένα, όχι ακόμα κατακτημένα. */
+export function inProgressCount(pairs, cfg) {
+  const m = masteryLevel(cfg);
+  return pairs.filter((x) => x.target.introduced && x.target.level < m).length;
+}
+
+function learningCap(cfg) { return cfg.active_set.learning_cap_targets ?? 12; }
+
+// Λέξη που άρχισε να παρουσιάζεται τελειώνει, ό,τι κι αν λέει το όριο —
+// αλλιώς θα έμενε μισή λέξη αθέατη ως τον επόμενο πάπυρο.
+function started(word) { return word.targets.some((t) => t.introduced); }
+
+function mayIntroduce(pair, everything, cfg) {
+  return started(pair.word) || inProgressCount(everything, cfg) < learningCap(cfg);
+}
+
 // «Τρέχων» στόχος: χαμηλό επίπεδο ή πρόσφατη λέξη (μίγμα 60/40, SPEC κεφ. 5).
 function isCurrent(pair, cfg, nowDate) {
   const ageMs = (cfg.active_set.current_word_age_days ?? 21) * DAY_MS;
@@ -34,8 +61,13 @@ export function buildActiveSet(pairs, cfg, nowDate) {
   const size = cfg.active_set.size_max;
   const ratio = cfg.active_set.current_ratio;
 
-  const intro = pairs.filter((x) => !x.target.introduced)
+  // Νέοι ΜΟΝΟ όσοι χωράνε στο όριο μάθησης (+ τα υπόλοιπα σημεία λέξεων
+  // που ήδη άρχισαν) — αλλιώς 30 νέες λέξεις γέμιζαν όλο το σύνολο.
+  const room = Math.max(0, learningCap(cfg) - inProgressCount(pairs, cfg));
+  const fresh = pairs.filter((x) => !x.target.introduced)
     .sort((a, b) => (a.word.addedAt < b.word.addedAt ? -1 : 1));
+  const intro = [...fresh.filter((x) => started(x.word)),
+    ...fresh.filter((x) => !started(x.word)).slice(0, room)];
   const due = pairs.filter((x) => isDue(x.target, nowDate));
   const current = [...intro, ...due.filter((x) => isCurrent(x, cfg, nowDate))];
   const review = due.filter((x) => !isCurrent(x, cfg, nowDate))
@@ -62,9 +94,12 @@ export function buildActiveSet(pairs, cfg, nowDate) {
 //            επόμενο πάπυρο αντί να περάσουν αθέατοι
 export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated' } = {}) {
   const skip = session.skip || new Set();
-  const pairs = allPairs(profileEntry).filter((x) => !skip.has(x.target.id));
+  const everything = allPairs(profileEntry);
+  const pairs = everything.filter((x) => !skip.has(x.target.id));
   if (!pairs.length) return null;
-  const fresh = pairs.filter((x) => !x.target.introduced);
+  // Νέοι στόχοι που ΧΩΡΑΝΕ στο όριο μάθησης — όλα τα παρακάτω (και ο
+  // πάπυρος του 'first') βλέπουν μόνο αυτούς· οι άλλοι περιμένουν σειρά.
+  const fresh = pairs.filter((x) => !x.target.introduced && mayIntroduce(x, everything, cfg));
 
   // Άνοιγμα λεβελ: οι νέοι στόχοι βγαίνουν ΟΜΑΔΟΠΟΙΗΜΕΝΟΙ ανά λέξη, με τη
   // σειρά που μπήκαν οι λέξεις. Έτσι ο καλών μπορεί να σταματήσει σε όριο
@@ -141,9 +176,15 @@ function practicePick(pairs, cfg, session, { otherWordOnly = false } = {}) {
   const nonSame = pool.filter((x) => x.word.id !== session.lastWordId);
   if (nonSame.length) pool = nonSame;
 
-  // Προτίμηση σε ψηλότερο επίπεδο (νιώθει δυνατός), τυχαία ανάμεσα σε ίσα
+  // Γυρνάμε στις ΠΑΛΙΕΣ (11/09): πρώτα οι κατακτημένες (νιώθει δυνατός) και
+  // ανάμεσά τους αυτή που έχει να τη δει τον περισσότερο καιρό. Κάθε
+  // προπόνηση την κάνει «πρόσφατη», οπότε η σειρά περνά από όλη τη λίστα.
+  const m = masteryLevel(cfg);
+  const seen = (x) => x.target.lastSeenAt || '';
   pool = pool.map((x) => ({ x, r: Math.random() }))
-    .sort((a, b) => (b.x.target.level - a.x.target.level) || (a.r - b.r))
+    .sort((a, b) => ((b.x.target.level >= m) - (a.x.target.level >= m))
+      || (seen(a.x) < seen(b.x) ? -1 : seen(a.x) > seen(b.x) ? 1 : 0)
+      || (a.r - b.r))
     .map((o) => o.x);
   return { ...pool[0], isPractice: true };
 }

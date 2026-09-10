@@ -461,6 +461,174 @@ await test('Μετά από χαμένη λέξη έρχεται ΑΛΛΗ λέξ
   }
 });
 
+// ------------------------------- Η λίστα που μεγαλώνει (11/09): όριο μάθησης
+async function withCap(n, fn) {
+  const old = CFG.active_set.learning_cap_targets;
+  CFG.active_set.learning_cap_targets = n;
+  try { return await fn(); }
+  finally {
+    if (old === undefined) delete CFG.active_set.learning_cap_targets;
+    else CFG.active_set.learning_cap_targets = old;
+  }
+}
+const eT = { g: 'ε', start: 1, len: 1, cls: 'e', d: ['αι'] };
+
+await test('Λίστα που μεγαλώνει: 20 νέες λέξεις — ο πάπυρος σταματά στο όριο μάθησης', () => withCap(6, () => {
+  const specs = [];
+  for (let i = 0; i < 20; i++) specs.push({ text: 'λεξη' + i, targets: [eT] });
+  const { pid } = seed(specs);
+  engine.resetSession();
+  let intros = 0, ch = null;
+  for (let i = 0; i < 25; i++) {
+    ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+    if (!ch || ch.type !== 'intro') break;
+    intros++;
+    reportAs(pid, ch);
+  }
+  eq(intros, 6, 'τελετές ως το όριο');
+  eq(ch && ch.type, 'gap', 'μετά, μάχη με όσες μαθαίνει');
+}));
+
+await test('Όριο μάθησης: λέξη που άρχισε δεν μένει μισή', () => withCap(2, () => {
+  const { pid } = seed([
+    { text: 'ωδείο', targets: [oT, { g: 'εί', start: 2, len: 2, cls: 'i', d: ['ί', 'ή', 'ύ', 'οί'] },
+      { g: 'ο', start: 4, len: 1, cls: 'o', d: ['ω'] }] },
+    { text: 'λιμάνι', targets: [iT()] }
+  ]);
+  engine.resetSession();
+  const seq = [];
+  for (let i = 0; i < 4; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+    seq.push(`${ch.type}:${ch.text}`);
+    reportAs(pid, ch);
+  }
+  eq(seq.slice(0, 3), ['intro:ωδείο', 'intro:ωδείο', 'intro:ωδείο'], 'και τα 3 σημεία της');
+  assert(seq[3] !== 'intro:λιμάνι', 'η επόμενη λέξη περιμένει σειρά');
+}));
+
+await test('Μόλις κατακτηθούν (επίπεδο 2), ανοίγει χώρος για τις επόμενες', () => withCap(2, () => {
+  const { pid } = seed([
+    { text: 'λιθάρι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] },
+    { text: 'λιβάδι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] },
+    { text: 'ωδείο', targets: [oT] }
+  ]);
+  engine.resetSession();
+  const a = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+  assert(a.type !== 'intro', 'γεμάτο όριο → όχι νέα λέξη');
+  const s = store.loadState();
+  store.activeProfile(s).words.slice(0, 2).forEach((w) => { w.targets[0].level = 2; });
+  store.saveState(s);
+  engine.resetSession();
+  const b = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+  eq(`${b.type}:${b.text}`, 'intro:ωδείο', 'κατακτήθηκαν → μπαίνει η επόμενη');
+}));
+
+await test('Προπόνηση: πρώτα η κατακτημένη λέξη που έχει ξεχαστεί περισσότερο', () => {
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT({ level: 4, introduced: true, due: FUTURE })] },
+    { text: 'λιθάρι', targets: [iT({ level: 4, introduced: true, due: FUTURE })] },
+    { text: 'λιβάδι', targets: [iT({ level: 4, introduced: true, due: FUTURE })] },
+    { text: 'λιγάκι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] }
+  ]);
+  const s = store.loadState();
+  const seenAt = { λιμάνι: '2026-08-30T00:00:00Z', λιθάρι: '2026-07-15T00:00:00Z',
+    λιβάδι: '2026-08-20T00:00:00Z', λιγάκι: '2026-06-01T00:00:00Z' };
+  store.activeProfile(s).words.forEach((w) => { w.targets[0].lastSeenAt = seenAt[w.text]; });
+  store.saveState(s);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+  eq(ch.isPractice, true, 'προπόνηση');
+  eq(ch.text, 'λιθάρι', 'η πιο ξεχασμένη ΚΑΤΑΚΤΗΜΕΝΗ');
+});
+
+await test('Λάθος σε προπόνηση: το επίπεδο μένει, η επανάληψη έρχεται αύριο', () => {
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 4, introduced: true, due: FUTURE })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+  eq(ch.isPractice, true, 'προπόνηση');
+  reportAs(pid, ch, false, 'η');
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 4, 'επίπεδο αμετάβλητο');
+  const days = (new Date(t.nextDueAt) - fakeNow) / 86400000;
+  assert(Math.abs(days - 1) < 0.01, `${days} μέρες αντί 1`);
+});
+
+await test('Ροή μάθησης (Parent): κατακτημένες / μαθαίνει / περιμένουν / σήμερα', async () => {
+  const { learningFlow } = await import('./src/learning/telemetry.js');
+  seed([
+    { text: 'λιμάνι', addedAt: OLD, targets: [iT({ level: 3, introduced: true, due: FUTURE })] },
+    { text: 'λιθάρι', addedAt: PAST, targets: [iT({ level: 1, introduced: true, due: PAST })] },
+    { text: 'λιβάδι', addedAt: PAST, targets: [iT()] }
+  ]);
+  const f = learningFlow(store.activeProfile(store.loadState()), fakeNow, 2);
+  eq([f.mastered, f.learning, f.waiting, f.dueToday], [1, 1, 1, 1], 'μετρητές');
+  eq([f.recent, f.recentMastered], [2, 0], 'νέες 7 ημερών');
+});
+
+// Προσομοίωση: 8 εβδομάδες, 15 νέες λέξεις κάθε Δευτέρα, 3 λεβελ τη μέρα
+// (πάπυρος ως 5 λέξεις + 12 ερωτήσεις), 85% σωστά. Ελέγχει ΟΛΗ τη ροή: το
+// όριο μάθησης κρατά, οι νέες τελικά μπαίνουν, οι παλιές ξανάρχονται.
+await test('Προσομοίωση 8 εβδομάδων: νέες λέξεις μπαίνουν, οι παλιές ξανάρχονται', () => {
+  const start = fakeNow;
+  const vowels = [['ε', 'e', ['αι']], ['ο', 'o', ['ω']], ['ι', 'i', ['η', 'υ', 'ει', 'οι']]];
+  const { pid } = seed([]);
+  const addWeek = (wk) => {
+    const s = store.loadState();
+    for (let i = 0; i < 15; i++) {
+      const [g, cls, d] = vowels[i % 3];
+      const w = store.newWord({ text: `λ${g}ξη${wk}_${i}`, targets: [{ gap: { start: 1, length: 1 }, grapheme: g, confusionClass: cls, distractors: d }] });
+      w.addedAt = fakeNow.toISOString();
+      store.addWord(s, w);
+    }
+  };
+  const seenOn = new Map();         // targetId → [ημέρα, ...]
+  let maxLearning = 0, practice = 0, asked = 0;
+  for (let day = 0; day < 56; day++) {
+    fakeNow = new Date(start.getTime() + day * 86400000);
+    if (day % 7 === 0) addWeek(day / 7);
+    engine.resetSession();
+    for (let lvl = 0; lvl < 3; lvl++) {
+      let ch = null;
+      const papyrus = new Set();
+      for (let i = 0; i < 20; i++) {
+        ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+        if (!ch || ch.type !== 'intro') break;
+        if (!papyrus.has(ch.text) && papyrus.size >= 5) { ch = null; break; }
+        papyrus.add(ch.text);
+        reportAs(pid, ch);
+      }
+      for (let q = 0; q < 12; q++) {
+        if (!ch) ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+        if (!ch) break;
+        const ok = Math.random() < .85;
+        reportAs(pid, ch, ok, ok ? null : ch.candidates.find((c) => c !== ch.text.substr(ch.gap.start, ch.gap.length)));
+        asked++; if (ch.isPractice) practice++;
+        if (!seenOn.has(ch.targetId)) seenOn.set(ch.targetId, []);
+        seenOn.get(ch.targetId).push(day);
+        ch = null;
+      }
+    }
+    const p = store.activeProfile(store.loadState());
+    const learning = p.words.flatMap((w) => w.targets).filter((t) => t.introduced && t.level < 2).length;
+    maxLearning = Math.max(maxLearning, learning);
+  }
+  const p = store.activeProfile(store.loadState());
+  const all = p.words.flatMap((w) => w.targets);
+  const waitingOld = p.words.filter((w, i) => i < 15 * 6 && !w.targets[0].introduced).length;
+  let maxGap = 0;
+  for (const days of seenOn.values()) {
+    const d = [...days, 55];
+    for (let i = 1; i < d.length; i++) maxGap = Math.max(maxGap, d[i] - d[i - 1]);
+  }
+  window.__sim = { words: p.words.length, introduced: all.filter((t) => t.introduced).length,
+    mastered: all.filter((t) => t.level >= 2).length, maxLearning, waitingOld, maxGap,
+    practiceShare: +(practice / asked).toFixed(2), asked };
+  fakeNow = start;
+  assert(maxLearning <= 12 + 1, `σε εκμάθηση έφτασαν ${maxLearning}`);
+  eq(waitingOld, 0, 'οι λέξεις των 6 πρώτων εβδομάδων έχουν όλες μπει');
+  assert(maxGap <= 32, `λέξη έμεινε ${maxGap} μέρες χωρίς να ξαναρωτηθεί`);
+});
+
 // ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)
 
 // Ένα προφίλ με μια λέξη που έχει ΠΡΟΟΔΟ: επίπεδο 3, σπίθες, ιστορικό.

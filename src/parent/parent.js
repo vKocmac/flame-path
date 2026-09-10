@@ -4,7 +4,7 @@
 
 import * as store from '../shared/storage.js';
 import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
-import { errorCounts, hardestTargets } from '../learning/telemetry.js';
+import { errorCounts, hardestTargets, learningFlow } from '../learning/telemetry.js';
 import * as journey from '../game/journey.js';
 
 const root = document.getElementById('parent-root');
@@ -213,7 +213,11 @@ function progressHTML(p) {
   }
   conf.sort((a, b) => b.n - a.n);
   const hard = hardestTargets(p, 5).filter((r) => r.failRate > 0);
+  const f = learningFlow(p, new Date(), journey.MASTERY_LEVEL);
   return `
+    <p class="pm-stat">Λέξεις: <b>${f.mastered}</b> κατακτημένες · <b>${f.learning}</b> μαθαίνει τώρα · <b>${f.waiting}</b> περιμένουν σειρά</p>
+    <p class="pm-stat">Για επανάληψη σήμερα: <b>${plural(f.dueToday, 'σημείο', 'σημεία')}</b>${f.recent
+      ? ` · νέες των 7 ημερών: <b>${f.recentMastered}</b>/${f.recent} κατακτημένες` : ''}</p>
     <p class="pm-stat"><b>${mastered}</b> από ${all.length} σημεία κατακτημένα · ${asked} έχουν ρωτηθεί</p>
     <p class="pm-stat">Σταθμός <b>${j.station + 1}</b> από ${journey.STATIONS} · ${j.cycle ? `${j.cycle + 1}ος γύρος του Δρόμου` : 'πρώτος γύρος του Δρόμου'} · ${p.profile.sparks || 0} σπίθες</p>
     <p class="pm-note">Γράμματα που διαλέγει λάθος: ${conf.length
@@ -221,7 +225,8 @@ function progressHTML(p) {
       : 'κανένα ακόμα'}</p>
     ${hard.length ? `<p class="pm-note">Δυσκολεύουν: ${hard.map((r) =>
       `${esc(r.word)} (${esc(r.grapheme)}, ${Math.round(r.failRate * 100)}% σε ${r.attempts})`).join(' · ')}</p>` : ''}
-    <p class="pm-note">«Κατακτημένο» = σωστό σε δύο διαφορετικές μέρες. Οι κατακτημένες λέξεις ξεκλειδώνουν τεχνικές του νίντζα.</p>`;
+    <p class="pm-note">«Κατακτημένο» = σωστό σε δύο διαφορετικές μέρες. Οι κατακτημένες λέξεις ξεκλειδώνουν τεχνικές του νίντζα.</p>
+    <p class="pm-note">Οι νέες λέξεις μπαίνουν σιγά σιγά: όσο πολλές είναι ακόμα «μαθαίνει τώρα», οι επόμενες περιμένουν σειρά. Οι κατακτημένες ξανάρχονται μόνες τους σε 3, 7, 14 και 30 μέρες — και ανάμεσα, στην προπόνηση. Καμία δεν αποσύρεται.</p>`;
 }
 
 function renderMain(note = '') {
@@ -250,6 +255,7 @@ function renderMain(note = '') {
       <textarea class="pm-input pm-area" id="bulk" rows="5" placeholder="μία λέξη σε κάθε γραμμή (ή με κόμματα)"></textarea>
       <button class="pm-btn primary" id="bulkadd">Προσθήκη όλων</button>
       <p class="pm-note">Τα σημεία ελέγχου μπαίνουν αυτόματα (φωνήεντα και διαλυτικά). Για διπλά σύμφωνα, πρόσθεσε τη λέξη μόνη της πιο πάνω και διάλεξε το σημείο.</p>
+      <p class="pm-note">Βάλε όσες θέλεις — π.χ. τη λίστα της εβδομάδας. Το παιχνίδι τις φέρνει σιγά σιγά (περίπου 6 λέξεις μαθαίνονται μαζί) και συνεχίζει να ρωτά και τις παλιές.</p>
     </details>
     <h3>Λίστα (${p.words.length})</h3>
     <div id="list">${words}</div>
