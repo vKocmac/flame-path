@@ -22,6 +22,8 @@ export default class TitleScene extends Phaser.Scene {
     world.buildSky(this);
     world.buildStars(this, calm);
     const moonZone = world.buildMoon(this, calm);
+    world.buildClouds(this, calm);
+    if (!calm) world.buildBirds(this);
 
     world.ridge(this, world.RIDGE_HAZE, NUM.ridgeHaze, .55);
     world.ridge(this, world.RIDGE_FAR, NUM.ridgeFar);
@@ -230,7 +232,7 @@ export default class TitleScene extends Phaser.Scene {
   buildTitle() {
     const t = this.add.text(W / 2, 116, TXT.title, {
       fontFamily: FONT.ui, fontSize: '64px', fontStyle: '700', color: HEX.flameCore
-    }).setOrigin(.5);
+    }).setOrigin(.5).setDepth(44);                  // πάνω από τη βινιέτα (40) — αλλιώς ξεθώριαζε
     t.setShadow(0, 0, HEX.flame, 30, false, true);
     if (!this.calm) {
       t.setAlpha(0).setY(96);

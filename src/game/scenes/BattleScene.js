@@ -62,6 +62,7 @@ const ICE_MS = 8000;
 // Αν το ξεπεράσει, κάτι έσπασε — και το παιδί βλέπει παγωμένη οθόνη χωρίς να
 // ξέρει να κάνει ανανέωση. Ξεκολλάμε μόνοι μας.
 const STUCK_MS = 9000;
+const IDLE_MS = 20000;       // χωρίς πρόκληση και χωρίς «απασχολημένη» (δες update)
 
 // Ελάχιστο ορατό μέγεθος φούσκας (HYPER-NOTE §16.7). Το FIT σε 1280×720
 // συρρικνώνει τα πάντα σε κινητό (×0,52): οι 96px της φούσκας γίνονται 50
@@ -190,6 +191,8 @@ export default class BattleScene extends Phaser.Scene {
     world.buildStars(this, calm);
     world.buildMoon(this, calm, mood);
     if (!calm && st !== 6) world.buildShootingStars(this);   // στο κάστρο: σπίθες, όχι αστέρια
+    world.buildClouds(this, calm);
+    if (!calm) world.buildBirds(this, { bats: st === 4 || st === 6 });
     world.ridge(this, world.RIDGE_HAZE, NUM.ridgeHaze, .55);
     world.ridge(this, world.RIDGE_FAR, NUM.ridgeFar);
     world.buildStation(this, st, 'back', calm);
@@ -223,12 +226,35 @@ export default class BattleScene extends Phaser.Scene {
     g.fillRect(6, -14, 15, 14);
     g.fillRoundedRect(-26, -74, 52, 62, 15);            // σώμα
     g.fillCircle(0, -92, 27);                           // κεφάλι
-    g.fillPoints([                                      // κορδέλα που κυματίζει
-      new Phaser.Geom.Point(-24, -100), new Phaser.Geom.Point(-58, -112),
-      new Phaser.Geom.Point(-52, -96), new Phaser.Geom.Point(-24, -92)
-    ], true);
-    g.fillStyle(NUM.parchment, .95);
-    g.fillRoundedRect(-17, -99, 34, 8, 4);              // μάτια
+    const P = (px, py) => new Phaser.Geom.Point(px, py);
+
+    // Φινίρισμα του ήρωα (11/09): ίδια σιλουέτα, περισσότερη ζωή.
+    // Το σπαθί στην πλάτη — η λαβή βγαίνει πάνω από τον ώμο, πίσω από το κεφάλι
+    const sword = this.add.graphics();
+    sword.fillStyle(NUM.smoke, .7);                     // φεγγαρόφωτο: να ξεχωρίζει από τον ουρανό
+    sword.fillPoints([P(-12, -66), P(-6, -72), P(-42, -124), P(-48, -118)], true);
+    sword.fillStyle(NUM.flameDeep, .85);                // το δέσιμο της λαβής
+    for (const t of [.5, .66, .82]) sword.fillCircle(-9 - 34 * t, -69 - 48 * t, 2.6);
+    sword.fillStyle(NUM.nightHigh, 1);
+    sword.fillCircle(-30, -97, 6);                      // το τσούμπα
+    // Φως φεγγαριού στη δεξιά άκρη: όγκος, όχι επίπεδος λεκές
+    const rim = this.add.graphics();
+    rim.lineStyle(2.5, NUM.moon, .26);
+    rim.beginPath();
+    rim.arc(0, -92, 26, -1.25, .85, false);
+    rim.strokePath();
+    rim.lineStyle(2, NUM.moon, .16);
+    rim.lineBetween(25.5, -60, 25.5, -26);
+    // Τα μάτια σε δικό τους container: ανοιγοκλείνουν (animateNinja)
+    const eyeG = this.add.graphics();
+    eyeG.fillStyle(NUM.parchment, .95);
+    eyeG.fillRoundedRect(-17, -4, 34, 8, 4);
+    this.eyes = this.add.container(0, -95, [eyeG]);
+    // Οι δύο ουρές της κορδέλας κυματίζουν — ξαναζωγραφίζονται κάθε καρέ
+    this.tails = this.add.graphics();
+    this.drawNinjaTails(0);
+    // Σκιά στο έδαφος: ο ήρωας ΠΑΤΑΕΙ στον κόσμο, δεν αιωρείται πάνω του
+    this.ninjaShadow = this.add.ellipse(x, y + 3, 96, 16, NUM.shadow).setAlpha(.45).setDepth(11);
 
     // Η ζώνη: το χρώμα της είναι ο ΚΥΚΛΟΣ του Δρόμου — μόνιμη, ορατή
     // ενδυνάμωση (SPEC κεφ. 7). Δικό της Graphics, για να αλλάζει στη νίκη.
@@ -238,13 +264,33 @@ export default class BattleScene extends Phaser.Scene {
     // Η αύρα όταν η μπάρα δύναμης είναι γεμάτη: ο νίντζα «ντοπάρεται»
     this.aura = this.add.image(0, -56, 'glow-flame').setScale(2.2)
       .setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
-    c.add([this.aura, g, this.belt]);
+    c.add([this.aura, sword, this.tails, g, rim, this.eyes, this.belt]);
     c.setScale(1.3);   // ο ήρωας πρέπει να διαβάζεται από απόσταση σε tablet
 
     // Το χέρι που κρατά τη φλόγα
     this.hand = this.add.image(x + 48, y - 78, 'glow-flame')
       .setScale(.5).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setDepth(13);
     return c;
+  }
+
+  // Οι δύο ουρές της κορδέλας: λωρίδες που στενεύουν και κυματίζουν πίσω
+  // από το κεφάλι, η καθεμιά με δική της φάση.
+  drawNinjaTails(time) {
+    const g = this.tails;
+    g.clear();
+    g.fillStyle(NUM.dojoRoof, 1);
+    for (const [ph, len, base, lift] of [[0, 44, -100, 10], [1.9, 34, -94, 3]]) {
+      const top = [], bot = [];
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8;
+        const x = -20 - t * len;
+        const y = base - t * lift + Math.sin(time * .009 + t * 3.2 + ph) * 5.5 * t;
+        const w = 4.2 - 2.6 * t;
+        top.push(new Phaser.Geom.Point(x, y - w));
+        bot.push(new Phaser.Geom.Point(x, y + w));
+      }
+      g.fillPoints([...top, ...bot.reverse()], true);
+    }
   }
 
   // Ο νίντζα σε μικρογραφία, για τον χάρτη: ίδιο σχήμα, ίδια ζώνη.
@@ -406,6 +452,8 @@ export default class BattleScene extends Phaser.Scene {
       dragon: this.drawDragon, ninja: this.drawNinjaFoe,
       heavy: this.drawHeavy, wraith: this.drawWraith
     }[arch.draw] || this.drawSmoke;
+    // Σκιά στο έδαφος, ΠΙΣΩ από το σώμα: οι μορφές πατούν στον κόσμο
+    c.add(this.add.ellipse(0, 4, 92 * size, 15 * size, NUM.shadow).setAlpha(.38));
     draw.call(this, c, size);
     return c;
   }
@@ -1289,6 +1337,17 @@ export default class BattleScene extends Phaser.Scene {
     if (this._busy && this._busySince !== null
       && this.sceneMs - this._busySince > STUCK_MS) this.unstick();
 
+    // Δεύτερο δίχτυ: ούτε «απασχολημένη» ούτε πρόκληση, με εχθρούς στο πεδίο,
+    // για πολλή ώρα = νεκρή οθόνη (μια συνέχεια που χάθηκε). Μόνο αφού έχει
+    // παιχτεί πρόκληση σε αυτό το λεβελ: η ιστορία, οι πινακίδες και η ατάκα
+    // της αρχής κρατούν νόμιμα έως ~15 δευτ.
+    if (!this._busy && !this.current && this.enemies.length && this.hadChallenge) {
+      if (this._idleSince == null) this._idleSince = this.sceneMs;
+      else if (this.sceneMs - this._idleSince > IDLE_MS) { this._idleSince = null; this.nextChallenge(); }
+    } else {
+      this._idleSince = null;
+    }
+
     // Η πίεση του χρόνου, αντίθετα, τρέχει ΜΟΝΟ όσο το παιδί μπορεί
     // πραγματικά να απαντήσει — αλλιώς του κλέβεται χρόνος.
     if (this.busy || !this.current || !this.enemies.length) return;
@@ -1602,8 +1661,19 @@ export default class BattleScene extends Phaser.Scene {
   // Ο νίντζα ΔΕΝ είναι ζωγραφιά: αιωρείται, το σώμα ταλαντεύεται ελάχιστα
   // και η κορδέλα ακολουθεί με καθυστέρηση (secondary motion).
   animateNinja(time) {
-    if (this.calm || !this.ninja || this.ninja.frozen) return;
     const n = this.ninja;
+    if (!n) return;
+    // Η σκιά ακολουθεί ΠΑΝΤΑ (και στο άλμα της δύναμης, και στην ανασύνταξη):
+    // μικραίνει όσο ψηλώνει ο νίντζα, σβήνει όταν κρύβεται.
+    if (this.ninjaShadow) {
+      const lift = Math.max(0, LINE_Y - n.y);
+      this.ninjaShadow.setPosition(n.x, LINE_Y + 3).setAlpha(.45 * n.alpha)
+        .setScale(Math.max(.4, 1 - lift / 160));
+    }
+    if (this.calm) return;
+    this.drawNinjaTails(time);
+    if (this.eyes) this.eyes.scaleY = (time % 4300) < 110 ? .12 : 1;
+    if (n.frozen) return;
     n.y = LINE_Y + Math.sin(time * .0016) * 3.2;
     n.scaleY = 1.3 + Math.sin(time * .0016 + 1.1) * .012;
     n.angle = Math.sin(time * .0011) * 1.1;
@@ -1814,6 +1884,7 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
     this.current = ch;
+    this.hadChallenge = true;
     this.reported = false;
     this.revealed = false;
     this.tries = 0;
@@ -2805,6 +2876,7 @@ export default class BattleScene extends Phaser.Scene {
 
   // Αρχή λεβελ: ο Μάστερ Γου στέλνει τις ορδές του — και το λέει (Ε5).
   startLevel() {
+    this.hadChallenge = false;             // το δεύτερο δίχτυ περιμένει την πρώτη λέξη
     const lines = TXT.masterHorde;
     this.masterSays(lines[this.station % lines.length], 2600, () => this.openLevel());
   }
@@ -3089,6 +3161,14 @@ export default class BattleScene extends Phaser.Scene {
     }).setOrigin(.5).setDepth(40).setAlpha(0);
     name.setShadow(0, 0, HEX.flame, 24, false, true);
     this.tweens.add({ targets: name, alpha: 1, y: 230, duration: 300, hold: 1100, yoyo: true });
+    // Το σύμβολο της δύναμης, μεγάλο — το παιδί την αναγνωρίζει από το σχήμα
+    const badge = this.add.graphics({ x: W / 2, y: 148 }).setDepth(40).setAlpha(0).setScale(.6);
+    badge.fillStyle(NUM.flameDeep, .95);
+    badge.fillCircle(0, 0, 46);
+    badge.lineStyle(4, NUM.flameCore, 1);
+    badge.strokeCircle(0, 0, 46);
+    world.drawPowerIcon(badge, power, 0, 0, 28, NUM.flameCore, 1);
+    this.tweens.add({ targets: badge, alpha: 1, scale: 1, duration: 320, hold: 1080, yoyo: true, ease: 'Back.easeOut' });
 
     const fx = { tornado: () => this.fxTornado(), lightning: () => this.fxLightning(), ice: () => this.fxIce() };
     this.time.delayedCall(360, fx[power]);
@@ -3096,6 +3176,7 @@ export default class BattleScene extends Phaser.Scene {
     this.time.delayedCall(2200, () => {
       veil.destroy();
       name.destroy();
+      badge.destroy();
       this.tweens.add({ targets: this.ninja, x: NINJA_X, y: LINE_Y, duration: 360, ease: 'Quad.easeInOut' });
     });
     // Η συνέχεια είναι χρονόμετρο, όχι tween (ο κανόνας των κολλημάτων)
@@ -3260,15 +3341,41 @@ export default class BattleScene extends Phaser.Scene {
     const t3 = this.add.text(W / 2, 386, TXT.perkDesc[this.newPerks[this.newPerks.length - 1]], {
       fontFamily: FONT.ui, fontSize: '20px', color: HEX.smoke
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    this.tweens.add({ targets: [t1, t2, t3], alpha: 1, duration: 420, hold: 1900, yoyo: true });
-    this.time.delayedCall(2800, () => { t1.destroy(); t2.destroy(); t3.destroy(); done(); });
+    // Το σύμβολο κάθε νέας τεχνικής, μεγάλο, πάνω από το όνομά της
+    const icons = this.add.graphics().setDepth(40).setAlpha(0);
+    this.newPerks.forEach((id, i) => {
+      const cx = W / 2 + (i - (this.newPerks.length - 1) / 2) * 84;
+      icons.fillStyle(NUM.flameDeep, .95);
+      icons.fillCircle(cx, 224, 32);
+      icons.lineStyle(3, NUM.lantern, 1);
+      icons.strokeCircle(cx, 224, 32);
+      world.drawPerkIcon(icons, id, cx, 224, 19, NUM.flameCore, 1);
+    });
+    this.tweens.add({ targets: [t1, t2, t3, icons], alpha: 1, duration: 420, hold: 1900, yoyo: true });
+    this.time.delayedCall(2800, () => { t1.destroy(); t2.destroy(); t3.destroy(); icons.destroy(); done(); });
   }
 
   showStationBanner(done) {
     const final = journey.isFinal(this.station);
-    const t1 = this.add.text(W / 2, 300, `${TXT.station} ${this.station + 1} ${TXT.of} ${journey.STATIONS}`, {
-      fontFamily: FONT.ui, fontSize: '24px', color: HEX.smoke
-    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    // «Σταθμός 3 από 7» ως ΣΧΗΜΑ (ιδιοκτήτης 11/09): ο Δρόμος με τα 7
+    // μετάλλια, οι περασμένοι αναμμένοι, ο τρέχων μεγάλος.
+    const t1 = this.add.graphics().setDepth(40).setAlpha(0);
+    const n = journey.STATIONS, step = 62, ry = 282, x0 = W / 2 - step * (n - 1) / 2;
+    t1.lineStyle(4, NUM.nightHigh, .95);
+    t1.lineBetween(x0, ry, x0 + step * (n - 1), ry);
+    if (this.station > 0) {
+      t1.lineStyle(4, NUM.flame, .95);
+      t1.lineBetween(x0, ry, x0 + step * this.station, ry);
+    }
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + i * step, here = i === this.station, done = i < this.station;
+      const r = here ? 27 : 17;
+      t1.fillStyle(here ? NUM.flameDeep : done ? NUM.flame : NUM.shadow, here ? 1 : .9);
+      t1.fillCircle(cx, ry, r);
+      t1.lineStyle(here ? 3 : 2, here ? NUM.flameCore : done ? NUM.lantern : NUM.smoke, here || done ? 1 : .45);
+      t1.strokeCircle(cx, ry, r);
+      world.drawStationIcon(t1, i, cx, ry, r * .58, here || done ? NUM.parchment : NUM.smoke, here || done ? 1 : .55);
+    }
     const t2 = this.add.text(W / 2, 348,
       final ? `${TXT.stations[this.station]} — ${TXT.finalBattle}` : TXT.stations[this.station], {
         fontFamily: FONT.ui, fontSize: '40px', fontStyle: '700', color: HEX.flameCore
@@ -3452,16 +3559,19 @@ export default class BattleScene extends Phaser.Scene {
       fontFamily: FONT.ui, fontSize: '28px', color: HEX.parchment
     }).setOrigin(.5).setDepth(40).setAlpha(0);
     const beltHex = '#' + journey.beltColor(this.cycle).toString(16).padStart(6, '0');
-    const belt = this.add.text(W / 2, 390, `${TXT.newBelt}: ${TXT.belts[journey.beltIndex(this.cycle)]}`, {
-      fontFamily: FONT.ui, fontSize: '36px', fontStyle: '700', color: beltHex
+    // Η νέα ζώνη ως ΣΧΗΜΑ, μεγάλη, πριν κάτσει πάνω στον νίντζα
+    const beltG = this.add.graphics({ x: W / 2, y: 378 }).setDepth(40).setAlpha(0);
+    world.drawBelt(beltG, 0, 0, 2.6, journey.beltColor(this.cycle));
+    const belt = this.add.text(W / 2, 450, `${TXT.newBelt}: ${TXT.belts[journey.beltIndex(this.cycle)]}`, {
+      fontFamily: FONT.ui, fontSize: '28px', fontStyle: '700', color: beltHex
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    const gift = this.add.text(W / 2, 436, TXT.beltGift, {
+    const gift = this.add.text(W / 2, 490, TXT.beltGift, {
       fontFamily: FONT.ui, fontSize: '20px', color: HEX.lantern
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    const again = this.add.text(W / 2, 490, TXT.againHarder, {
+    const again = this.add.text(W / 2, 534, TXT.againHarder, {
       fontFamily: FONT.ui, fontSize: '22px', color: HEX.smoke
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    objs.push(big, sub, belt, gift, again);
+    objs.push(big, sub, beltG, belt, gift, again);
     this.tweens.add({ targets: gift, alpha: .9, duration: 500, delay: 3200 });
 
     this.tweens.add({ targets: big, alpha: 1, scale: { from: .6, to: 1 }, duration: 600, ease: 'Back.easeOut' });
@@ -3470,7 +3580,7 @@ export default class BattleScene extends Phaser.Scene {
       this.paintBelt(journey.beltColor(this.cycle));
       this.sealRing(this.ninja.x, this.ninja.y - 50, journey.beltColor(this.cycle));
       audio.cast();
-      this.tweens.add({ targets: belt, alpha: 1, scale: { from: .7, to: 1 }, duration: 500, ease: 'Back.easeOut' });
+      this.tweens.add({ targets: [belt, beltG], alpha: 1, scale: { from: .5, to: 1 }, duration: 500, ease: 'Back.easeOut' });
     });
     this.tweens.add({ targets: again, alpha: 1, duration: 500, delay: 4200 });
     this.time.delayedCall(6300, () => this.tweens.add({ targets: objs, alpha: 0, duration: 500 }));

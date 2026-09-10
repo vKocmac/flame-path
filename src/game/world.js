@@ -91,6 +91,52 @@ export function buildMoon(scene, calm, mood = {}) {
   return scene.add.zone(x, y, 120, 120).setOrigin(.5);
 }
 
+// Σύννεφα: μακριές λεπτές λωρίδες που περνούν αργά — και μπροστά από το
+// φεγγάρι (μπαίνουν μετά από αυτό). Ξεκινούν από τυχαίο σημείο, ώστε ο
+// ουρανός να μην είναι άδειος στην αρχή.
+export function buildClouds(scene, calm) {
+  const shapes = [[0, 0, 190, 24], [74, -9, 150, 26], [158, 3, 170, 20], [-66, 5, 130, 16]];
+  for (const [y, k, dur] of [[112, 1, 150000], [176, .7, 200000], [66, .85, 170000]]) {
+    const g = scene.add.graphics({ x: W + 260, y });
+    g.fillStyle(NUM.nightHigh, .55);
+    for (const [dx, dy, w, h] of shapes) g.fillEllipse(dx * k, dy * k, w * k, h * k);
+    g.fillStyle(NUM.moon, .05);                          // η κόψη που τη φωτίζει το φεγγάρι
+    g.fillEllipse(60 * k, -15 * k, 160 * k, 9 * k);
+    const startX = Phaser.Math.Between(-200, W + 200);
+    g.setX(startX);
+    if (calm) continue;
+    const first = ((startX + 260) / (W + 520)) * dur;
+    scene.tweens.add({
+      targets: g, x: -260, duration: first,
+      onComplete: () => {
+        if (!g.scene) return;
+        g.setX(W + 260);
+        scene.tweens.add({ targets: g, x: -260, duration: dur, repeat: -1 });
+      }
+    });
+  }
+}
+
+// Κοπάδι πουλιών (ή νυχτερίδες στον ναό και στο κάστρο) που διασχίζει τον
+// ουρανό κάθε λίγο. Κάθε πουλί είναι ΔΙΚΟ ΤΟΥ αντικείμενο, όχι παιδί
+// container: έτσι το backdrop τα καθαρίζει μαζί με τα tween τους.
+export function buildBirds(scene, { bats = false } = {}) {
+  const n = bats ? 4 : 5;
+  const color = bats ? NUM.shadow : NUM.ridgeNear;
+  const y0 = Phaser.Math.Between(120, 170);
+  for (let i = 0; i < n; i++) {
+    const ox = -i * 28 - (i % 2) * 6, oy = (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 9;
+    const b = scene.add.graphics({ x: -80 + ox, y: y0 + oy });
+    b.lineStyle(bats ? 3 : 2.4, color, .9);
+    b.strokePoints(bats
+      ? [P(-10, -1), P(-6, -4), P(-3, 1), P(0, -1), P(3, 1), P(6, -4), P(10, -1)]
+      : [P(-9, -4), P(-4, 0), P(0, 2), P(4, 0), P(9, -4)]);
+    scene.tweens.add({ targets: b, scaleY: -.5, duration: bats ? 110 : 230, yoyo: true, repeat: -1, delay: i * 45 });
+    scene.tweens.add({ targets: b, x: W + 140 + ox, y: y0 - 40 + oy, duration: 24000, delay: 3000,
+      repeat: -1, repeatDelay: 20000, ease: 'Sine.easeInOut' });
+  }
+}
+
 export function buildMist(scene, calm) {
   for (let i = 0; i < 2; i++) {
     const y = H * (i === 0 ? .545 : .60);
@@ -213,20 +259,26 @@ export function buildTorii(scene, cx, baseY, calm = false) {
 
 // `color`: πιο ανοιχτό για μπαμπού στο βάθος (θέατρο σκιών: ό,τι είναι
 // μακριά είναι ανοιχτότερο).
+// Ζωγραφίζεται ΓΥΡΩ ΑΠΟ ΤΗ ΒΑΣΗ του, ώστε να λυγίζει στον αέρα από εκεί
+// (φινίρισμα 11/09: «πιο ζωντανά τα σκηνικά»). Σε ήρεμη κίνηση μένει ακίνητο.
 export function buildBamboo(scene, x, baseY, scale, color = NUM.ground) {
-  const g = scene.add.graphics();
+  const g = scene.add.graphics({ x, y: baseY });
   g.fillStyle(color, 1);
   const stalks = [
     { dx: 0, h: 240, lean: 10 }, { dx: 26, h: 190, lean: -8 },
     { dx: -22, h: 205, lean: 6 }, { dx: 44, h: 150, lean: 14 }
   ];
+  if (!isCalm()) {
+    scene.tweens.add({ targets: g, angle: { from: -1.6, to: 1.6 }, duration: Phaser.Math.Between(2600, 4200),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Phaser.Math.Between(0, 1500) });
+  }
   for (const s of stalks) {
     const h = s.h * scale, w = 6 * scale;
-    const x0 = x + s.dx * scale;
-    const top = new Phaser.Geom.Point(x0 + s.lean * scale, baseY - h);
+    const x0 = s.dx * scale;
+    const top = new Phaser.Geom.Point(x0 + s.lean * scale, -h);
     g.fillPoints([
-      new Phaser.Geom.Point(x0 - w / 2, baseY),
-      new Phaser.Geom.Point(x0 + w / 2, baseY),
+      new Phaser.Geom.Point(x0 - w / 2, 0),
+      new Phaser.Geom.Point(x0 + w / 2, 0),
       new Phaser.Geom.Point(top.x + w / 2.6, top.y),
       new Phaser.Geom.Point(top.x - w / 2.6, top.y)
     ], true);
@@ -649,6 +701,16 @@ export function drawPowerIcon(g, id, cx, cy, s, color, alpha = 1) {
       g.strokeEllipse(cx + ox * s, cy + oy * s, ew * s, eh * s);
     }
   }
+}
+
+/** Η ζώνη ως σχήμα: λωρίδα, κόμπος, δύο ουρές — γύρω από (cx, cy), μέγεθος s. */
+export function drawBelt(g, cx, cy, s, color) {
+  g.fillStyle(color, 1);
+  g.fillRoundedRect(cx - 24 * s, cy - 6 * s, 48 * s, 11 * s, 5 * s);
+  g.fillPoints([P(cx - 2 * s, cy + 2 * s), P(cx + 4 * s, cy + 2 * s), P(cx - 6 * s, cy + 22 * s), P(cx - 12 * s, cy + 20 * s)], true);
+  g.fillPoints([P(cx - 2 * s, cy + 2 * s), P(cx + 4 * s, cy + 2 * s), P(cx + 14 * s, cy + 20 * s), P(cx + 8 * s, cy + 22 * s)], true);
+  g.fillStyle(NUM.shadow, .35);
+  g.fillRoundedRect(cx - 7 * s, cy - 8 * s, 14 * s, 15 * s, 3 * s);
 }
 
 // Μικρή σταγόνα φλόγας (για τα εικονίδια των τεχνικών)
