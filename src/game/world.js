@@ -204,9 +204,11 @@ export function buildTorii(scene, cx, baseY, calm = false) {
   lantern(scene, cx, baseY - 60, .6, calm);
 }
 
-export function buildBamboo(scene, x, baseY, scale) {
+// `color`: πιο ανοιχτό για μπαμπού στο βάθος (θέατρο σκιών: ό,τι είναι
+// μακριά είναι ανοιχτότερο).
+export function buildBamboo(scene, x, baseY, scale, color = NUM.ground) {
   const g = scene.add.graphics();
-  g.fillStyle(NUM.ground, 1);
+  g.fillStyle(color, 1);
   const stalks = [
     { dx: 0, h: 240, lean: 10 }, { dx: 26, h: 190, lean: -8 },
     { dx: -22, h: 205, lean: 6 }, { dx: 44, h: 150, lean: 14 }
@@ -251,6 +253,175 @@ export function lantern(scene, x, y, scale = 1, calm = false) {
     yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     delay: Phaser.Math.Between(0, 1200)
   });
+}
+
+// ------------------------------------------------ σκηνικά σταθμών (NEXT-FIXES Ε3)
+//
+// Κάθε σταθμός του Δρόμου έχει δικό του τοπίο — ίδιο θέατρο σκιών, ίδια
+// παλέτα. Τρία στρώματα, ώστε να μπαίνουν ανάμεσα στις κορυφογραμμές:
+//   back  — πίσω από την ομίχλη (κορυφές, κάστρο)
+//   mid   — πάνω στη μεσαία κορυφογραμμή (ντότζο, γέφυρα, λίμνη, ναός)
+//   front — μπροστά, πριν το χώμα (μπαμπού, καλάμια)
+
+const P = (x, y) => new Phaser.Geom.Point(x, y);
+
+function buildBridge(scene, calm) {
+  const g = scene.add.graphics();
+  const x0 = 360, x1 = 1210, deck = 505, rise = 46;
+  const Y = (x) => deck - rise * Math.sin(Math.PI * (x - x0) / (x1 - x0));
+  const xs = Array.from({ length: 31 }, (_, i) => x0 + (x1 - x0) * i / 30);
+  g.fillStyle(NUM.ridgeNear, 1);
+  g.fillPoints([...xs.map((x) => P(x, Y(x))), ...xs.slice().reverse().map((x) => P(x, Y(x) + 12))], true);
+  g.lineStyle(4, NUM.ridgeNear, 1);                      // κάγκελο
+  g.strokePoints(xs.map((x) => P(x, Y(x) - 26)));
+  for (let i = 0; i <= 10; i++) {                        // κολονάκια
+    const x = x0 + (x1 - x0) * i / 10;
+    g.fillRect(x - 3, Y(x) - 30, 6, 30);
+  }
+  g.fillRect(x0 - 14, deck, 28, 140);                    // βάθρα
+  g.fillRect(x1 - 14, deck, 28, 140);
+  for (let i = 1; i < 8; i++) {                          // φανάρια στο κάγκελο
+    const x = x0 + (x1 - x0) * i / 8;
+    lantern(scene, x, Y(x) - 4, .5, calm);
+  }
+}
+
+function buildLake(scene, calm) {
+  const g = scene.add.graphics();
+  const y0 = H * .70, y1 = GROUND_Y + 2;
+  g.fillGradientStyle(NUM.skyMid, NUM.skyMid, NUM.skyLow, NUM.skyLow, .95);
+  g.fillRect(0, y0, W, y1 - y0);
+  g.fillStyle(NUM.ridgeMid, 1);                           // η απέναντι όχθη
+  g.fillEllipse(260, y0 + 2, 520, 22);
+  g.fillEllipse(1000, y0 + 4, 560, 18);
+  // Το φεγγάρι μέσα στο νερό: σπασμένες πινελιές που τρεμοπαίζουν
+  for (let i = 0; i < 9; i++) {
+    const y = y0 + 12 + i * ((y1 - y0 - 20) / 9);
+    const w = 72 - i * 5 + Phaser.Math.Between(-8, 8);
+    const r = scene.add.rectangle(1078 + Phaser.Math.Between(-10, 10), y, w, 3, NUM.moon)
+      .setAlpha(.38 - i * .028);
+    if (calm) continue;
+    scene.tweens.add({ targets: r, alpha: .06, scaleX: .6, duration: Phaser.Math.Between(900, 1800),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: i * 120 });
+  }
+}
+
+function buildReeds(scene) {
+  const g = scene.add.graphics();
+  g.lineStyle(3, NUM.ground, 1);
+  g.fillStyle(NUM.ground, 1);
+  for (const [x0, n] of [[24, 9], [1182, 8]]) {
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * 9 + Phaser.Math.Between(-3, 3);
+      const h = Phaser.Math.Between(60, 130), lean = Phaser.Math.Between(-14, 14);
+      g.lineBetween(x, GROUND_Y + 6, x + lean, GROUND_Y - h);
+      g.fillEllipse(x + lean, GROUND_Y - h + 10, 6, 22);
+    }
+  }
+}
+
+function buildTemple(scene, cx, baseY, s = 1) {
+  scene.add.image(cx, baseY - 60 * s, 'glow-lantern').setScale(1.8 * s).setAlpha(.18)
+    .setTint(NUM.flameDeep).setBlendMode(Phaser.BlendModes.ADD);
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ridgeNear, 1);
+  g.fillRect(cx - 150 * s, baseY - 12 * s, 300 * s, 20 * s);
+  g.fillRect(cx - 110 * s, baseY - 90 * s, 220 * s, 80 * s);
+  g.fillRect(cx - 70 * s, baseY - 180 * s, 140 * s, 60 * s);
+  g.fillRect(cx - 40 * s, baseY - 250 * s, 80 * s, 44 * s);
+  sweptRoof(g, cx, baseY - 120 * s, 160 * s, 40 * s, 36 * s, 24 * s);
+  sweptRoof(g, cx, baseY - 205 * s, 110 * s, 30 * s, 28 * s, 20 * s);
+  sweptRoof(g, cx, baseY - 270 * s, 70 * s, 22 * s, 20 * s, 16 * s);
+  g.fillRect(cx - 3 * s, baseY - 300 * s, 6 * s, 34 * s);
+  const win = scene.add.graphics();                       // κόκκινα παράθυρα: απειλή, όχι ζεστασιά
+  win.fillStyle(NUM.flameDeep, .75);
+  for (const dx of [-70, -24, 24, 70]) win.fillRect(cx + (dx - 9) * s, baseY - 70 * s, 18 * s, 34 * s);
+  win.fillRect(cx - 12 * s, baseY - 165 * s, 24 * s, 26 * s);
+}
+
+function buildPeak(scene) {
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ridgeHaze, 1);
+  g.fillPoints([[480, 470], [600, 330], [660, 360], [760, 200], [820, 150], [880, 215],
+    [960, 300], [1020, 280], [1140, 470]].map(([x, y]) => P(x, y)), true);
+  g.fillStyle(NUM.moon, .2);                              // χιόνι στην κορυφή
+  g.fillPoints([[760, 200], [820, 150], [880, 215], [850, 206], [822, 224], [790, 207]]
+    .map(([x, y]) => P(x, y)), true);
+}
+
+function buildPines(scene) {
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ridgeNear, 1);
+  for (const [x, y, k] of [[90, 520, 1], [180, 500, .8], [420, 495, .9], [1000, 505, 1.1], [1130, 495, .85], [1230, 510, 1]]) {
+    g.fillRect(x - 3 * k, y - 10 * k, 6 * k, 30 * k);
+    for (let i = 0; i < 4; i++) {
+      const w = (46 - i * 9) * k, yy = y - 10 * k - i * 22 * k;
+      g.fillTriangle(x - w / 2, yy, x + w / 2, yy, x, yy - 34 * k);
+    }
+  }
+}
+
+function buildCastle(scene, cx, baseY, s = 1) {
+  scene.add.rectangle(W / 2, H * .35, W, H * .7, NUM.flameDeep).setAlpha(.05);   // κοκκινωπός ουρανός
+  scene.add.image(cx, baseY - 120 * s, 'glow-lantern').setScale(3 * s, 2 * s).setAlpha(.16)
+    .setTint(NUM.flameDeep).setBlendMode(Phaser.BlendModes.ADD);
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ridgeNear, 1);
+  g.fillRect(cx - 260 * s, baseY - 60 * s, 520 * s, 70 * s);              // τείχος
+  for (let i = 0; i < 13; i++) g.fillRect(cx - 260 * s + i * 40 * s, baseY - 74 * s, 22 * s, 16 * s);
+  for (const dx of [-230, 230]) {                                          // δύο πύργοι
+    g.fillRect(cx + (dx - 36) * s, baseY - 170 * s, 72 * s, 180 * s);
+    sweptRoof(g, cx + dx * s, baseY - 178 * s, 56 * s, 16 * s, 16 * s, 12 * s);
+  }
+  g.fillRect(cx - 90 * s, baseY - 160 * s, 180 * s, 110 * s);             // ο κεντρικός πύργος
+  sweptRoof(g, cx, baseY - 168 * s, 130 * s, 30 * s, 30 * s, 20 * s);
+  g.fillRect(cx - 60 * s, baseY - 240 * s, 120 * s, 70 * s);
+  sweptRoof(g, cx, baseY - 246 * s, 92 * s, 24 * s, 24 * s, 16 * s);
+  g.fillRect(cx - 34 * s, baseY - 300 * s, 68 * s, 50 * s);
+  sweptRoof(g, cx, baseY - 306 * s, 58 * s, 18 * s, 18 * s, 13 * s);
+  const win = scene.add.graphics();
+  win.fillStyle(NUM.flameDeep, .8);
+  for (const [x, y] of [[-50, -120], [0, -120], [50, -120], [-25, -205], [25, -205], [0, -278], [-230, -120], [230, -120]]) {
+    win.fillRect(cx + (x - 7) * s, baseY + (y - 12) * s, 14 * s, 22 * s);
+  }
+}
+
+const STATION_LAYERS = [
+  { // 1. Το Ντότζο της Αυγής — το ντότζο μένει πίσω μας
+    mid: (s, c) => buildDojo(s, 176, H * .653, .72, c),
+    front: (s) => { buildBamboo(s, 60, H * .885, .8); buildBamboo(s, 1240, H * .89, .7); }
+  },
+  { // 2. Το Δάσος με τα Μπαμπού
+    back: (s) => {
+      for (const [x, k] of [[140, .9], [330, 1.1], [520, .8], [760, 1], [960, 1.2], [1150, .9]]) {
+        buildBamboo(s, x, H * .70, k, NUM.ridgeMid);
+      }
+    },
+    front: (s) => { buildBamboo(s, 40, H * .9, 1.15); buildBamboo(s, 250, H * .9, .75); buildBamboo(s, 1190, H * .9, 1.05); }
+  },
+  { // 3. Η Γέφυρα των Φαναριών
+    mid: (s, c) => buildBridge(s, c),
+    front: (s) => buildBamboo(s, 60, H * .885, .7)
+  },
+  { // 4. Η Λίμνη του Φεγγαριού
+    mid: (s, c) => buildLake(s, c),
+    front: (s) => buildReeds(s)
+  },
+  { // 5. Ο Ναός των Σκιών
+    mid: (s, c) => { buildTemple(s, 860, H * .665, 1.05); buildTorii(s, 330, H * .74, c); }
+  },
+  { // 6. Η Κορυφή της Ομίχλης
+    back: (s) => buildPeak(s),
+    mid: (s) => buildPines(s)
+  },
+  { // 7. Το Κάστρο του Μάστερ Γου
+    back: (s) => buildCastle(s, 860, H * .66, 1)
+  }
+];
+
+export function buildStation(scene, station, layer, calm = false) {
+  const f = STATION_LAYERS[station] && STATION_LAYERS[station][layer];
+  if (f) f(scene, calm);
 }
 
 export function buildVignette(scene) {

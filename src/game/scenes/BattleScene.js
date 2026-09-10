@@ -175,22 +175,35 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  // Το τοπίο είναι του ΣΤΑΘΜΟΥ (Ε3): ντότζο, δάσος, γέφυρα, λίμνη, ναός,
+  // κορυφή, κάστρο. Κρατάμε τα αντικείμενά του για να αλλάζει όταν κερδίζεται
+  // σταθμός, χωρίς να ξαναρχίσει η μάχη. Βάθος -1: πάντα πίσω απ' όλα.
   buildBackdrop() {
     const calm = this.calm;
+    const st = this.station % journey.STATIONS;
+    const before = new Set(this.children.list);
     world.buildSky(this, 200);
     world.buildStars(this, calm);
     world.buildMoon(this, calm);
     world.ridge(this, world.RIDGE_HAZE, NUM.ridgeHaze, .55);
     world.ridge(this, world.RIDGE_FAR, NUM.ridgeFar);
+    world.buildStation(this, st, 'back', calm);
     world.buildMist(this, calm);
+    if (st === 5) world.buildMist(this, calm);          // Κορυφή της Ομίχλης
     world.ridge(this, world.RIDGE_MID, NUM.ridgeMid);
-    world.buildDojo(this, 176, H * .653, .72, calm);   // το ντότζο μένει πίσω μας
+    world.buildStation(this, st, 'mid', calm);
     world.ridge(this, world.RIDGE_NEAR, NUM.ridgeNear);
-    world.buildBamboo(this, 60, H * .885, .8);
-    world.buildBamboo(this, 1240, H * .89, .7);
+    world.buildStation(this, st, 'front', calm);
     world.buildGround(this, { path: 'wide' });
     world.lantern(this, 470, 604, .7, calm);
     world.lantern(this, 1010, 600, .7, calm);
+    this.backdrop = this.children.list.filter((o) => !before.has(o));
+    this.backdrop.forEach((o) => o.setDepth(-1));
+  }
+
+  rebuildBackdrop() {
+    (this.backdrop || []).forEach((o) => { this.tweens.killTweensOf(o); o.destroy(); });
+    this.buildBackdrop();
   }
 
   // ------------------------------------------------------------- οι μορφές
@@ -3084,6 +3097,7 @@ export default class BattleScene extends Phaser.Scene {
     this.station = res.station;
     this.cycle = res.cycle;
     this.stationLabel.setText(this.stationText());
+    this.time.delayedCall(520, () => this.rebuildBackdrop());
     this.drawRage();
     const cont = () => { this.busy = false; done(); };
     if (res.finished) this.showVictory(cont);
