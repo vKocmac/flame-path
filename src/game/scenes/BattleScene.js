@@ -142,6 +142,20 @@ export default class BattleScene extends Phaser.Scene {
     this.focusUntil = 0;
     this.focusedFor = null;
     this.hardTargets = new Set();   // νέοι ή λαθεμένοι στόχοι αυτής της session
+    // Το Phaser ΞΑΝΑΧΡΗΣΙΜΟΠΟΙΕΙ το ίδιο αντικείμενο σκηνής σε κάθε νέα μάχη:
+    // ό,τι δεν μηδενίζεται εδώ περνά από τη μία μάχη στην άλλη. Βρέθηκε 11/09:
+    // με ‹ (πίσω) πάνω στη νίκη στο κάστρο, το stationWon έμενε σηκωμένο και ο
+    // επόμενος Μάστερ Γου δεν έκλεινε ποτέ τον σταθμό (βρόχος χωρίς εχθρούς)·
+    // και το wave συνέχιζε το μέτρημα, οπότε ο Μάστερ Γου μπορούσε να είναι
+    // το ΠΡΩΤΟ κύμα της νέας μάχης.
+    this.wave = 0;
+    this.stationWon = false;
+    this.hadChallenge = false;
+    this._idleSince = null;
+    this.asmWave = null;
+    this.barPulse = null;
+    this.glowPulse = null;
+    this.auraPulse = null;
 
     // Ο Δρόμος (NEXT-FIXES Ε3): σε ποιον σταθμό είμαστε — μόνιμο, ανά προφίλ.
     // Φορτώνεται ΠΡΙΝ τις μορφές: η ζώνη του νίντζα βάφεται από τον κύκλο.

@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v3.16.1';
+const VERSION = 'flame-v3.16.2';
 
 const CORE = [
   './',
