@@ -266,6 +266,8 @@ export function buildDojo(scene, cx, baseY, s = 1, calm = false) {
   warm.fillRect(cx - 52 * s, baseY - 62 * s, 20 * s, 22 * s);
   warm.fillRect(cx + 32 * s, baseY - 62 * s, 20 * s, 22 * s);
   warm.fillRect(cx - 14 * s, baseY - 140 * s, 28 * s, 26 * s);
+  // Το ντότζο είναι το σπίτι: τα παράθυρά του ανασαίνουν ήρεμα, δεν τρεμοπαίζουν
+  if (!calm) scene.tweens.add({ targets: warm, alpha: .82, duration: 1700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
   const bars = scene.add.graphics();
   bars.fillStyle(NUM.dojoRoof, 1);
@@ -441,6 +443,14 @@ function buildReeds(scene) {
   }
 }
 
+// Φως φωτιάς πίσω από παράθυρα: τρεμοπαίζει ακανόνιστα, όχι σαν ρολόι
+// (φινίρισμα 11/09). Σε ήρεμη κίνηση μένει σταθερό.
+function flicker(scene, obj, low) {
+  if (isCalm()) return;
+  scene.tweens.add({ targets: obj, alpha: { from: 1, to: low }, duration: Phaser.Math.Between(140, 320),
+    yoyo: true, repeat: -1, repeatDelay: Phaser.Math.Between(400, 1800), ease: 'Sine.easeInOut' });
+}
+
 function buildTemple(scene, cx, baseY, s = 1) {
   scene.add.image(cx, baseY - 60 * s, 'glow-lantern').setScale(1.8 * s).setAlpha(.18)
     .setTint(NUM.flameDeep).setBlendMode(Phaser.BlendModes.ADD);
@@ -458,6 +468,7 @@ function buildTemple(scene, cx, baseY, s = 1) {
   win.fillStyle(NUM.flameDeep, .75);
   for (const dx of [-70, -24, 24, 70]) win.fillRect(cx + (dx - 9) * s, baseY - 70 * s, 18 * s, 34 * s);
   win.fillRect(cx - 12 * s, baseY - 165 * s, 24 * s, 26 * s);
+  flicker(scene, win, .72);
 }
 
 function buildPeak(scene) {
@@ -559,6 +570,7 @@ function buildCastle(scene, cx, baseY, s = 1) {
   for (const [x, y] of [[-50, -120], [0, -120], [50, -120], [-25, -205], [25, -205], [0, -278], [-230, -120], [230, -120]]) {
     win.fillRect(cx + (x - 7) * s, baseY + (y - 12) * s, 14 * s, 22 * s);
   }
+  flicker(scene, win, .6);
 }
 
 // ------------------------------------------ η ζωή των τοπίων (φινίρισμα Ε3)
