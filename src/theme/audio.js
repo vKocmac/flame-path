@@ -121,17 +121,182 @@ function scheduleCrackle() {
   }, 400 + Math.random() * 2200);
 }
 
+// --- Μουσική (NEXT-FIXES Ε4) --------------------------------------------
+// «Χαλαρή, απειλητική.» Τρία στρώματα, όλα στο κανάλι της μουσικής:
+//   1. ισοκράτης: χαμηλό Ρε + πέμπτη από ξεκούρδιστα πριόνια, πίσω από
+//      φίλτρο που ανασαίνει — η νύχτα που περιμένει
+//   2. μακρινό τύμπανο τάικο, αραιό, σαν καρδιά
+//   3. φλάουτο σακουχάτσι: λίγες νότες της κλίμακας «ίν», με αέρα, γλίστρημα
+//      και βιμπράτο, που χάνονται σε ηχώ. Η φράση κλείνει πάντα στο Ρε.
+// Κανένας βρόχος που επαναλαμβάνεται: οι νότες διαλέγονται κάθε φορά, και
+// ανάμεσα στις φράσεις υπάρχει σιωπή — είναι μέρος της μουσικής.
+const IN_SCALE = [293.66, 311.13, 392.0, 440.0, 466.16, 587.33]; // Ρε Μι♭ Σολ Λα Σι♭ Ρε'
+let musicTimers = [];
+let echo = null;
+
+function later(ms, fn) {
+  const id = setTimeout(() => {
+    musicTimers = musicTimers.filter((x) => x !== id);
+    if (ambienceOn) fn();
+  }, ms);
+  musicTimers.push(id);
+}
+
+function makeEcho() {
+  const d = ctx.createDelay(2);
+  d.delayTime.value = 0.46;
+  const fb = ctx.createGain();
+  fb.gain.value = 0.38;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 1600;
+  d.connect(lp).connect(fb).connect(d);
+  const out = ctx.createGain();
+  out.gain.value = 0.6;
+  lp.connect(out).connect(musicGain);
+  return d;
+}
+
+function startDrone() {
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 240;
+  lp.Q.value = 2;
+  const g = ctx.createGain();
+  g.gain.value = 0.03;
+  for (const [f, detune, vol] of [[73.42, -7, 1], [73.42, 7, 1], [110, 0, 0.4]]) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = f;
+    o.detune.value = detune;
+    const og = ctx.createGain();
+    og.gain.value = vol;
+    o.connect(og).connect(lp);
+    o.start();
+  }
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 0.05;
+  const lg = ctx.createGain();
+  lg.gain.value = 110;
+  lfo.connect(lg).connect(lp.frequency);
+  lfo.start();
+  lp.connect(g).connect(musicGain);
+}
+
+function taiko(at, vol = 1) {
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(96, at);
+  o.frequency.exponentialRampToValueAtTime(42, at + 0.35);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(0.14 * vol, at + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+  o.connect(g).connect(musicGain);
+  o.start(at);
+  o.stop(at + 1);
+  // το δέρμα του τυμπάνου: σύντομος, σκοτεινός θόρυβος
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.1);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 700;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, at);
+  ng.gain.exponentialRampToValueAtTime(0.05 * vol, at + 0.004);
+  ng.gain.exponentialRampToValueAtTime(0.0001, at + 0.08);
+  src.connect(lp).connect(ng).connect(musicGain);
+  src.start(at);
+  src.stop(at + 0.1);
+}
+
+// «μπουμ . . . μπουμ-μπουμ . . . .» — και καμιά φορά μόνο το πρώτο
+function drumLoop() {
+  const t = ctx.currentTime + 0.05;
+  const beat = 60 / 54;
+  taiko(t, 1);
+  if (Math.random() < 0.7) {
+    taiko(t + beat * 3, 0.7);
+    taiko(t + beat * 3.5, 0.5);
+  }
+  later(beat * 8 * 1000, drumLoop);
+}
+
+function flute(freq, at, dur) {
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(freq * 0.97, at);                 // γλιστράει ΜΕΣΑ στη νότα
+  o.frequency.exponentialRampToValueAtTime(freq, at + 0.18);
+  const vib = ctx.createOscillator();
+  vib.frequency.value = 5;
+  const vg = ctx.createGain();
+  vg.gain.setValueAtTime(0, at);
+  vg.gain.linearRampToValueAtTime(freq * 0.012, at + dur * 0.6); // το βιμπράτο έρχεται αργά
+  vib.connect(vg).connect(o.frequency);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = freq * 3;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(0.028, at + 0.25);
+  g.gain.setValueAtTime(0.028, at + dur - 0.4);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.connect(lp).connect(g);
+  g.connect(musicGain);
+  g.connect(echo);
+  // ο αέρας μέσα στο καλάμι
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(dur);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = freq * 2;
+  bp.Q.value = 3;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, at);
+  ng.gain.exponentialRampToValueAtTime(0.02, at + 0.08);
+  ng.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(bp).connect(ng).connect(g);
+  o.start(at); vib.start(at); src.start(at);
+  o.stop(at + dur + 0.05); vib.stop(at + dur + 0.05); src.stop(at + dur);
+}
+
+function phrase() {
+  let at = ctx.currentTime + 0.1;
+  let i = 1 + Math.floor(Math.random() * 3);         // ξεκινά κάπου στη μέση
+  const n = 2 + Math.floor(Math.random() * 3);
+  for (let k = 0; k < n; k++) {
+    const dur = 1.2 + Math.random() * 1.6;
+    flute(IN_SCALE[i], at, dur);
+    at += dur + 0.15;
+    const leap = [-2, -1, -1, 1, 2][Math.floor(Math.random() * 5)];
+    i = Math.max(0, Math.min(IN_SCALE.length - 1, i + leap));
+  }
+  flute(IN_SCALE[0], at, 2.6);                         // κλείνει κάτω, στο Ρε
+  const endsIn = at - ctx.currentTime + 2.6;
+  later((endsIn + 5 + Math.random() * 7) * 1000, phrase);
+}
+
+function startMusic() {
+  echo = makeEcho();
+  startDrone();
+  later(2500, drumLoop);
+  later(6000, phrase);
+}
+
 export function startAmbience() {
   unlock();
   if (!ctx || ambienceOn) return;
   ambienceOn = true;
   startWind();
   scheduleCrackle();
+  startMusic();
 }
 
 export function stopAmbience() {
   ambienceOn = false;
   if (crackleTimer) clearTimeout(crackleTimer);
+  musicTimers.forEach(clearTimeout);
+  musicTimers = [];
 }
 
 // Εκτόξευση φλόγας: θόρυβος που σαρώνει προς τα πάνω.
