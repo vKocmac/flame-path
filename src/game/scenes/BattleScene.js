@@ -2955,6 +2955,10 @@ export default class BattleScene extends Phaser.Scene {
     };
     place();
     this.events.on('update', place);
+    // Αν η σκηνή κλείσει ΠΡΙΝ τελειώσει η ατάκα (‹ πάνω της), το χρονόμετρο
+    // που αφαιρεί τον listener ακυρώνεται — και ο listener θα έμενε για πάντα
+    // στα events της σκηνής (το Phaser τα κρατά από μάχη σε μάχη).
+    this.events.once('shutdown', () => this.events.off('update', place));
     if (sound) audio.omen();
     this.tweens.add({ targets: box, alpha: 1, scale: 1, duration: 320, ease: 'Back.easeOut' });
     this.time.delayedCall(ms - 300, () => this.tweens.add({ targets: box, alpha: 0, duration: 300 }));
