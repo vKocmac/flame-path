@@ -442,73 +442,143 @@ export default class BattleScene extends Phaser.Scene {
    * Anticipation: μαζεύεται και μετά ορμά. Χωρίς το μάζεμα η ορμή
    * διαβάζεται ως κόλλημα της εικόνας, όχι ως πρόθεση.
    */
+  //
+  // NEXT-FIXES Δ3: ήταν ζωγραφιά με μόνο το κασκόλ να κουνιέται. Τώρα είναι
+  // ΑΡΘΡΩΤΟΣ και ξαναζωγραφίζεται κάθε καρέ: γοφός → γόνατα → πέλματα,
+  // κορμός που γέρνει και ανασαίνει, χέρι που κρατά τη λεπίδα. Μία μεταβλητή
+  // στάσης (pose.k) τα οδηγεί όλα: 0 φύλαξη · 1 μαζεμένος, λεπίδα ψηλά πίσω ·
+  // αρνητικό = ορμή, λεπίδα μπροστά.
   drawNinjaFoe(c, size) {
     const S = size;
-    const P = (x, y) => new Phaser.Geom.Point(x * S, y * S);
-    const g = this.add.graphics();
-
-    // Πόδια σε στάση φύλακα — χοντρά, το μπροστινό λυγισμένο
-    g.fillStyle(shade(NUM.nightHigh, .68), 1);
-    g.fillPoints([P(-4, -54), P(-40, -16), P(-20, 0), P(10, -40)], true);
-    g.fillPoints([P(14, -54), P(30, -14), P(50, -2), P(34, -46)], true);
-
-    // Κορμός: φαρδύς ώμος, γερμένος μπροστά (αριστερά)
-    g.fillStyle(NUM.nightHigh, 1);
-    g.fillPoints([P(-34, -122), P(24, -132), P(32, -50), P(-14, -44)], true);
-    g.fillStyle(shade(NUM.nightHigh, .58), .95);         // σκιά στην πλάτη
-    g.fillPoints([P(8, -128), P(24, -132), P(32, -50), P(14, -48)], true);
-    g.fillStyle(shade(NUM.nightHigh, 1.5), .35);         // φως στο στήθος
-    g.fillPoints([P(-34, -122), P(-16, -125), P(-8, -50), P(-14, -44)], true);
-
-    // Κεφάλι: κουκούλα με μύτη μπροστά, σχισμή για μάτια
-    g.fillStyle(NUM.nightHigh, 1);
-    g.fillEllipse(-8 * S, -150 * S, 52 * S, 44 * S);
-    g.fillPoints([P(-36, -158), P(-6, -184), P(20, -150), P(-2, -138)], true);
-    g.fillStyle(shade(NUM.nightHigh, .55), 1);           // η μάσκα, πιο σκούρη
-    g.fillEllipse(-16 * S, -142 * S, 34 * S, 26 * S);
-    g.fillStyle(NUM.flameDeep, .95);
-    g.fillRoundedRect(-32 * S, -152 * S, 28 * S, 7 * S, 3.5 * S);
-
-    // Ζώνη
-    g.fillStyle(NUM.flameDeep, .85);
-    g.fillPoints([P(-18, -84), P(30, -88), P(30, -76), P(-16, -72)], true);
-
-    // Λεπίδα χαμηλά, έτοιμη — διαγώνια, με λαβή στο χέρι
-    g.fillStyle(NUM.shadow, 1);
-    g.fillPoints([P(-24, -84), P(-8, -78), P(-14, -60), P(-30, -66)], true);
-    g.fillStyle(shade(NUM.stone, 2.1), .92);
-    g.fillPoints([P(-26, -74), P(-96, -40), P(-92, -31), P(-22, -62)], true);
-    g.fillStyle(NUM.parchment, .5);                      // ακμή φωτός στη λάμα
-    g.fillPoints([P(-26, -74), P(-96, -40), P(-94, -36), P(-25, -70)], true);
-
-    c.add(g);
-
-    // Κασκόλ: κορδέλα που ανεμίζει πίσω, ξαναζωγραφίζεται κάθε καρέ
     const scarf = this.add.graphics();
-    c.add(scarf);
-    const spine = [[24, -118, 8], [42, -110, 6.5], [58, -98, 4.5], [70, -88, 2.5]]
-      .map(([x, y, r]) => ({ x: x * S, y: y * S, r: r * S, cx: x * S, cy: y * S }));
+    const g = this.add.graphics();
+    c.add([scarf, g]);
 
-    c.nextDashAt = this.time.now + Phaser.Math.Between(2200, 3600);
-    c.behave = (time) => {
-      // Το κασκόλ ακολουθεί με καθυστέρηση όσο πιο μακριά από τη ρίζα
+    const calm = this.calm;
+    const seed = Math.random() * 10;
+    const pose = { k: 0 };
+    c.pose = pose;                                        // για ελέγχους
+    const lerp = (a, b, u) => a + (b - a) * u;
+    // ribbonOutline σε μονάδες σχεδίου: [x, y, πάχος]
+    const rib = (pts) => ribbonOutline(pts.map(([x, y, r]) => ({ cx: x * S, cy: y * S, r: r * S })));
+    const pt = (x, y) => new Phaser.Geom.Point(x * S, y * S);
+
+    const draw = (time) => {
+      const t = time * .001 + seed;
+      const gather = Math.max(0, pose.k);                 // μάζεμα
+      const lunge = Math.max(0, -pose.k);                 // ορμή
+      const br = calm ? 0 : Math.sin(t * 5.6) * 1.4;      // ανάσα
+      const sway = calm ? 0 : Math.sin(t * 1.7);          // μετατόπιση βάρους
+
+      // Γοφός: χαμηλώνει στο μάζεμα, πάει μπροστά στην ορμή
+      const hx = 6 + sway * 2 - lunge * 12, hy = -56 + gather * 16;
+      // Κορμός: γέρνει μπροστά (αριστερά) — περισσότερο στο μάζεμα και στην ορμή
+      const lean = .2 + gather * .28 + lunge * .38 + sway * .02;
+      const sx = hx - Math.sin(lean) * 78, sy = hy - Math.cos(lean) * 78 + br;
+      g.clear();
       scarf.clear();
-      spine.forEach((q, i) => {
-        q.cx = q.x + Math.sin(time * .006 - i * .7) * (1 + i * 2.2) * S;
-        q.cy = q.y + Math.sin(time * .005 - i * .5) * (1.5 + i * 2.6) * S;
-      });
-      scarf.fillStyle(NUM.flameDeep, .85);
-      scarf.fillPoints(ribbonOutline(spine), true);
 
-      if (time < c.nextDashAt) return;
-      c.nextDashAt = time + Phaser.Math.Between(2600, 4200);
-      // 1. μάζεμα  2. ορμή  3. επαναφορά
+      // Πόδια: γοφός → γόνατο → πέλμα. Το μπροστινό λυγίζει, το πίσω σπρώχνει
+      g.fillStyle(shade(NUM.nightHigh, .68), 1);
+      g.fillPoints(rib([[hx - 4, hy, 11], [-22 - gather * 8 - lunge * 8, -30 + gather * 8, 9], [-26 - lunge * 10, -2, 7]]), true);
+      g.fillPoints(rib([[hx + 8, hy, 11], [30 + gather * 6 + lunge * 8, -28 + gather * 6, 9], [46 + lunge * 14, -2, 7]]), true);
+
+      // Κορμός: φαρδύς ώμος, σκιά στην πλάτη, φως στο στήθος
+      const mx = (hx + sx) / 2, my = (hy + sy) / 2;
+      g.fillStyle(NUM.nightHigh, 1);
+      g.fillPoints(rib([[hx, hy + 6, 19], [mx, my, 23], [sx, sy + 6, 27]]), true);
+      g.fillStyle(shade(NUM.nightHigh, .58), .95);
+      g.fillPoints(rib([[hx + 10, hy + 4, 8], [mx + 12, my, 10], [sx + 14, sy + 6, 12]]), true);
+      g.fillStyle(shade(NUM.nightHigh, 1.5), .35);
+      g.fillPoints(rib([[hx - 10, hy + 2, 6], [mx - 12, my, 7], [sx - 14, sy + 8, 7]]), true);
+
+      // Ζώνη: λωρίδα κάθετη στον κορμό, λίγο πάνω από τον γοφό
+      const len = Math.hypot(sx - hx, sy - hy) || 1;
+      const dx = (sx - hx) / len, dy = (sy - hy) / len, nx = -dy, ny = dx;
+      const bx = lerp(hx, sx, .3), by = lerp(hy, sy, .3);
+      g.fillStyle(NUM.flameDeep, .85);
+      g.fillPoints([
+        pt(bx + nx * 23 - dx * 5, by + ny * 23 - dy * 5), pt(bx + nx * 23 + dx * 5, by + ny * 23 + dy * 5),
+        pt(bx - nx * 23 + dx * 5, by - ny * 23 + dy * 5), pt(bx - nx * 23 - dx * 5, by - ny * 23 - dy * 5)
+      ], true);
+
+      // Κεφάλι: κουκούλα με μύτη μπροστά. Η σχισμή ΑΝΑΒΕΙ όταν μαζεύεται
+      const cx = sx - 4 - lean * 10 + sway, cy = sy - 22;
+      g.fillStyle(NUM.nightHigh, 1);
+      g.fillEllipse(cx * S, cy * S, 52 * S, 44 * S);
+      g.fillPoints([pt(cx - 28, cy - 8), pt(cx + 2, cy - 34), pt(cx + 28, cy), pt(cx + 6, cy + 12)], true);
+      g.fillStyle(shade(NUM.nightHigh, .55), 1);
+      g.fillEllipse((cx - 8) * S, (cy + 8) * S, 34 * S, 26 * S);
+      g.fillStyle(gather > .3 ? NUM.flame : NUM.flameDeep, .95);
+      const slit = 7 + gather * 3;
+      g.fillRoundedRect((cx - 24) * S, (cy - 2 - gather * 1.5) * S, 28 * S, slit * S, slit / 2 * S);
+
+      // Χέρι και λεπίδα. Φύλαξη: χαμηλά μπροστά · μάζεμα: ψηλά πίσω ·
+      // ορμή: τεντωμένο μπροστά. Η λεπίδα ακολουθεί το χέρι.
+      const shx = sx - 10, shy = sy + 8;
+      const hand = [
+        lerp(lerp(sx - 18, sx + 14, gather), sx - 44, lunge),
+        lerp(lerp(sy + 46, sy - 20, gather), sy + 18, lunge)
+      ];
+      const ex = (shx + hand[0]) / 2 - 8, ey = (shy + hand[1]) / 2 + 6;
+      g.fillStyle(shade(NUM.nightHigh, .8), 1);
+      g.fillPoints(rib([[shx, shy, 9], [ex, ey, 7], [hand[0], hand[1], 6]]), true);
+
+      const wob = calm ? 0 : Math.sin(t * 1.3) * .06;
+      let vx = lerp(lerp(-72, 40, gather), -80, lunge), vy = lerp(lerp(34, -60, gather), -5, lunge);
+      const vl = Math.hypot(vx, vy) || 1;
+      vx /= vl; vy /= vl;
+      [vx, vy] = [vx * Math.cos(wob) - vy * Math.sin(wob), vx * Math.sin(wob) + vy * Math.cos(wob)];
+      const qx = -vy, qy = vx;
+      const [hx2, hy2] = hand;
+      const tx = hx2 + vx * 76, ty = hy2 + vy * 76;
+      g.lineStyle(5 * S, NUM.shadow, 1);                   // λαβή
+      g.lineBetween((hx2 - vx * 14) * S, (hy2 - vy * 14) * S, hx2 * S, hy2 * S);
+      g.fillStyle(shade(NUM.stone, 2.1), .92);             // λάμα
+      g.fillPoints([pt(hx2 + qx * 3, hy2 + qy * 3), pt(tx, ty), pt(hx2 - qx * 3, hy2 - qy * 3)], true);
+      g.lineStyle(1.6 * S, NUM.parchment, .5);             // ακμή φωτός
+      g.lineBetween((hx2 + qx * 3) * S, (hy2 + qy * 3) * S, tx * S, ty * S);
+
+      // Κασκόλ: δεμένο στο πίσω μέρος της κουκούλας, ανεμίζει πιο δυνατά στην ορμή
+      const amp = 1 + lunge * 1.8;
+      const rx = cx + 24, ry = cy + 4;
+      const spine = [[0, 0, 8], [18, 8, 6.5], [34, 20, 4.5], [46, 30, 2.5]].map(([x, y, r], i) => [
+        rx + x + lunge * i * 6 + (calm ? 0 : Math.sin(time * .006 - i * .7) * (1 + i * 2.2) * amp),
+        ry + y - lunge * i * 4 + (calm ? 0 : Math.sin(time * .005 - i * .5) * (1.5 + i * 2.6) * amp),
+        r
+      ]);
+      scarf.fillStyle(NUM.flameDeep, .85);
+      scarf.fillPoints(rib(spine), true);
+    };
+
+    // 1. μάζεμα (λεπίδα πίσω)  2. ορμή  3. επαναφορά. Το `burst` είναι η
+    // πραγματική επιτάχυνση του εχθρού· στο λάθος του παιδιού (windUp) το
+    // βήμα το κάνει ήδη η σκηνή, οπότε εκεί είναι μόνο κίνηση.
+    const strike = (burst) => {
+      this.tweens.killTweensOf(pose);
       this.tweens.add({
-        targets: c, scaleY: c.scaleY * .84, scaleX: c.scaleX * 1.08,
-        duration: 190, ease: 'Quad.easeOut', yoyo: true,
-        onYoyo: () => { c.mult = 3.4; c.multMs = 300; }
+        targets: pose, k: 1, duration: burst ? 220 : 140, hold: burst ? 0 : 60, ease: 'Quad.easeOut',
+        onComplete: () => {
+          if (burst) { c.mult = 3.4; c.multMs = 300; }
+          this.tweens.add({
+            targets: pose, k: -.8, duration: 140, ease: 'Quad.easeIn',
+            onComplete: () => this.tweens.add({ targets: pose, k: 0, duration: 380, ease: 'Sine.easeInOut' })
+          });
+        }
       });
     };
+    c.windUp = () => { if (!calm) strike(false); };
+
+    let nextDashAt = null;
+    c.behave = (time) => {
+      if (nextDashAt === null) nextDashAt = time + Phaser.Math.Between(2200, 3600);
+      draw(time);
+      if (time < nextDashAt) return;
+      nextDashAt = time + Phaser.Math.Between(2600, 4200);
+      if (calm) { c.mult = 3.4; c.multMs = 300; return; }   // η ορμή μένει, χωρίς κίνηση
+      if (!this.tweens.isTweening(pose)) strike(true);
+    };
+    draw(0);
   }
 
   /**
