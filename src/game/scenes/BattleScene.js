@@ -185,9 +185,11 @@ export default class BattleScene extends Phaser.Scene {
     const calm = this.calm;
     const st = this.station % journey.STATIONS;
     const before = new Set(this.children.list);
-    world.buildSky(this, 200);
+    const mood = world.stationMood(st);
+    world.buildSky(this, 200, mood);
     world.buildStars(this, calm);
-    world.buildMoon(this, calm);
+    world.buildMoon(this, calm, mood);
+    if (!calm && st !== 6) world.buildShootingStars(this);   // στο κάστρο: σπίθες, όχι αστέρια
     world.ridge(this, world.RIDGE_HAZE, NUM.ridgeHaze, .55);
     world.ridge(this, world.RIDGE_FAR, NUM.ridgeFar);
     world.buildStation(this, st, 'back', calm);
@@ -201,7 +203,8 @@ export default class BattleScene extends Phaser.Scene {
     world.buildGround(this, { path: 'wide' });
     world.lantern(this, 470, 604, .7, calm);
     world.lantern(this, 1010, 600, .7, calm);
-    this.backdrop = this.children.list.filter((o) => !before.has(o));
+    world.buildWash(this, mood);
+    this.backdrop =this.children.list.filter((o) => !before.has(o));
     this.backdrop.forEach((o) => o.setDepth(-1));
   }
 
@@ -242,6 +245,23 @@ export default class BattleScene extends Phaser.Scene {
     this.hand = this.add.image(x + 48, y - 78, 'glow-flame')
       .setScale(.5).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setDepth(13);
     return c;
+  }
+
+  // Ο νίντζα σε μικρογραφία, για τον χάρτη: ίδιο σχήμα, ίδια ζώνη.
+  miniNinja(x, y) {
+    const P = (px, py) => new Phaser.Geom.Point(px, py);
+    const g = this.add.graphics();
+    g.fillStyle(NUM.dojoRoof, 1);
+    g.fillRect(-9, 18, 7, 7);
+    g.fillRect(3, 18, 7, 7);
+    g.fillRoundedRect(-12, -6, 24, 26, 7);
+    g.fillCircle(0, -14, 12);
+    g.fillPoints([P(-11, -18), P(-27, -24), P(-24, -16), P(-11, -13)], true);
+    g.fillStyle(NUM.parchment, .95);
+    g.fillRoundedRect(-8, -18, 16, 4, 2);
+    g.fillStyle(journey.beltColor(this.cycle), 1);
+    g.fillRect(-12, 7, 24, 4);
+    return this.add.container(x, y, [g]).setScale(1.25);
   }
 
   paintBelt(color) {
@@ -1074,6 +1094,7 @@ export default class BattleScene extends Phaser.Scene {
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
       this.enemies.push(e);
     });
+    this.waveHp = this.enemies.reduce((n, e) => n + (e.hp || 0), 0);   // για τη μπάρα κυμάτων
     if (done) done();
   }
 
@@ -1095,6 +1116,7 @@ export default class BattleScene extends Phaser.Scene {
     m.arch = arch;
     m.hp = journey.bossHp(this.station);       // στο κάστρο του αντέχει περισσότερο
     m.maxHp = m.hp;
+    this.waveHp = m.hp;
     m.speed = arch.speed;
     m.mult = 1;
     m.multMs = 0;
@@ -1256,6 +1278,7 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.sceneMs += delta;
+    this.refreshHud();
 
     // Η ζωή της σκηνής τρέχει ΠΑΝΤΑ — και στα animation και στην τελετή.
     // Τίποτα δεν επιτρέπεται να μοιάζει με ακίνητη ζωγραφιά.
@@ -2834,15 +2857,27 @@ export default class BattleScene extends Phaser.Scene {
   // --------------------------------------------------------- μπάρα δύναμης
 
   buildRageBar() {
-    const x = 24, y = 70, w = 250, h = 18;
+    // 200 πλάτος: με τα εικονίδια δίπλα, το HUD τελειώνει πριν την περγαμηνή (x 320)
+    const x = 24, y = 70, w = 200, h = 18;
     this.rageBox = { x, y, w, h };
     this.rageG = this.add.graphics().setDepth(46);
-    this.rageLabel = this.add.text(x + w + 14, y + h / 2, '', {
-      fontFamily: FONT.ui, fontSize: '17px', fontStyle: '700', color: HEX.flameCore
-    }).setOrigin(0, .5).setDepth(46);
-    this.stationLabel = this.add.text(x, y + h + 16, this.stationText(), {
-      fontFamily: FONT.ui, fontSize: '15px', color: HEX.smoke
-    }).setOrigin(0, .5).setDepth(46).setAlpha(.85);
+    // Όλο το HUD είναι ΣΧΗΜΑΤΑ που γεμίζουν, όχι λέξεις (ιδιοκτήτης 11/09):
+    //   μπάρα δύναμης → εικονίδια δυνάμεων (η επόμενη μεγάλη, οι κλειδωμένες σβηστές)
+    //   μπάρα κυμάτων → πόσο απέχει ο Μάστερ Γου μέσα στο λεβελ
+    //   μικρός Δρόμος → 7 σταθμοί, η ζώνη στην αρχή, το κάστρο στο τέλος
+    this.powerGlow = this.add.image(0, 0, 'glow-lantern').setScale(.42).setAlpha(0)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
+    this.powerG = this.add.graphics().setDepth(46);
+    this.waveG = this.add.graphics().setDepth(46);
+    this.pathGlow = this.add.image(0, 0, 'glow-flame').setScale(.22).setAlpha(.7)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
+    if (!this.calm) {
+      this.tweens.add({ targets: this.pathGlow, alpha: .25, scale: .3, duration: 900,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+    this.pathG = this.add.graphics().setDepth(46);
+    this.hudKey = '';
+    this.drawMiniPath();
     // Δύο μεγάλοι στόχοι αφής για την απελευθέρωση: η μπάρα ΚΑΙ ο νίντζας
     this.add.zone(x - 10, y - 14, w + 200, h + 28).setOrigin(0).setDepth(47)
       .setInteractive({ useHandCursor: true }).on('pointerdown', () => this.unleash());
@@ -2871,9 +2906,133 @@ export default class BattleScene extends Phaser.Scene {
     }
     g.lineStyle(2, this.rageReady ? NUM.flameCore : NUM.smoke, this.rageReady ? .95 : .5);
     g.strokeRoundedRect(x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
-    const name = TXT.powers[this.nextPower()];
-    this.rageLabel.setText(this.rageReady ? `${name} · ${TXT.powerReady}` : name);
-    if (!this.barPulse) this.rageLabel.setAlpha(this.rageReady ? 1 : .5);
+    this.drawPowers();
+  }
+
+  // Οι τρεις δυνάμεις με τη σειρά του Δρόμου. Η ΕΠΟΜΕΝΗ είναι μεγάλη με
+  // φωτεινό δαχτυλίδι· όταν η μπάρα γεμίσει, λάμπει και πάλλεται. Όσες δεν
+  // έχουν ξεκλειδωθεί φαίνονται σβηστές — ξέρει ότι υπάρχουν και τον περιμένουν.
+  drawPowers() {
+    const { x, y, w, h } = this.rageBox;
+    const g = this.powerG;
+    g.clear();
+    const unlocked = journey.unlockedPowers(this.station, this.cycle);
+    const next = this.nextPower();
+    const cy = y + h / 2;
+    let left = x + w + 14;
+    for (const { id } of journey.POWERS) {
+      const has = unlocked.includes(id), main = id === next;
+      const r = main ? 18 : 12;
+      const cx = left + r;
+      left = cx + r + 8;
+      g.fillStyle(main && this.rageReady ? NUM.flameDeep : NUM.shadow, has ? .85 : .4);
+      g.fillCircle(cx, cy, r);
+      g.lineStyle(main ? 2.5 : 1.5, main ? (this.rageReady ? NUM.flameCore : NUM.flame) : NUM.smoke,
+        has ? (main ? 1 : .55) : .25);
+      g.strokeCircle(cx, cy, r);
+      const col = main ? (this.rageReady ? NUM.flameCore : NUM.lantern) : NUM.smoke;
+      world.drawPowerIcon(g, id, cx, cy, r * .6, has ? col : NUM.nightHigh, has ? (main ? 1 : .6) : .5);
+      if (main) this.powerGlow.setPosition(cx, cy);
+    }
+    if (!this.barPulse) this.powerGlow.setAlpha(this.rageReady ? .8 : 0);
+  }
+
+  // Κύματα μέχρι να κατέβει ο Μάστερ Γου: ένα κομμάτι ανά κύμα, το τελευταίο
+  // είναι το δικό του (κόκκινο). Το τρέχον γεμίζει όσο πέφτουν οι εχθροί.
+  waveProgress() {
+    if (!this.waveHp) return 0;
+    const left = this.enemies.reduce((n, e) => n + Math.max(0, e.hp || 0), 0);
+    return Phaser.Math.Clamp(1 - left / this.waveHp, 0, 1);
+  }
+
+  drawWaves() {
+    const { x, y, w, h } = this.rageBox;
+    const g = this.waveG;
+    g.clear();
+    const top = y + h + 20, hh = 9, gap = 7;
+    const segW = (w - gap * (BOSS_EVERY - 1)) / BOSS_EVERY;
+    const cur = (Math.max(1, this.wave || 1) - 1) % BOSS_EVERY;
+    const prog = this.waveProgress();
+    for (let i = 0; i < BOSS_EVERY; i++) {
+      const sx = x + i * (segW + gap);
+      const boss = i === BOSS_EVERY - 1;
+      g.fillStyle(NUM.shadow, .65);
+      g.fillRoundedRect(sx - 2, top - 2, segW + 4, hh + 4, (hh + 4) / 2);
+      const f = i < cur ? 1 : i > cur ? 0 : prog;
+      if (f > 0) {
+        g.fillStyle(boss ? NUM.flameDeep : NUM.moon, boss ? .95 : .75);
+        g.fillRoundedRect(sx, top, Math.max(hh, segW * f), hh, hh / 2);
+      }
+      g.lineStyle(1.5, i === cur ? NUM.parchment : NUM.smoke, i === cur ? .75 : .3);
+      g.strokeRoundedRect(sx - 2, top - 2, segW + 4, hh + 4, (hh + 4) / 2);
+    }
+    // Ο Μάστερ Γου στο τέλος της μπάρας: κουκούλα με δύο μάτια που ανάβουν
+    // όταν έρθει η σειρά του.
+    const mx = x + w + 16, my = top + hh / 2;
+    const his = cur === BOSS_EVERY - 1;
+    g.fillStyle(his ? NUM.nightHigh : NUM.shadow, 1);
+    g.fillTriangle(mx - 10, my + 9, mx + 10, my + 9, mx, my - 11);
+    g.fillCircle(mx, my - 1, 7);
+    g.fillStyle(his ? NUM.flameDeep : NUM.smoke, his ? 1 : .6);
+    g.fillRect(mx - 5, my - 2, 3.5, 2.5);
+    g.fillRect(mx + 1.5, my - 2, 3.5, 2.5);
+  }
+
+  // Ο μικρός Δρόμος: η ζώνη (ο κύκλος) στην αρχή, 7 σταθμοί, το κάστρο στο
+  // τέλος. Οι περασμένοι αναμμένοι, ο τρέχων φλόγα που πάλλεται.
+  drawMiniPath() {
+    const g = this.pathG;
+    g.clear();
+    const y = 146, x0 = 66, step = 30, n = journey.STATIONS;
+    const P = (px, py) => new Phaser.Geom.Point(px, py);
+    const belt = journey.beltColor(this.cycle);
+    g.fillStyle(belt, 1);                                    // η ζώνη: λωρίδα, κόμπος, δύο ουρές
+    g.fillRoundedRect(22, y - 4, 30, 7, 3);
+    g.fillPoints([P(35, y + 1), P(39, y + 1), P(33, y + 13), P(29, y + 12)], true);
+    g.fillPoints([P(35, y + 1), P(39, y + 1), P(46, y + 12), P(42, y + 13)], true);
+    g.fillStyle(shade(belt, .7), 1);
+    g.fillRoundedRect(33, y - 5, 8, 9, 2);
+    g.lineStyle(3, NUM.nightHigh, .95);
+    g.lineBetween(x0, y, x0 + step * (n - 1), y);
+    if (this.station > 0) {
+      g.lineStyle(3, NUM.flame, .95);
+      g.lineBetween(x0, y, x0 + step * this.station, y);
+    }
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + i * step;
+      const here = i === this.station;
+      if (i === n - 1) {                                     // το κάστρο
+        g.fillStyle(here ? NUM.flame : NUM.nightHigh, 1);
+        g.fillRect(cx - 8, y - 6, 16, 11);
+        g.fillRect(cx - 11, y - 12, 5, 17);
+        g.fillRect(cx + 6, y - 12, 5, 17);
+        g.fillTriangle(cx - 12, y - 12, cx - 5, y - 12, cx - 8.5, y - 18);
+        g.fillTriangle(cx + 5, y - 12, cx + 12, y - 12, cx + 8.5, y - 18);
+      } else if (i < this.station) {
+        g.fillStyle(NUM.lantern, 1);
+        g.fillCircle(cx, y, 6);
+      } else if (here) {
+        g.fillStyle(NUM.flame, 1);
+        g.fillCircle(cx, y, 8);
+        g.lineStyle(2, NUM.flameCore, .9);
+        g.strokeCircle(cx, y, 11);
+      } else {
+        g.fillStyle(NUM.shadow, 1);
+        g.fillCircle(cx, y, 5);
+        g.lineStyle(1.5, NUM.smoke, .6);
+        g.strokeCircle(cx, y, 5);
+      }
+      if (here) this.pathGlow.setPosition(cx, y - (i === n - 1 ? 4 : 0));
+    }
+  }
+
+  // Το HUD ζωγραφίζεται ξανά μόνο όταν αλλάξει κάτι που δείχνει
+  refreshHud() {
+    if (!this.waveG) return;
+    const key = `${this.wave}:${Math.round(this.waveProgress() * 40)}`;
+    if (key === this.hudKey) return;
+    this.hudKey = key;
+    this.drawWaves();
   }
 
   addRage(n) {
@@ -2887,8 +3046,11 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.calm) {
         this.auraPulse = this.tweens.add({ targets: this.aura, alpha: .45, scale: 2.2,
           duration: 700, delay: 380, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        this.barPulse = this.tweens.add({ targets: [this.rageG, this.rageLabel], alpha: .5,
+        this.barPulse = this.tweens.add({ targets: this.rageG, alpha: .5,
           duration: 480, yoyo: true, repeat: -1 });
+        this.powerGlow.setAlpha(.8);
+        this.glowPulse = this.tweens.add({ targets: this.powerGlow, alpha: .3, scale: .55,
+          duration: 480, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       }
     }
     this.drawRage();
@@ -2907,6 +3069,8 @@ export default class BattleScene extends Phaser.Scene {
     this.rage = 0;
     if (this.auraPulse) { this.auraPulse.stop(); this.auraPulse = null; }
     if (this.barPulse) { this.barPulse.stop(); this.barPulse = null; }
+    if (this.glowPulse) { this.glowPulse.stop(); this.glowPulse = null; }
+    this.powerGlow.setAlpha(0).setScale(.42);
     this.rageG.setAlpha(1);
     this.drawRage();
     this.tweens.add({ targets: this.aura, alpha: 0, scale: 2.2, duration: 600, delay: 1400 });
@@ -3122,7 +3286,7 @@ export default class BattleScene extends Phaser.Scene {
     const from = this.station;
     this.station = res.station;
     this.cycle = res.cycle;
-    this.stationLabel.setText(this.stationText());
+    this.drawMiniPath();
     this.time.delayedCall(520, () => this.rebuildBackdrop());
     this.drawRage();
     const cont = () => { this.busy = false; done(); };
@@ -3175,26 +3339,18 @@ export default class BattleScene extends Phaser.Scene {
       g.lineStyle(6, NUM.flameDeep, .95);
       g.strokePoints(pts.slice(0, from + 1).map(P));
     }
-    pts.forEach((q, i) => {
-      if (i === n - 1) {                                  // το κάστρο, με μελάνι
-        g.fillStyle(NUM.ink, .85);
-        g.fillRect(q.x - 30, q.y - 50, 60, 50);
-        g.fillRect(q.x - 42, q.y - 70, 18, 70);
-        g.fillRect(q.x + 24, q.y - 70, 18, 70);
-        g.fillTriangle(q.x - 46, q.y - 70, q.x - 20, q.y - 70, q.x - 33, q.y - 96);
-        g.fillTriangle(q.x + 20, q.y - 70, q.x + 46, q.y - 70, q.x + 33, q.y - 96);
-        g.fillStyle(to === i ? NUM.lantern : NUM.flameDeep, 1);
-        g.fillRect(q.x - 6, q.y - 30, 12, 18);
-        return;
-      }
-      if (i <= from) {
-        g.fillStyle(NUM.flame, 1); g.fillCircle(q.x, q.y, 14);
-        g.lineStyle(3, NUM.ink, .7); g.strokeCircle(q.x, q.y, 14);
-      } else {
-        g.fillStyle(NUM.parchment, 1); g.fillCircle(q.x, q.y, 11);
-        g.lineStyle(3, NUM.ink, .45); g.strokeCircle(q.x, q.y, 11);
-      }
-    });
+    // Κάθε σταθμός είναι μετάλλιο με το σύμβολό του (ντότζο, μπαμπού, γέφυρα…)
+    const medal = (gr, i, lit) => {
+      const q = pts[i], r = i === n - 1 ? 27 : 21;
+      gr.fillStyle(lit ? NUM.flame : NUM.parchment, 1);
+      gr.fillCircle(q.x, q.y, r);
+      gr.lineStyle(3, NUM.ink, lit ? .8 : .45);
+      gr.strokeCircle(q.x, q.y, r);
+      world.drawStationIcon(gr, i, q.x, q.y, r * .6, lit ? NUM.parchment : NUM.ink, lit ? 1 : .5);
+    };
+    pts.forEach((q, i) => medal(g, i, i <= from));
+    const lit = this.add.graphics();                       // ο νέος σταθμός ανάβει όταν φτάσει
+    map.add(lit);
 
     // Το βήμα: η φωτιά του δρόμου απλώνεται από τον έναν σταθμό στον άλλον
     const walk = this.add.graphics();
@@ -3209,15 +3365,21 @@ export default class BattleScene extends Phaser.Scene {
         walk.lineBetween(a.x, a.y, a.x + (b.x - a.x) * step.u, a.y + (b.y - a.y) * step.u);
       }
     });
-    const marker = this.add.image(a.x, a.y - 4, 'flame').setOrigin(.5, 1).setScale(.45);
+    // Ο ίδιος ο νίντζα περπατά το βήμα — με τη ζώνη του κύκλου του
+    const marker = this.miniNinja(a.x, a.y - 40);
     map.add(marker);
-    this.tweens.add({ targets: marker, x: b.x, y: b.y - 4, duration: 1000, delay: 700, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: marker, x: b.x, y: b.y - 40, duration: 1000, delay: 700, ease: 'Sine.easeInOut' });
+    if (!this.calm) {
+      this.tweens.add({ targets: marker, angle: { from: -7, to: 7 }, duration: 160, delay: 700,
+        yoyo: true, repeat: 2, onComplete: () => marker.setAngle(0) });
+    }
     this.time.delayedCall(1750, () => {
       audio.cast();
+      medal(lit, to, true);
       this.sealRing(b.x, b.y, NUM.flame);
     });
 
-    const label = this.add.text(b.x, b.y + 46, TXT.stations[to], {
+    const label = this.add.text(b.x, b.y + 56, TXT.stations[to], {
       fontFamily: FONT.ui, fontSize: '22px', fontStyle: '700', color: HEX.ink
     }).setOrigin(.5).setAlpha(0);
     map.add(label);

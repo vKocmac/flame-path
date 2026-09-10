@@ -57,29 +57,88 @@ export default class TitleScene extends Phaser.Scene {
 
   // Το Ντότζο (BUILD_PLAN βήμα 6): τι έχει κερδίσει ο νίντζα — ζώνη, δυνάμεις,
   // τεχνικές — και πόσες κατακτημένες λέξεις λείπουν για την επόμενη.
+  // ΣΧΗΜΑΤΑ, όχι λέξεις (ιδιοκτήτης 11/09): ο Δρόμος με τα 7 μετάλλια των
+  // σταθμών και τη ζώνη στην αρχή· από κάτω οι δυνάμεις (οι κλειδωμένες
+  // σβηστές) και οι τεχνικές με δαχτυλίδι που γεμίζει όσο κατακτά λέξεις.
   buildDojoPanel(jr, who) {
-    const mastered = journey.masteredCount(who);
-    const belt = TXT.belts[journey.beltIndex(jr.cycle)];
-    const powers = journey.unlockedPowers(jr.station, jr.cycle).map((p) => TXT.powers[p]).join(' · ');
-    const info = this.add.text(W / 2, 210, `${belt} · ${powers}`, {
-      fontFamily: FONT.ui, fontSize: '17px', color: HEX.smoke
-    }).setOrigin(.5).setAlpha(.85).setDepth(45);
+    const P = (x, y) => new Phaser.Geom.Point(x, y);
+    const g = this.add.graphics().setDepth(45);
+    const n = journey.STATIONS, step = 66, y = 192;
+    const x0 = W / 2 - step * (n - 1) / 2 + 30;              // δεξιά από την κορυφή της παγόδας
 
+    g.lineStyle(4, NUM.nightHigh, .95);
+    g.lineBetween(x0, y, x0 + step * (n - 1), y);
+    if (jr.station > 0) {
+      g.lineStyle(4, NUM.flame, .95);
+      g.lineBetween(x0, y, x0 + step * jr.station, y);
+    }
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + i * step, here = i === jr.station, done = i < jr.station;
+      const r = here ? 25 : 18;
+      if (here) {
+        const glow = this.add.image(cx, y, 'glow-flame').setScale(.55).setAlpha(.7)
+          .setBlendMode(Phaser.BlendModes.ADD).setDepth(44);
+        if (!this.calm) {
+          this.tweens.add({ targets: glow, alpha: .3, scale: .7, duration: 1100,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        }
+      }
+      g.fillStyle(here ? NUM.flameDeep : done ? NUM.flame : NUM.shadow, here ? 1 : .9);
+      g.fillCircle(cx, y, r);
+      g.lineStyle(here ? 3 : 2, here ? NUM.flameCore : done ? NUM.lantern : NUM.smoke, here || done ? 1 : .45);
+      g.strokeCircle(cx, y, r);
+      world.drawStationIcon(g, i, cx, y, r * .58, here || done ? NUM.parchment : NUM.smoke, here || done ? 1 : .55);
+    }
+    // Το όνομα του σταθμού μένει μόνο ως μικρή λεζάντα κάτω από το μετάλλιο
+    const name = this.add.text(x0 + step * jr.station, y + 40, TXT.stations[jr.station], {
+      fontFamily: FONT.ui, fontSize: '16px', color: HEX.lantern
+    }).setOrigin(.5).setAlpha(.8).setDepth(45);
+    name.setShadow(0, 0, HEX.shadow, 8, false, true);
+
+    // Δυνάμεις (αριστερά) και τεχνικές (δεξιά)
+    const y2 = 278, rr = 17, gap = 44;
+    const unlocked = journey.unlockedPowers(jr.station, jr.cycle);
+    const mastered = journey.masteredCount(who);
     const have = journey.unlockedPerks(mastered);
-    const objs = journey.PERKS.map((p) => {
+    const total = gap * (journey.POWERS.length + journey.PERKS.length - 1) + 36 + 70;
+    let cx = W / 2 + 30 - total / 2;
+
+    // η ζώνη πρώτη: λωρίδα, κόμπος, δύο ουρές — το χρώμα του κύκλου
+    const belt = journey.beltColor(jr.cycle);
+    g.fillStyle(belt, 1);
+    g.fillRoundedRect(cx - 24, y2 - 8, 48, 11, 5);
+    g.fillPoints([P(cx - 2, y2), P(cx + 4, y2), P(cx - 6, y2 + 20), P(cx - 12, y2 + 18)], true);
+    g.fillPoints([P(cx - 2, y2), P(cx + 4, y2), P(cx + 14, y2 + 18), P(cx + 8, y2 + 20)], true);
+    g.fillStyle(NUM.shadow, .35);
+    g.fillRoundedRect(cx - 7, y2 - 10, 14, 15, 3);
+    cx += 70;
+
+    for (const { id } of journey.POWERS) {
+      const on = unlocked.includes(id);
+      g.fillStyle(on ? NUM.flameDeep : NUM.shadow, on ? .9 : .6);
+      g.fillCircle(cx, y2, rr);
+      g.lineStyle(2, on ? NUM.flameCore : NUM.smoke, on ? .9 : .3);
+      g.strokeCircle(cx, y2, rr);
+      world.drawPowerIcon(g, id, cx, y2, rr * .6, on ? NUM.flameCore : NUM.nightHigh, on ? 1 : .8);
+      cx += gap;
+    }
+    cx += 36;                                                  // χώρισμα
+    for (const p of journey.PERKS) {
       const on = have.includes(p.id);
-      return this.add.text(0, 236, on ? TXT.perks[p.id] : `${TXT.perks[p.id]} ${mastered}/${p.need}`, {
-        fontFamily: FONT.ui, fontSize: '15px', fontStyle: on ? '700' : '400',
-        color: on ? HEX.lantern : HEX.smoke
-      }).setOrigin(0, .5).setAlpha(on ? .95 : .5).setDepth(45);
-    });
-    const gap = 24;
-    const total = objs.reduce((a, o) => a + o.width, 0) + gap * (objs.length - 1);
-    let x = W / 2 - total / 2;
-    objs.forEach((o) => { o.setX(x); x += o.width + gap; });
-    // Η κορυφή της παγόδας περνά πίσω από αυτές τις γραμμές: σκιά για να
-    // διαβάζονται πάνω στη σιλουέτα.
-    [info, ...objs].forEach((o) => o.setShadow(0, 0, HEX.shadow, 8, false, true));
+      const f = Math.min(1, mastered / p.need);
+      g.fillStyle(on ? NUM.flame : NUM.shadow, on ? .9 : .6);
+      g.fillCircle(cx, y2, rr);
+      g.lineStyle(3.5, NUM.nightHigh, .95);
+      g.strokeCircle(cx, y2, rr + 3);
+      if (f > 0) {                                              // το δαχτυλίδι που γεμίζει
+        g.lineStyle(3.5, on ? NUM.lantern : NUM.flame, 1);
+        g.beginPath();
+        g.arc(cx, y2, rr + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * f, false);
+        g.strokePath();
+      }
+      world.drawPerkIcon(g, p.id, cx, y2, rr * .6, on ? NUM.flameCore : NUM.smoke, on ? 1 : .6);
+      cx += gap;
+    }
   }
 
   // ------------------------------------------------------- η φωτιά (κουμπί)
@@ -215,13 +274,6 @@ export default class TitleScene extends Phaser.Scene {
     }
 
     // Πού βρίσκεται στον Δρόμο (NEXT-FIXES Ε3) — ο λόγος να ξαναπατήσει τη φωτιά
-    if (who) {
-      const jr = store.getJourney(st);
-      this.add.text(W / 2, 178,
-        `${TXT.station} ${jr.station + 1} ${TXT.of} ${journey.STATIONS} · ${TXT.stations[jr.station]}`, {
-          fontFamily: FONT.ui, fontSize: '21px', color: HEX.lantern
-        }).setOrigin(.5).setAlpha(.75).setDepth(45);
-      this.buildDojoPanel(jr, who);
-    }
+    if (who) this.buildDojoPanel(store.getJourney(st), who);
   }
 }

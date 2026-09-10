@@ -40,14 +40,16 @@ export function isCalm() {
 
 // ------------------------------------------------------------------ ουρανός
 
-export function buildSky(scene, glowX = 384) {
+// `mood` (προαιρετικό): η ατμόσφαιρα του σταθμού — δες STATION_MOOD.
+export function buildSky(scene, glowX = 384, mood = {}) {
   const g = scene.add.graphics();
   g.fillGradientStyle(NUM.skyTop, NUM.skyTop, NUM.skyMid, NUM.skyMid, 1);
   g.fillRect(0, 0, W, H * .5);
   g.fillGradientStyle(NUM.skyMid, NUM.skyMid, NUM.skyLow, NUM.skyLow, 1);
   g.fillRect(0, H * .5 - 1, W, H * .5 + 1);
-  scene.add.image(glowX, H * .60, 'glow-lantern')
-    .setScale(4.2, 2.0).setAlpha(.10).setBlendMode(Phaser.BlendModes.ADD);
+  const glow = scene.add.image(mood.glowX ?? glowX, H * .60, 'glow-lantern')
+    .setScale(4.2, 2.0).setAlpha(mood.glowAlpha ?? .10).setBlendMode(Phaser.BlendModes.ADD);
+  if (mood.glowTint) glow.setTint(mood.glowTint);
 }
 
 export function buildStars(scene, calm) {
@@ -72,13 +74,18 @@ export function buildStars(scene, calm) {
 
 // Επιστρέφει τη ζώνη του φεγγαριού, ώστε η σκηνή να δέσει πάνω της
 // την κρυφή είσοδο γονέα αν τη θέλει.
-export function buildMoon(scene, calm) {
+export function buildMoon(scene, calm, mood = {}) {
   const x = 1078, y = 96;
-  const halo = scene.add.image(x, y, 'glow-moon').setScale(1.5).setAlpha(.30);
-  scene.add.circle(x, y, 32, NUM.moon);
-  scene.add.circle(x + 9, y - 6, 27, NUM.skyTop).setAlpha(.16);
+  const k = mood.moonScale ?? 1;
+  const halo = scene.add.image(x, y, 'glow-moon').setScale(1.5 * k).setAlpha(.30);
+  scene.add.circle(x, y, 32 * k, NUM.moon);
+  scene.add.circle(x + 9 * k, y - 6 * k, 27 * k, NUM.skyTop).setAlpha(.16);
+  if (mood.moonTint) {                       // το κόκκινο φεγγάρι του κάστρου
+    scene.add.circle(x, y, 32 * k, mood.moonTint).setAlpha(.38);
+    halo.setTint(mood.moonTint);
+  }
   if (!calm) {
-    scene.tweens.add({ targets: halo, alpha: .40, scale: 1.62,
+    scene.tweens.add({ targets: halo, alpha: .40, scale: 1.62 * k,
       duration: 5200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
   }
   return scene.add.zone(x, y, 120, 120).setOrigin(.5);
@@ -266,8 +273,12 @@ export function lantern(scene, x, y, scale = 1, calm = false) {
 const P = (x, y) => new Phaser.Geom.Point(x, y);
 
 function buildBridge(scene, calm) {
-  const g = scene.add.graphics();
   const x0 = 360, x1 = 1210, deck = 505, rise = 46;
+  // Το ποτάμι κάτω από τη γέφυρα — πριν τη γέφυρα, ώστε τα βάθρα να πατούν μέσα
+  const water = scene.add.graphics();
+  water.fillGradientStyle(NUM.skyMid, NUM.skyMid, NUM.skyLow, NUM.skyLow, .95);
+  water.fillRect(x0 - 60, 560, x1 - x0 + 120, 44);
+  const g = scene.add.graphics();
   const Y = (x) => deck - rise * Math.sin(Math.PI * (x - x0) / (x1 - x0));
   const xs = Array.from({ length: 31 }, (_, i) => x0 + (x1 - x0) * i / 30);
   g.fillStyle(NUM.ridgeNear, 1);
@@ -283,6 +294,14 @@ function buildBridge(scene, calm) {
   for (let i = 1; i < 8; i++) {                          // φανάρια στο κάγκελο
     const x = x0 + (x1 - x0) * i / 8;
     lantern(scene, x, Y(x) - 4, .5, calm);
+    // …και καθρεφτίζονται στο νερό: σπασμένες πινελιές που τρεμοπαίζουν
+    for (let k = 0; k < 3; k++) {
+      const r = scene.add.rectangle(x + Phaser.Math.Between(-4, 4), 572 + k * 10, 18 - k * 4, 2, NUM.lantern)
+        .setAlpha(.32 - k * .08);
+      if (calm) continue;
+      scene.tweens.add({ targets: r, alpha: .05, scaleX: .5, duration: Phaser.Math.Between(700, 1400),
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: k * 150 });
+    }
   }
 }
 
@@ -304,6 +323,22 @@ function buildLake(scene, calm) {
     scene.tweens.add({ targets: r, alpha: .06, scaleX: .6, duration: Phaser.Math.Between(900, 1800),
       yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: i * 120 });
   }
+  // Βάρκα με φανάρι που περνά αργά στο βάθος της λίμνης
+  const boat = scene.add.container(200, y0 + 30);
+  const hull = scene.add.graphics();
+  hull.fillStyle(NUM.ridgeNear, 1);
+  hull.fillPoints([P(-36, 0), P(36, 0), P(26, 9), P(-28, 9)], true);
+  hull.fillRect(8, -30, 3, 30);                           // κοντάρι του φαναριού
+  hull.fillCircle(-12, -9, 7);                            // ο βαρκάρης, σκυφτός
+  hull.fillRect(-19, -6, 14, 7);
+  const lampGlow = scene.add.image(14, -28, 'glow-lantern').setScale(.2).setAlpha(.75)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  const lamp = scene.add.circle(14, -26, 3.5, NUM.lantern);
+  const shine = scene.add.rectangle(14, 14, 14, 2, NUM.lantern).setAlpha(.3);   // η αντανάκλασή του
+  boat.add([lampGlow, hull, lamp, shine]);
+  if (calm) return;
+  scene.tweens.add({ targets: boat, x: 960, duration: 80000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  scene.tweens.add({ targets: boat, y: y0 + 27, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 }
 
 function buildReeds(scene) {
@@ -358,6 +393,60 @@ function buildPines(scene) {
       const w = (46 - i * 9) * k, yy = y - 10 * k - i * 22 * k;
       g.fillTriangle(x - w / 2, yy, x + w / 2, yy, x, yy - 34 * k);
     }
+  }
+}
+
+// Πέτρινο φανάρι (τόρο) στην άκρη του δρόμου του ναού
+function buildToro(scene, x, baseY, s = 1) {
+  scene.add.image(x, baseY - 66 * s, 'glow-lantern').setScale(.4 * s).setAlpha(.35)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ground, 1);
+  g.fillRect(x - 17 * s, baseY - 9 * s, 34 * s, 9 * s);           // βάση
+  g.fillRect(x - 5 * s, baseY - 48 * s, 10 * s, 40 * s);           // κορμός
+  g.fillRect(x - 16 * s, baseY - 56 * s, 32 * s, 8 * s);           // πιάτο
+  g.fillRect(x - 12 * s, baseY - 80 * s, 24 * s, 25 * s);          // θάλαμος του φωτός
+  sweptRoof(g, x, baseY - 88 * s, 24 * s, 5 * s, 7 * s, 7 * s);
+  g.fillRect(x - 2 * s, baseY - 100 * s, 4 * s, 9 * s);
+  const win = scene.add.graphics();
+  win.fillStyle(NUM.lantern, .85);
+  win.fillRect(x - 6 * s, baseY - 75 * s, 12 * s, 14 * s);
+}
+
+// Σημαιάκια ανάμεσα σε δύο πεύκα της κορυφής, που τα χτυπά ο αέρας
+function buildFlags(scene, calm) {
+  const x0 = 90, y0 = 410, x1 = 420, y1 = 396, n = 11;
+  const at = (t) => ({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t + Math.sin(Math.PI * t) * 26 });
+  const line = scene.add.graphics();
+  line.lineStyle(2, NUM.ridgeNear, 1);
+  line.strokePoints(Array.from({ length: 21 }, (_, i) => { const q = at(i / 20); return P(q.x, q.y); }));
+  const colors = [NUM.flame, NUM.lantern, NUM.spirit, NUM.moon, NUM.flameDeep];
+  for (let i = 1; i < n; i++) {
+    const q = at(i / n);
+    const f = scene.add.graphics({ x: q.x, y: q.y });
+    f.fillStyle(colors[i % colors.length], .5);
+    f.fillTriangle(-8, 0, 8, 0, 0, 18);
+    if (calm) continue;
+    scene.tweens.add({ targets: f, angle: { from: -10, to: 12 }, duration: Phaser.Math.Between(500, 900),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: i * 60 });
+  }
+}
+
+// Λάβαρα στους πύργους του κάστρου — κυματίζουν από το κοντάρι
+function buildBanners(scene, cx, baseY, calm) {
+  for (const dx of [-230, 230]) {
+    const x = cx + dx, top = baseY - 240;
+    const pole = scene.add.graphics();
+    pole.fillStyle(NUM.ridgeNear, 1);
+    pole.fillRect(x - 2, top, 4, 64);
+    const b = scene.add.graphics({ x: x + 2, y: top + 4 });
+    b.fillStyle(NUM.flameDeep, .85);
+    b.fillPoints([P(0, 0), P(26, 0), P(26, 48), P(13, 39), P(0, 48)], true);
+    b.fillStyle(NUM.shadow, .55);                                  // το σήμα του: σκοτεινός δίσκος
+    b.fillCircle(13, 17, 6);
+    if (calm) continue;
+    scene.tweens.add({ targets: b, scaleX: .7, duration: Phaser.Math.Between(650, 950),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
   }
 }
 
@@ -484,22 +573,165 @@ const STATION_LAYERS = [
   },
   { // 5. Ο Ναός των Σκιών
     mid: (s, c) => { buildTemple(s, 860, H * .665, 1.05); buildTorii(s, 330, H * .74, c); },
+    front: (s) => { buildToro(s, 64, GROUND_Y + 6, 1.1); buildToro(s, 1222, GROUND_Y + 4, 1); },
     life: (s) => incense(s, 860, 290)
   },
   { // 6. Η Κορυφή της Ομίχλης
     back: (s) => buildPeak(s),
-    mid: (s) => buildPines(s),
+    mid: (s, c) => { buildPines(s); buildFlags(s, c); },
     life: (s) => snow(s)
   },
   { // 7. Το Κάστρο του Μάστερ Γου
-    back: (s) => buildCastle(s, 860, H * .66, 1),
+    back: (s, c) => { buildCastle(s, 860, H * .66, 1); buildBanners(s, 860, H * .66, c); },
     life: (s) => embers(s)
   }
 ];
 
+// Η ατμόσφαιρα κάθε σταθμού: πού και τι χρώμα έχει το φως στον ορίζοντα,
+// το φεγγάρι, και ένα πολύ αχνό φίλτρο χρώματος πάνω σε όλο το τοπίο
+// (ΠΟΤΕ πάνω στις μορφές ή στην περγαμηνή — ζει μέσα στο backdrop).
+const STATION_MOOD = [
+  { glowX: 300, glowTint: NUM.flame, glowAlpha: .16 },                        // αυγή: ζεστό φως χαμηλά
+  { glowAlpha: .06, wash: [NUM.spirit, .035] },                               // δάσος: πιο σκοτεινό
+  { glowX: 780, glowAlpha: .15 },                                             // φως των φαναριών
+  { glowX: 1078, glowTint: NUM.moon, glowAlpha: .12, moonScale: 1.35, wash: [NUM.spirit, .04] },
+  { glowX: 860, glowTint: NUM.flameDeep, glowAlpha: .12, wash: [NUM.shadow, .14] },   // ναός των σκιών
+  { glowTint: NUM.star, glowAlpha: .08, wash: [NUM.star, .045] },            // κρύο της κορυφής
+  { glowX: 860, glowTint: NUM.flameDeep, glowAlpha: .2, moonTint: NUM.flameDeep }     // κόκκινο φεγγάρι
+];
+
+export function stationMood(station) { return STATION_MOOD[station] || {}; }
+
+export function buildWash(scene, mood) {
+  if (mood.wash) scene.add.rectangle(W / 2, H / 2, W, H, mood.wash[0]).setAlpha(mood.wash[1]);
+}
+
+// Διάττοντες αστέρες: ένας κάθε λίγα δευτερόλεπτα, πάνω από τα βουνά
+export function buildShootingStars(scene) {
+  scene.add.particles(0, 0, 'spark', {
+    emitZone: zone(60, 20, 760, 120), frequency: 6500, lifespan: 900,
+    speedX: { min: 520, max: 700 }, speedY: { min: 170, max: 230 },
+    scaleX: { start: 2.6, end: .4 }, scaleY: .1, rotate: 18,
+    alpha: { start: .9, end: 0 }, tint: NUM.star, blendMode: 'ADD'
+  });
+}
+
 export function buildStation(scene, station, layer, calm = false) {
   const f = STATION_LAYERS[station] && STATION_LAYERS[station][layer];
   if (f) f(scene, calm);
+}
+
+/**
+ * Τα εικονίδια των τριών δυνάμεων — ΣΧΗΜΑ, όχι λέξη (απαίτηση ιδιοκτήτη
+ * 11/09: «γραφικό και όχι λεκτικό»). Ζωγραφίζονται γύρω από (cx, cy) με
+ * μέγεθος s, ώστε το ίδιο σχήμα να μπαίνει στο HUD, στον χάρτη και στον τίτλο.
+ */
+export function drawPowerIcon(g, id, cx, cy, s, color, alpha = 1) {
+  if (id === 'lightning') {
+    g.fillStyle(color, alpha);
+    g.fillPoints([[.28, -1], [-.48, .12], [-.04, .12], [-.32, 1], [.52, -.22], [.08, -.22], [.46, -1]]
+      .map(([px, py]) => P(cx + px * s, cy + py * s)), true);
+  } else if (id === 'ice') {
+    g.lineStyle(Math.max(1.5, s * .17), color, alpha);
+    for (let i = 0; i < 3; i++) {
+      const a = i * Math.PI / 3, dx = Math.cos(a), dy = Math.sin(a);
+      g.lineBetween(cx - dx * s, cy - dy * s, cx + dx * s, cy + dy * s);
+      for (const e of [-1, 1]) {
+        const ex = cx + dx * s * .58 * e, ey = cy + dy * s * .58 * e;
+        for (const b of [.8, -.8]) {
+          g.lineBetween(ex, ey, ex + Math.cos(a + b) * s * .34 * e, ey + Math.sin(a + b) * s * .34 * e);
+        }
+      }
+    }
+  } else {                                             // πύρινος ανεμοστρόβιλος
+    g.lineStyle(Math.max(1.5, s * .18), color, alpha);
+    for (const [ox, oy, ew, eh] of [[0, -.68, 1.95, .44], [.14, -.2, 1.45, .38], [-.06, .24, 1, .32], [.1, .64, .5, .24]]) {
+      g.strokeEllipse(cx + ox * s, cy + oy * s, ew * s, eh * s);
+    }
+  }
+}
+
+// Μικρή σταγόνα φλόγας (για τα εικονίδια των τεχνικών)
+function flameDrop(g, cx, cy, s) {
+  g.fillPoints([[0, -1], [.42, -.25], [.52, .28], [.3, .7], [0, .82], [-.3, .7], [-.52, .28], [-.42, -.25]]
+    .map(([x, y]) => P(cx + x * s, cy + y * s)), true);
+}
+
+/** Οι τέσσερις τεχνικές ως σχήματα: ⟫ γρήγορη · μεγάλη φλόγα · δύο φλόγες · καρδιά. */
+export function drawPerkIcon(g, id, cx, cy, s, color, alpha = 1) {
+  g.fillStyle(color, alpha);
+  if (id === 'swift') {
+    g.lineStyle(Math.max(2, s * .24), color, alpha);
+    for (const ox of [-.42, .18]) {
+      g.strokePoints([P(cx + (ox - .2) * s, cy - .55 * s), P(cx + (ox + .3) * s, cy), P(cx + (ox - .2) * s, cy + .55 * s)]);
+    }
+  } else if (id === 'blaze') {
+    flameDrop(g, cx, cy, s);
+  } else if (id === 'twin') {
+    flameDrop(g, cx - .38 * s, cy + .08 * s, s * .66);
+    flameDrop(g, cx + .38 * s, cy - .08 * s, s * .66);
+  } else {                                             // φλογερή καρδιά
+    g.fillCircle(cx - .3 * s, cy - .18 * s, .36 * s);
+    g.fillCircle(cx + .3 * s, cy - .18 * s, .36 * s);
+    g.fillTriangle(cx - .64 * s, cy - .06 * s, cx + .64 * s, cy - .06 * s, cx, cy + .78 * s);
+  }
+}
+
+/**
+ * Οι επτά σταθμοί ως μικρά σύμβολα (χάρτης, τίτλος): ντότζο · μπαμπού ·
+ * γέφυρα · λίμνη με φεγγάρι · πύλη ναού · κορυφή · κάστρο.
+ */
+export function drawStationIcon(g, station, cx, cy, s, color, alpha = 1) {
+  const Q = (x, y) => P(cx + x * s, cy + y * s);
+  g.fillStyle(color, alpha);
+  g.lineStyle(Math.max(1.5, s * .14), color, alpha);
+  switch (station) {
+    case 0:                                                   // ντότζο
+      g.fillPoints([Q(-.95, -.05), Q(.95, -.05), Q(.62, -.34), Q(-.62, -.34)], true);
+      g.fillPoints([Q(-.6, -.5), Q(.6, -.5), Q(.36, -.78), Q(-.36, -.78)], true);
+      g.fillRect(cx - .5 * s, cy - .05 * s, s, .72 * s);
+      g.fillRect(cx - .3 * s, cy - .5 * s, .6 * s, .2 * s);
+      break;
+    case 1:                                                   // μπαμπού
+      for (const [x, h] of [[-.45, .95], [0, 1.05], [.45, .8]]) {
+        g.fillRect(cx + (x - .07) * s, cy - h * s * .9, .14 * s, h * s * 1.7);
+        g.fillRect(cx + (x - .12) * s, cy - .1 * s, .24 * s, .07 * s);
+      }
+      g.fillTriangle(cx + .45 * s, cy - .5 * s, cx + .95 * s, cy - .8 * s, cx + .6 * s, cy - .42 * s);
+      break;
+    case 2: {                                                 // γέφυρα
+      const arc = [];
+      for (let i = 0; i <= 12; i++) { const t = -1 + i / 6; arc.push(Q(t * .95, .25 - .45 * (1 - t * t))); }
+      g.strokePoints(arc);
+      for (const x of [-.6, 0, .6]) g.lineBetween(cx + x * s, cy + (.25 - .45 * (1 - x * x)) * s, cx + x * s, cy + (.25 - .45 * (1 - x * x) - .3) * s);
+      g.fillRect(cx - .95 * s, cy + .25 * s, .16 * s, .5 * s);
+      g.fillRect(cx + .79 * s, cy + .25 * s, .16 * s, .5 * s);
+      break;
+    }
+    case 3:                                                   // λίμνη με φεγγάρι
+      g.fillCircle(cx, cy - .35 * s, .4 * s);
+      g.lineBetween(cx - .9 * s, cy + .3 * s, cx + .9 * s, cy + .3 * s);
+      g.lineBetween(cx - .55 * s, cy + .6 * s, cx + .55 * s, cy + .6 * s);
+      break;
+    case 4:                                                   // πύλη του ναού (τορίι)
+      g.fillPoints([Q(-1, -.72), Q(1, -.72), Q(.86, -.52), Q(-.86, -.52)], true);
+      g.fillRect(cx - .7 * s, cy - .3 * s, 1.4 * s, .14 * s);
+      g.fillRect(cx - .6 * s, cy - .55 * s, .18 * s, 1.35 * s);
+      g.fillRect(cx + .42 * s, cy - .55 * s, .18 * s, 1.35 * s);
+      break;
+    case 5:                                                   // κορυφή
+      g.fillTriangle(cx - 1 * s, cy + .7 * s, cx + 1 * s, cy + .7 * s, cx + .05 * s, cy - .85 * s);
+      g.fillStyle(color, alpha * .4);
+      g.fillTriangle(cx - .5 * s, cy + .7 * s, cx + .5 * s, cy + .7 * s, cx - .4 * s, cy - .1 * s);
+      break;
+    default:                                                  // κάστρο
+      g.fillRect(cx - .5 * s, cy - .3 * s, 1 * s, .95 * s);
+      g.fillRect(cx - .92 * s, cy - .62 * s, .36 * s, 1.27 * s);
+      g.fillRect(cx + .56 * s, cy - .62 * s, .36 * s, 1.27 * s);
+      g.fillTriangle(cx - .98 * s, cy - .62 * s, cx - .5 * s, cy - .62 * s, cx - .74 * s, cy - 1 * s);
+      g.fillTriangle(cx + .5 * s, cy - .62 * s, cx + .98 * s, cy - .62 * s, cx + .74 * s, cy - 1 * s);
+      g.fillTriangle(cx - .5 * s, cy - .3 * s, cx + .5 * s, cy - .3 * s, cx, cy - .78 * s);
+  }
 }
 
 export function buildVignette(scene) {
