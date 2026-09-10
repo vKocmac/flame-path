@@ -1355,16 +1355,25 @@ export default class BattleScene extends Phaser.Scene {
   // Ένα ΛΕΒΕΛ = τα κύματα μέχρι να κατέβει ο ίδιος ο Μάστερ Γου. Ο πάπυρος
   // στην αρχή του λεβελ δείχνει μόνο τις λέξεις ΑΥΤΟΥ του λεβελ — όχι όλες.
   // Όταν τον νικήσεις, ανοίγει νέο λεβελ με νέο πάπυρο.
+  //
+  // ΟΛΕΣ οι νέες λέξεις του λεβελ (NEXT-FIXES Δ1). Πριν, το όριο των τριών
+  // τελετών του scheduler μετρούσε ΣΤΟΧΟΥΣ: με 3 λέξεις των 2 σημείων
+  // έκλεινε η πόρτα μετά τη δεύτερη λέξη, και η τρίτη περνούσε αργότερα
+  // αθέατη. Τώρα ζητάμε 'first' — όλοι οι νέοι στόχοι, λέξη-λέξη — και
+  // σταματάμε σε όριο ΛΕΞΕΩΝ. Όσες περισσέψουν περιμένουν τον επόμενο πάπυρο.
   openLevel() {
     this.clearOrbs();
     this.current = null;
     const words = [];
     let held = null;
-    for (let i = 0; i < WORDS_PER_LEVEL; i++) {
-      const ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
+    for (let i = 0; i < 60; i++) {
+      const ch = engine.getNextChallenge(this.profileId, { types: ['gap'], intro: 'first' });
       if (!ch) break;
       if (ch.type !== 'intro') { held = ch; break; }
-      if (!words.includes(ch.text)) words.push(ch.text);
+      if (!words.includes(ch.text)) {
+        if (words.length >= WORDS_PER_LEVEL) break;   // για τον επόμενο πάπυρο
+        words.push(ch.text);
+      }
       this.consumeIntro(ch);
     }
     if (words.length) this.burnScroll(words, () => this.startChallenge(held));
@@ -1396,6 +1405,12 @@ export default class BattleScene extends Phaser.Scene {
     this.reported = false;
     this.revealed = false;
     this.tries = 0;
+    // Δεύτερη ευκαιρία ΜΟΝΟ όταν μετά το πρώτο λάθος μένουν τουλάχιστον
+    // τρεις επιλογές. Σε ο/ω (ή ε/αι, ν/νν, αυ/αϋ) το πρώτο λάθος αφήνει
+    // μία — η «δεύτερη προσπάθεια» θα ήταν σίγουρη νίκη. Με τρεις, μένουν
+    // δύο: κορώνα-γράμματα. Και στις δύο περιπτώσεις το παιδί θα έπαιζε
+    // στην τύχη αντί να θυμηθεί (απαίτηση ιδιοκτήτη 10/09).
+    this.maxTries = ch.candidates.length >= 4 ? MAX_TRIES : 1;
     this.lostWord = false;
     this.startedAt = performance.now();
     this.showGap(ch);
@@ -1404,12 +1419,12 @@ export default class BattleScene extends Phaser.Scene {
   nextChallenge() {
     this.clearOrbs();
     let ch = null;
-    // Αν εμφανιστεί νέος στόχος στη μέση της συνεδρίας, τον περνάμε σιωπηλά:
-    // η παρουσίασή του έγινε ήδη στον πάπυρο της αρχής. Η τελετή ΔΕΝ είναι
-    // πρόκληση — μηδενίζουμε και ξαναρωτάμε, ώστε να μη βγει ποτέ οθόνη
-    // «δεν έχω τεχνικές» ενώ υπάρχουν λέξεις να παιχτούν.
+    // Στη μέση του λεβελ ΠΟΤΕ τελετή ('never'): οι νέες λέξεις περιμένουν
+    // τον επόμενο πάπυρο. Πριν, μια τελετή εδώ «καταναλωνόταν» σιωπηλά — η
+    // λέξη περνούσε αθέατη ΚΑΙ μετρούσε ως τελευταία λέξη, οπότε μετά από
+    // χαμένη λέξη ξαναερχόταν η ίδια. Ο βρόχος μένει μόνο ως δίχτυ.
     for (let i = 0; i < 12; i++) {
-      ch = engine.getNextChallenge(this.profileId, { types: ['gap'] });
+      ch = engine.getNextChallenge(this.profileId, { types: ['gap'], intro: 'never' });
       if (!ch) break;
       if (ch.type !== 'intro') break;
       this.consumeIntro(ch);
@@ -1634,7 +1649,7 @@ export default class BattleScene extends Phaser.Scene {
       this.combo = 0;
       this.hardTargets.add(ch.targetId);
       this.tries = (this.tries || 0) + 1;
-      this.lostWord = this.tries >= MAX_TRIES;
+      this.lostWord = this.tries >= this.maxTries;
     }
 
     if (correct) this.castFlame(orb);
@@ -1765,9 +1780,8 @@ export default class BattleScene extends Phaser.Scene {
     });
   }
 
-  // Κάθε νίκη σπρώχνει ΟΛΗ τη γραμμή πίσω (ποτέ πέρα από τη θέση εκκίνησής
-  // της) και την επιβραδύνει για μια ανάσα.
-  // ΜΟΝΟ ο μπροστινός υποχωρεί. Πριν, μία σωστή απάντηση έσπρωχνε ολόκληρη
+  // ΜΟΝΟ ο μπροστινός υποχωρεί (ποτέ πάνω στον επόμενο), και η γραμμή
+  // επιβραδύνει για μια ανάσα. Πριν, μία σωστή απάντηση έσπρωχνε ολόκληρη
   // τη γραμμή και το κύμα έχανε κάθε απειλή: χτυπούσες έναν και πήγαιναν
   // πίσω πέντε. Τώρα οι πίσω συνεχίζουν να έρχονται.
   pushBackLine() {

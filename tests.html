@@ -387,6 +387,80 @@ await test('Τα διπλά σύμφωνα ΔΕΝ προεπιλέγονται �
   }
 });
 
+// ------------------------------------------ Πότε επιτρέπεται τελετή (NEXT-FIXES Δ1)
+
+const reportAs = (pid, ch, correct = true, chosen = null) => engine.reportResult({
+  challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId, profileId: pid,
+  type: ch.type, correct, chosenGrapheme: chosen, revealUsed: !correct, durationMs: 0
+});
+const oT = { g: 'ω', start: 0, len: 1, cls: 'o', d: ['ο'] };
+
+await test("intro:'first' — ΟΛΕΣ οι νέες λέξεις στη σειρά, χωρίς το όριο των 3", async () => {
+  const specs = [];
+  for (let i = 0; i < 7; i++) {
+    specs.push({ text: 'λεξη' + i, targets: [{ g: 'ε', start: 1, len: 1, cls: 'e', d: ['αι'] }] });
+  }
+  const { pid } = seed(specs);
+  engine.resetSession();
+  const seen = [];
+  for (let i = 0; i < 7; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+    eq(ch.type, 'intro', `κλήση ${i + 1}`);
+    seen.push(ch.text);
+    reportAs(pid, ch);
+  }
+  eq(new Set(seen).size, 7, 'και οι 7 λέξεις');
+  eq(engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' }).type, 'gap', 'μετά, κανονική μάχη');
+});
+
+await test("intro:'first' — τα σημεία της ίδιας λέξης έρχονται μαζί (όχι μισή λέξη)", async () => {
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT(), iT({ start: 5 })] },
+    { text: 'ωδείο', targets: [oT] }
+  ]);
+  engine.resetSession();
+  const seq = [];
+  for (let i = 0; i < 3; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+    seq.push(`${ch.text}:${ch.gap.start}`);
+    reportAs(pid, ch);
+  }
+  eq(seq, ['λιμάνι:1', 'λιμάνι:5', 'ωδείο:0'], 'σειρά');
+});
+
+await test("intro:'never' — ποτέ τελετή στη μέση του λεβελ", async () => {
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST })] },
+    { text: 'ωδείο', targets: [oT] }                    // νέα, όχι ακόμα
+  ]);
+  engine.resetSession();
+  for (let i = 0; i < 4; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+    assert(ch && ch.type !== 'intro', `κλήση ${i + 1}: ${ch && ch.type}`);
+    eq(ch.text, 'λιμάνι', 'μόνο η εισηγμένη');
+    reportAs(pid, ch);
+  }
+  seed([{ text: 'ωδείο', targets: [oT] }]);
+  engine.resetSession();
+  const pid2 = store.loadState().activeProfileId;
+  eq(engine.getNextChallenge(pid2, { types: ['gap'], intro: 'never' }), null, 'μόνο νέες → τίποτα');
+});
+
+await test('Μετά από χαμένη λέξη έρχεται ΑΛΛΗ λέξη, όταν υπάρχει', async () => {
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT({ introduced: true, due: PAST }), iT({ start: 5, introduced: true, due: PAST })] },
+    { text: 'ωδείο', targets: [{ ...oT, introduced: true, due: PAST }] }
+  ]);
+  engine.resetSession();
+  for (let round = 0; round < 3; round++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+    reportAs(pid, ch, false, ch.candidates.find((c) => c !== ch.text.substr(ch.gap.start, ch.gap.length)));
+    const next = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+    assert(next.wordId !== ch.wordId, `γύρος ${round + 1}: ξανά «${next.text}»`);
+    reportAs(pid, next);
+  }
+});
+
 // ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)
 
 // Ένα προφίλ με μια λέξη που έχει ΠΡΟΟΔΟ: επίπεδο 3, σπίθες, ιστορικό.

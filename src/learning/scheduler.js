@@ -53,20 +53,38 @@ export function buildActiveSet(pairs, cfg, nowDate) {
 
 // Επιλογή επόμενου στόχου από το ενεργό σύνολο.
 // session: { activeIds, lastWordId, serveCounts, practiceCounts }
-export function selectNext(profileEntry, cfg, nowDate, session) {
+// intro: πότε επιτρέπεται τελετή (ARCHITECTURE §4)
+//   'gated' (προεπιλογή) — μόνο όσο οι ληξιπρόθεσμοι είναι λιγότεροι από
+//            intro_when_due_below
+//   'first'  — ΠΡΩΤΑ όλοι οι νέοι στόχοι, λέξη-λέξη. Για το άνοιγμα λεβελ,
+//            όπου ο πάπυρος τους δείχνει όλους σε ΜΙΑ σκηνή
+//   'never'  — ποτέ τελετή. Για τη μέση του λεβελ: οι νέοι περιμένουν τον
+//            επόμενο πάπυρο αντί να περάσουν αθέατοι
+export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated' } = {}) {
   const skip = session.skip || new Set();
   const pairs = allPairs(profileEntry).filter((x) => !skip.has(x.target.id));
   if (!pairs.length) return null;
+  const fresh = pairs.filter((x) => !x.target.introduced);
+
+  // Άνοιγμα λεβελ: οι νέοι στόχοι βγαίνουν ΟΜΑΔΟΠΟΙΗΜΕΝΟΙ ανά λέξη, με τη
+  // σειρά που μπήκαν οι λέξεις. Έτσι ο καλών μπορεί να σταματήσει σε όριο
+  // ΛΕΞΕΩΝ χωρίς να μείνει μισή λέξη αθέατη. Ο κανόνας «όχι ίδια λέξη
+  // συνεχόμενα» δεν ισχύει εδώ: η τελετή δεν είναι ερώτηση.
+  if (intro === 'first' && fresh.length) {
+    const order = (x) => profileEntry.words.indexOf(x.word);
+    fresh.sort((a, b) => (order(a) - order(b)) || (a.target.gap.start - b.target.gap.start));
+    return { ...fresh[0], isPractice: false };
+  }
 
   // Νέος στόχος παρουσιάζεται μόνο όταν δεν στοιβάζονται ήδη πολλοί
   // αναπάντητοι. Αλλιώς, με 7 νέους στόχους, το παιδί θα έβλεπε 7 τελετές
   // στη σειρά πριν παίξει — και θα φορτωνόταν με άγνωστο υλικό μαζεμένο.
   const due = pairs.filter((x) => x.target.introduced && isDue(x.target, nowDate));
   const limit = cfg.active_set.intro_when_due_below ?? 3;
-  const allowIntro = due.length < limit;
+  const allowIntro = intro !== 'never' && due.length < limit;
   let eligible = due;
-  if (allowIntro) eligible = [...pairs.filter((x) => !x.target.introduced), ...due];
-  if (!eligible.length) eligible = pairs.filter((x) => !x.target.introduced);
+  if (allowIntro) eligible = [...fresh, ...due];
+  if (!eligible.length && intro !== 'never') eligible = fresh;
 
   if (eligible.length) {
     let pool = session.activeIds
@@ -77,8 +95,17 @@ export function selectNext(profileEntry, cfg, nowDate, session) {
     }
     if (!pool.length) pool = eligible; // δίχτυ ασφαλείας
 
-    // Ποτέ δύο στόχοι της ίδιας λέξης συνεχόμενα — εκτός αν δεν γίνεται αλλιώς
+    // Ποτέ δύο στόχοι της ίδιας λέξης συνεχόμενα — εκτός αν δεν γίνεται αλλιώς.
+    // Αν ληξιπρόθεσμη είναι ΜΟΝΟ η λέξη που μόλις παίχτηκε (π.χ. μόλις χάθηκε),
+    // προτιμάμε προπόνηση με ΑΛΛΗ γνωστή λέξη: δεν αλλάζει κανένα επίπεδο και η
+    // ληξιπρόθεσμη έρχεται αμέσως μετά. Αλλιώς το παιδί ξαναβλέπει τη λέξη που
+    // μόλις έχασε, θυμάται ποιες επιλογές ήταν λάθος και βρίσκει το σωστό με
+    // αποκλεισμό αντί να το θυμηθεί.
     const nonSame = pool.filter((x) => x.word.id !== session.lastWordId);
+    if (!nonSame.length && cfg.practice_after_queue_empty) {
+      const other = practicePick(pairs, cfg, session, { otherWordOnly: true });
+      if (other) return other;
+    }
     const usePool = nonSame.length ? nonSame : pool;
 
     usePool.sort((a, b) => {
@@ -98,12 +125,19 @@ export function selectNext(profileEntry, cfg, nowDate, session) {
   // Τίποτα ληξιπρόθεσμο → «προπόνηση» με κατακτημένες λέξεις (DESIGN απόφ. 6):
   // παίζεται κανονικά αλλά ΔΕΝ αλλάζει επίπεδα/χρονοδιάγραμμα.
   if (!cfg.practice_after_queue_empty) return null;
-  const introduced = pairs.filter((x) => x.target.introduced);
-  if (!introduced.length) return null;
+  return practicePick(pairs, cfg, session);
+}
+
+// Προπόνηση: στόχος που έχει ήδη παρουσιαστεί. Με `otherWordOnly` αποκλείεται
+// αυστηρά η λέξη που μόλις παίχτηκε (αλλιώς απλώς προτιμάται άλλη).
+function practicePick(pairs, cfg, session, { otherWordOnly = false } = {}) {
+  let pool = pairs.filter((x) => x.target.introduced);
+  if (otherWordOnly) pool = pool.filter((x) => x.word.id !== session.lastWordId);
+  if (!pool.length) return null;
 
   const cap = cfg.practice_serve_cap_per_session ?? 2;
-  let pool = introduced.filter((x) => (session.practiceCounts.get(x.target.id) || 0) < cap);
-  if (!pool.length) pool = introduced;
+  const rested = pool.filter((x) => (session.practiceCounts.get(x.target.id) || 0) < cap);
+  if (rested.length) pool = rested;
   const nonSame = pool.filter((x) => x.word.id !== session.lastWordId);
   if (nonSame.length) pool = nonSame;
 

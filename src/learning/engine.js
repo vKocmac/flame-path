@@ -72,7 +72,8 @@ function assemblyPieces(text) {
   return p;
 }
 
-export function getNextChallenge(profileId, { types = ['gap', 'assembly'] } = {}) {
+// intro: 'gated' | 'first' | 'never' — πότε επιτρέπεται τελετή (δες selectNext)
+export function getNextChallenge(profileId, { types = ['gap', 'assembly'], intro = 'gated' } = {}) {
   if (!cfg || !session) throw new Error('Learning engine: κάλεσε πρώτα init()');
   const state = store.loadState();
   const p = state.profiles.find((x) => x.profile.id === profileId);
@@ -82,7 +83,7 @@ export function getNextChallenge(profileId, { types = ['gap', 'assembly'] } = {}
   // (π.χ. «ου» όταν η σκηνή υποστηρίζει μόνο κενό γράφημα).
   let word, target, isPractice, type;
   for (let tries = 0; tries < 12; tries++) {
-    const pick = selectNext(p, cfg, clock(), session);
+    const pick = selectNext(p, cfg, clock(), session, { intro });
     if (!pick) return null;
     // ΠΡΩΤΑ ελέγχουμε αν ο στόχος παίζεται ΚΑΘΟΛΟΥ με τους ζητούμενους
     // τύπους — και μετά αποφασίζουμε αν χρειάζεται τελετή.
