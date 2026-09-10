@@ -163,9 +163,9 @@ export default class BattleScene extends Phaser.Scene {
     // Πριν τον πάπυρο: πού βρίσκεσαι στον Δρόμο. Την πρώτη φορά, η ιστορία.
     if (!jr.storySeen) {
       store.markStorySeen(state);
-      this.showStory(() => this.showStationBanner(() => this.openLevel()));
+      this.showStory(() => this.showStationBanner(() => this.startLevel()));
     } else {
-      this.showStationBanner(() => this.openLevel());
+      this.showStationBanner(() => this.startLevel());
     }
   }
 
@@ -232,7 +232,8 @@ export default class BattleScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ Μάστερ Γου
   //
-  // Ο κακός. Αιωρείται ψηλά, δεν πατάει ΠΟΤΕ στο χώμα και ΔΕΝ ΜΙΛΑΕΙ ΠΟΤΕ.
+  // Ο κακός. Αιωρείται ψηλά και δεν πατάει ΠΟΤΕ στο χώμα. Από 10/09/2026
+  // ΜΙΛΑΕΙ, με γραπτές ατάκες (δες masterSays).
   // Αυτός κλέβει τα γράμματα από τις λέξεις — γι' αυτό η περγαμηνή έχει κενό.
   // Σε αυτό το branch είναι παρουσία, όχι στόχος: δεν χτυπιέται ακόμα.
   buildMaster() {
@@ -1057,9 +1058,9 @@ export default class BattleScene extends Phaser.Scene {
 
   // Ο Μάστερ Γου κατεβαίνει ο ίδιος στο πεδίο. Δεν περπατά και δεν πατάει
   // χώμα: χάνεται από τη θέση του και ξαναεμφανίζεται μέσα σε καπνό. Πέντε
-  // σωστές απαντήσεις για να διωχτεί — και δεν λέει ούτε λέξη.
+  // σωστές απαντήσεις για να διωχτεί (οκτώ στο κάστρο του).
   /**
-   * Η είσοδος του Μάστερ Γου (NEXT-FIXES Γ7). Δεν μιλάει ποτέ, οπότε η
+   * Η είσοδος του Μάστερ Γου (NEXT-FIXES Γ7). Χτίστηκε όταν δεν μιλούσε, οπότε η
    * κορύφωση γίνεται με κίνηση: εξαφανίζεται από το πόστο του, υλοποιείται
    * ψηλά μέσα σε καπνό, ΚΑΤΕΒΑΙΝΕΙ αργά, και ανοίγει το χέρι — από την
    * παλάμη του φεύγουν δύο δαχτυλίδια ενέργειας.
@@ -1105,6 +1106,12 @@ export default class BattleScene extends Phaser.Scene {
         targets: m, baseY: groundY, scale: 1.3,
         duration: 1150, ease: 'Sine.easeInOut'
       });
+    });
+
+    // Μιλάει καθώς κατεβαίνει (Ε5) — ο οιωνός έχει ήδη ακουστεί, χωρίς ήχο
+    this.time.delayedCall(700, () => {
+      const lines = TXT.masterDescends;
+      this.masterSays(lines[this.station % lines.length], 2400, null, false);
     });
 
     // 4. Η χειρονομία: ανοίγει την παλάμη και δύο δαχτυλίδια φεύγουν από μέσα
@@ -2134,7 +2141,7 @@ export default class BattleScene extends Phaser.Scene {
         this.clearOrbs();
         this.hideScroll();
         this.current = null;
-        this.completeStation(() => this.spawnWave(() => this.openLevel()));
+        this.completeStation(() => this.spawnWave(() => this.startLevel()));
       } else {
         this.spawnWave(onContinue);
       }
@@ -2521,6 +2528,57 @@ export default class BattleScene extends Phaser.Scene {
     return `${TXT.station} ${this.station + 1}/${journey.STATIONS} · ${TXT.stations[this.station]}`;
   }
 
+  // Αρχή λεβελ: ο Μάστερ Γου στέλνει τις ορδές του — και το λέει (Ε5).
+  startLevel() {
+    const lines = TXT.masterHorde;
+    this.masterSays(lines[this.station % lines.length], 2600, () => this.openLevel());
+  }
+
+  /**
+   * Ο Μάστερ Γου ΜΙΛΑΕΙ (απόφαση ιδιοκτήτη 10/09/2026 — ανατρέπει το «δεν
+   * μιλάει ποτέ» της 02/09). Γραπτή ατάκα σε σκοτεινή λωρίδα δίπλα του, που
+   * τον ακολουθεί όσο κινείται, με υπόκωφο μουγκρητό.
+   * ΠΟΤΕ για τα λάθη του παιδιού: είναι κακός του παραμυθιού, όχι δάσκαλος
+   * που μαλώνει (SPEC κεφ. 3).
+   * @param {string} text
+   * @param {number} ms πόσο μένει στην οθόνη
+   * @param {() => void} [done]
+   * @param {boolean} [sound]
+   */
+  masterSays(text, ms = 2400, done, sound = true) {
+    const m = this.master;
+    const t = this.add.text(0, 0, text, {
+      fontFamily: FONT.ui, fontSize: '26px', fontStyle: '700', color: HEX.parchment,
+      align: 'center', wordWrap: { width: 400 }
+    }).setOrigin(.5);
+    const w = t.width + 44, h = t.height + 28;
+    const g = this.add.graphics();
+    g.fillStyle(NUM.shadow, .9);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, 16);
+    g.lineStyle(2, NUM.flameDeep, .85);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
+    g.fillStyle(NUM.shadow, .9);
+    g.fillTriangle(w / 2 - 2, -10, w / 2 - 2, 10, w / 2 + 18, 4);   // ουρά προς αυτόν
+    const box = this.add.container(0, 0, [g, t]).setDepth(42).setAlpha(0).setScale(.85);
+    this.masterLine = box;                                         // για ελέγχους
+    const place = () => {
+      if (!box.scene) return;
+      const x = Math.max(w / 2 + 12, m.x - 70 * m.scaleX - w / 2);
+      box.setPosition(x, Math.max(h / 2 + 8, m.y - 40 * m.scaleY));
+    };
+    place();
+    this.events.on('update', place);
+    if (sound) audio.omen();
+    this.tweens.add({ targets: box, alpha: 1, scale: 1, duration: 320, ease: 'Back.easeOut' });
+    this.time.delayedCall(ms - 300, () => this.tweens.add({ targets: box, alpha: 0, duration: 300 }));
+    this.time.delayedCall(ms, () => {
+      this.events.off('update', place);
+      box.destroy();
+      if (this.masterLine === box) this.masterLine = null;
+      if (done) done();
+    });
+  }
+
   // --------------------------------------------------------- μπάρα δύναμης
 
   buildRageBar() {
@@ -2740,7 +2798,7 @@ export default class BattleScene extends Phaser.Scene {
   // ------------------------------------------- ιστορία, σταθμοί, χάρτης, νίκη
 
   // Την πρώτη φορά: ποιος, τι έκλεψε, πού πάμε. Την ιστορία τη λέει το
-  // παιχνίδι — ο Μάστερ Γου φαίνεται αλλά δεν μιλάει ποτέ.
+  // παιχνίδι, όχι ο Μάστερ Γου — αυτός μιλά μόνο μέσα στη μάχη.
   showStory(done) {
     const veil = this.add.rectangle(W / 2, H / 2, W, H, NUM.shadow).setDepth(38).setAlpha(0);
     this.tweens.add({ targets: veil, alpha: .82, duration: 500 });
