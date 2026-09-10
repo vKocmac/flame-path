@@ -2123,10 +2123,27 @@ export default class BattleScene extends Phaser.Scene {
     const cx = W / 2 - 90, cy = 330;                 // αριστερά, ο μάγος δεξιά
     const w2 = 230, h2 = 46 + shown.length * 25;
 
-    const paper = this.add.image(cx, cy, 'paper-sheet').setDepth(31)
-      .setDisplaySize(w2 * 2, h2 * 2);
-    paper.setScale(paper.scaleX * .2, paper.scaleY * .2).setAlpha(0);
-    const openX = paper.scaleX * 5, openY = paper.scaleY * 5;   // το «1» του tween
+    // Ο πάπυρος: φύλλο με δύο ξύλινους κυλίνδρους, κόκκινα λακαρισμένα
+    // πόμολα και τη σφραγίδα-φλόγα του ντότζο στη γωνία (φινίρισμα 11/09 —
+    // ήταν σκέτο ορθογώνιο χαρτί). Όλα σε ένα container: ανοίγουν και
+    // καίγονται μαζί.
+    const sheet = this.add.image(0, 0, 'paper-sheet').setDisplaySize(w2 * 2, h2 * 2);
+    const deco = this.add.graphics();
+    for (const yy of [-h2 - 7, h2 + 7]) {
+      deco.fillStyle(NUM.ink, 1);
+      deco.fillRoundedRect(-w2 - 24, yy - 9, w2 * 2 + 48, 18, 9);
+      deco.fillStyle(NUM.parchment, .12);                      // γυαλάδα του ξύλου
+      deco.fillRoundedRect(-w2 - 20, yy - 7, w2 * 2 + 40, 5, 2.5);
+      deco.fillStyle(NUM.flameDeep, .95);
+      deco.fillCircle(-w2 - 24, yy, 11);
+      deco.fillCircle(w2 + 24, yy, 11);
+    }
+    deco.fillStyle(NUM.flameDeep, .85);                          // η σφραγίδα
+    deco.fillRoundedRect(w2 - 60, h2 - 60, 42, 42, 7);
+    world.drawPerkIcon(deco, 'blaze', w2 - 39, h2 - 39, 14, NUM.parchment, .95);
+    const halo = this.add.image(0, 0, 'glow-lantern').setScale(2.6, 1.7).setAlpha(.2)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const paper = this.add.container(cx, cy, [halo, sheet, deco]).setDepth(31).setScale(.2).setAlpha(0);
 
     const lines = shown.map((w, i) => this.add.text(
       cx, cy - (shown.length - 1) * 25 + i * 50, w,
@@ -2137,7 +2154,7 @@ export default class BattleScene extends Phaser.Scene {
     const home = { x: m.x, baseY: m.baseY, depth: m.depth, scale: m.scale };
 
     this.tweens.add({ targets: veil, alpha: .72, duration: 420 });
-    this.tweens.add({ targets: paper, alpha: 1, scaleX: openX, scaleY: openY,
+    this.tweens.add({ targets: paper, alpha: 1, scaleX: 1, scaleY: 1,
       duration: 520, ease: 'Back.easeOut' });
     lines.forEach((t, i) => this.tweens.add({ targets: t, alpha: 1, duration: 300, delay: 520 + i * 150 }));
 
@@ -2186,7 +2203,7 @@ export default class BattleScene extends Phaser.Scene {
         });
       });
       this.tweens.add({
-        targets: paper, alpha: 0, scaleY: openY * .06, y: cy + 40,
+        targets: paper, alpha: 0, scaleY: .06, y: cy + 40,
         duration: 900, delay: 300 + shown.length * 130, ease: 'Quad.easeIn'
       });
     });
