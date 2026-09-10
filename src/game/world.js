@@ -183,6 +183,40 @@ export function buildGround(scene, { path = 'narrow' } = {}) {
   return g;
 }
 
+// Λεπτομέρειες στο χώμα: πέτρες με φεγγαρόφωτη κόψη και τούφες χόρτου που
+// λυγίζουν στον αέρα — η λωρίδα του δρόμου να μη μοιάζει άδεια (φινίρισμα
+// 11/09). Ανά σταθμό: φύλλα στο δάσος, χιόνι στην κορυφή, στάχτη στο κάστρο.
+export function buildGroundDetail(scene, station, calm) {
+  const gy = GROUND_Y;
+  const stones = [[88, 26, 9], [300, 18, 7], [562, 30, 10], [764, 16, 6], [982, 24, 8], [1192, 20, 7]];
+  const g = scene.add.graphics();
+  g.fillStyle(NUM.ridgeNear, 1);
+  for (const [x, w, h] of stones) g.fillEllipse(x, gy + 9 + h / 3, w, h);
+  g.fillStyle(NUM.moon, .07);
+  for (const [x, w, h] of stones) g.fillEllipse(x + 2, gy + 6 + h / 3, w * .6, h * .35);
+  if (station === 1) {                                    // πεσμένα φύλλα μπαμπού
+    g.fillStyle(NUM.smoke, .22);
+    for (let i = 0; i < 26; i++) g.fillEllipse(Phaser.Math.Between(10, W - 10), gy + Phaser.Math.Between(12, 70), 9, 3);
+  } else if (station === 5) {                             // χιόνι στις άκρες του δρόμου
+    g.fillStyle(NUM.star, .13);
+    for (const [x, w] of [[60, 140], [340, 90], [700, 120], [1010, 150], [1230, 90]]) g.fillEllipse(x, gy + 10, w, 7);
+  } else if (station === 6) {                             // στάχτη και κάρβουνα
+    g.fillStyle(NUM.flameDeep, .16);
+    for (let i = 0; i < 14; i++) g.fillCircle(Phaser.Math.Between(20, W - 20), gy + Phaser.Math.Between(14, 70), 2);
+  }
+  for (const [x, k] of [[40, 1], [152, .8], [424, .9], [646, .7], [872, 1], [1104, .85], [1252, .9]]) {
+    const t = scene.add.graphics({ x, y: gy + 9 });
+    t.fillStyle(NUM.ground, 1);
+    for (let i = 0; i < 5; i++) {
+      const bx = (i - 2) * 3 * k, h = (13 + (i % 2) * 8) * k, lean = (i - 2) * 3.5 * k;
+      t.fillTriangle(bx - 1.8 * k, 0, bx + 1.8 * k, 0, bx + lean, -h);
+    }
+    if (calm) continue;
+    scene.tweens.add({ targets: t, angle: { from: -5, to: 5 }, duration: Phaser.Math.Between(1700, 2600),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Phaser.Math.Between(0, 1200) });
+  }
+}
+
 // ------------------------------------------------------------------- κτίρια
 
 // Στέγη παγόδας: παραβολική κοιλιά με ανασηκωμένες άκρες (t⁶ = το γύρισμα).

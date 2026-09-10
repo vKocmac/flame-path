@@ -204,6 +204,7 @@ export default class BattleScene extends Phaser.Scene {
     world.buildStation(this, st, 'front', calm);
     if (!calm) world.buildStation(this, st, 'life', calm);   // ζωή του τοπίου (όχι σε ήρεμη κίνηση)
     world.buildGround(this, { path: 'wide' });
+    world.buildGroundDetail(this, st, calm);
     world.lantern(this, 470, 604, .7, calm);
     world.lantern(this, 1010, 600, .7, calm);
     world.buildWash(this, mood);
@@ -1140,6 +1141,8 @@ export default class BattleScene extends Phaser.Scene {
       e.speed *= rush;                 // κλιμάκωση κύματος (HYPER-NOTE §6)
       e.setAlpha(0);
       this.tweens.add({ targets: e, alpha: 1, duration: 500, delay: i * 160 });
+      // Εμφανίζονται μέσα σε καπνό, σαν νίντζα με καπνογόνο (φινίρισμα 11/09)
+      this.time.delayedCall(i * 160, () => { if (e.scene) this.smokePuff(e.x, LINE_Y - 50 * (e.size || 1), 16); });
       this.enemies.push(e);
     });
     this.waveHp = this.enemies.reduce((n, e) => n + (e.hp || 0), 0);   // για τη μπάρα κυμάτων

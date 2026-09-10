@@ -35,6 +35,7 @@ export default class TitleScene extends Phaser.Scene {
     world.buildBamboo(this, 112, H * .885, 1.0);
     world.buildBamboo(this, 1208, H * .895, 0.82);
     world.buildGround(this, { path: 'narrow' });
+    world.buildGroundDetail(this, 0, calm);
 
     world.lantern(this, 168, 646, .95, calm);
     world.lantern(this, 930, 656, .9, calm);
