@@ -775,30 +775,87 @@ export function strike() {
  * Ακολουθεί τον διακόπτη των εφέ. ΠΟΤΕ για τα λάθη του παιδιού — τη
  * χρησιμοποιούν μόνο οι ατάκες του (masterSays).
  */
+//
+// «Πιο γέρικη» (Κοσμάς, 11/09): ό,τι επιτρέπει ο browser —
+//   · ΑΝΔΡΙΚΗ ελληνική φωνή όπου υπάρχει (π.χ. Stefanos στα Windows)
+//   · ο πιο χαμηλός τόνος και πιο αργά (0,68)
+//   · γέρικες ΠΑΥΣΕΙΣ: η ατάκα σπάει στα σημεία στίξης, ανάσα ανάμεσα
+//   · από κάτω ένα βραχνό λαχάνιασμα που ΤΡΕΜΕΙ (~6 φορές/δευτ.), φτιαγμένο
+//     στο Web Audio — δίνει την αίσθηση γέρικης, σπασμένης φωνής
 let greekVoice;
 function findGreek() {
   const vs = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-  greekVoice = vs.find((v) => /^el/i.test(v.lang) && /google/i.test(v.name))
-    || vs.find((v) => /^el/i.test(v.lang)) || null;
+  const el = vs.filter((v) => /^el/i.test(v.lang));
+  greekVoice = el.find((v) => /stefanos|male|άνδρ|ανδρ/i.test(v.name))
+    || el.find((v) => /google/i.test(v.name)) || el[0] || null;
 }
 if (window.speechSynthesis) {
   findGreek();
   window.speechSynthesis.addEventListener?.('voiceschanged', findGreek);
 }
 
+let rasp = null;
+function raspOn() {
+  if (!ctx || rasp) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(3);
+  src.loop = true;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 900;
+  bp.Q.value = .9;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.045, t + 0.25);
+  const trem = ctx.createOscillator();          // το τρέμουλο των γηρατειών
+  trem.frequency.value = 5.8;
+  const tg = ctx.createGain();
+  tg.gain.value = 0.03;
+  trem.connect(tg).connect(g.gain);
+  src.connect(bp).connect(g).connect(fxGain);
+  src.start(t); trem.start(t);
+  rasp = { src, trem, g };
+}
+function raspOff() {
+  if (!rasp || !ctx) return;
+  const { src, trem, g } = rasp;
+  rasp = null;
+  const t = ctx.currentTime;
+  g.gain.cancelScheduledValues(t);
+  g.gain.setValueAtTime(g.gain.value, t);
+  g.gain.linearRampToValueAtTime(0, t + 0.3);
+  src.stop(t + 0.35); trem.stop(t + 0.35);
+}
+
+let speakGen = 0;
 export function speak(text) {
   const ss = window.speechSynthesis;
   if (!ss || !fxOn || muted || held) return;
   if (greekVoice === undefined || greekVoice === null) findGreek();
   if (!greekVoice) return;
   ss.cancel();
-  const u = new SpeechSynthesisUtterance(text.replace(/…/g, '...'));
-  u.voice = greekVoice;
-  u.lang = greekVoice.lang;
-  u.pitch = 0.05;          // το πιο βαθύ που δίνει ο browser
-  u.rate = 0.8;
-  u.volume = 1;
-  ss.speak(u);
+  raspOff();
+  const gen = ++speakGen;
+  // Κομμάτια στα σημεία στίξης: «Αρκετά! | Θα σε σταματήσω μόνος μου!»
+  // (χωρίς lookbehind στο regex: τα παλιά iPhone δεν το ξέρουν και θα έσπαγε όλο το αρχείο)
+  const parts = (text.replace(/…/g, '...').match(/[^,!;.?·]+[,!;.?·]*/g) || [text])
+    .map((s) => s.trim()).filter(Boolean);
+  const say = (i) => {
+    if (gen !== speakGen || held || i >= parts.length) { if (gen === speakGen) raspOff(); return; }
+    const u = new SpeechSynthesisUtterance(parts[i]);
+    u.voice = greekVoice;
+    u.lang = greekVoice.lang;
+    u.pitch = 0;             // το πιο βαθύ που δίνει ο browser
+    u.rate = 0.68;
+    u.volume = 1;
+    u.onstart = () => { if (gen === speakGen) raspOn(); };
+    u.onend = () => { if (gen === speakGen) { raspOff(); setTimeout(() => say(i + 1), 320); } };
+    u.onerror = () => { if (gen === speakGen) raspOff(); };
+    ss.speak(u);
+  };
+  say(0);
+  setTimeout(() => { if (gen === speakGen) raspOff(); }, 12000);   // δίχτυ: ποτέ ατελείωτο λαχάνιασμα
 }
 
 /** Η κόψη του σπαθιού: σύντομο «σουίς» που ανεβαίνει και ένα μεταλλικό τσιν. */
@@ -885,7 +942,11 @@ export function setMuted(m) {
 let held = false;
 export function hold(on) {
   held = on;
-  if (on && window.speechSynthesis) window.speechSynthesis.cancel();   // η φωνή σωπαίνει κι αυτή
+  if (on) {                                   // η φωνή σωπαίνει κι αυτή
+    speakGen++;
+    raspOff();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }
   if (!master || !ctx) return;
   const t = ctx.currentTime;
   master.gain.cancelScheduledValues(t);
