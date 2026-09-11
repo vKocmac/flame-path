@@ -179,7 +179,7 @@ export const PowerMethods = {
         const h = f * HGT * gr;
         const rx = (26 + 96 * f) * scale * gr, ry = rx * .24;
         const col = f < .3 ? NUM.flameDeep : f < .7 ? NUM.flame : NUM.lantern;
-        const lw = (7 - 3.5 * f) * scale;
+        const lw = (10 - 4.5 * f) * scale;                 // παχιές ζώνες: να διαβάζεται ως χωνί φωτιάς
         for (let k = 0; k < 3; k++) {
           const a0 = v.spin * (1.25 + f * .5) + k * 2.094 + b * .55;
           let px = v.x + Math.cos(a0) * rx, py = v.base - h + Math.sin(a0) * ry;
@@ -187,7 +187,7 @@ export const PowerMethods = {
             const a = a0 + s * .16;
             const qx = v.x + Math.cos(a) * rx, qy = v.base - h + Math.sin(a) * ry;
             const g = Math.sin(a - .08) > 0 ? front : back;
-            g.lineStyle(lw, col, .8);
+            g.lineStyle(lw, col, .92);
             g.lineBetween(px, py, qx, qy);
             px = qx; py = qy;
           }

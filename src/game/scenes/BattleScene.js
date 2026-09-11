@@ -181,6 +181,7 @@ export default class BattleScene extends Phaser.Scene {
     this.asmHintAt = 0;
     this.asmHinted = false;
     this.nextAsmHurtAt = 0;
+    this.maskHitFor = null;
     this.nextSweepAt = 5000;
     this.hurlTurn = 0;
     // Παύση και μόνη της (Ζ1): το κινητό κλείδωσε ή το παιδί άλλαξε εφαρμογή
@@ -421,6 +422,11 @@ export default class BattleScene extends Phaser.Scene {
   // και θα τη χάνει»): μία ζωή λιγότερη· στο μηδέν ραγίζει και πέφτει.
   maskDamage() {
     if (!this.gear || !this.gear.mask) return;
+    // Το πολύ ΜΙΑ ζωή ανά λέξη: στη Μεγάλη Τεχνική κάθε λάθος πλακίδιο
+    // έτρωγε ζωή — μία δύσκολη λέξη έσπαγε ολόκληρη μάσκα (αυτόματη δοκιμή 11/09).
+    const cid = this.current && this.current.challengeId;
+    if (cid && this.maskHitFor === cid) return;
+    this.maskHitFor = cid;
     const left = store.maskHit(store.loadState());
     const id = this.gear.mask.id;
     this.gear = store.getShop(store.loadState());
