@@ -162,6 +162,7 @@ export function resetProgress(state, id) {
   p.words = p.words.map((w) => freshWord(w));
   p.profile.sparks = 0;
   delete p.profile.journey;                // και ο Δρόμος από τον πρώτο σταθμό
+  delete p.profile.shop;                   // και ό,τι αγόρασε με τις σπίθες
   p.profile.updatedAt = now();
   saveState(state);
   return true;
@@ -205,10 +206,59 @@ export function addWord(state, word) {
   saveState(state);
 }
 
-// Σπίθες: το διακοσμητικό νόμισμα. Μένουν για πάντα — «ποτέ δεν χάνει
-// όσα μάζεψε» (SPEC κεφ. 3). Δεν αγοράζουν τίποτα ουσιώδες.
+// Σπίθες: το νόμισμα του καταστήματος (Ζ11, απόφαση 11/09 — ως τότε ήταν
+// «μόνο διακοσμητικό»). Βγαίνουν ΜΟΝΟ από σωστές απαντήσεις (κάθε εχθρός
+// πέφτει με σωστό), άρα ό,τι αγοράζεται περνά πάλι από την ορθογραφία.
+// Χάνονται μόνο όταν τις ξοδεύει ο ίδιος.
 export function getSparks(state) {
   return activeProfile(state)?.profile.sparks || 0;
+}
+
+// --- Το κατάστημα (Ζ11) ---
+// owned: ό,τι έχει αγοράσει (σπαθιά, κορδέλες) · ribbon: η κορδέλα που φορά ·
+// mask: { id, pips } η μάσκα που φορά και πόσες «ζωές» της μένουν ·
+// magnet: το επίπεδο του φαναριού-μαγνήτη. Ο κατάλογος: src/game/shop.js.
+export function getShop(state) {
+  const s = activeProfile(state)?.profile.shop || {};
+  return { owned: s.owned || [], ribbon: s.ribbon || null, mask: s.mask || null, magnet: s.magnet || 0 };
+}
+
+function setShop(state, patch) {
+  const p = activeProfile(state);
+  if (!p) return;
+  p.profile.shop = { ...getShop(state), ...patch };
+  p.profile.updatedAt = now();
+  saveState(state);
+}
+
+/**
+ * Αγορά. Επιστρέφει false αν δεν φτάνουν οι σπίθες.
+ * @param {{id:string,cat:string,price:number,pips?:number,level?:number}} item
+ */
+export function buyItem(state, item) {
+  const p = activeProfile(state);
+  if (!p || (p.profile.sparks || 0) < item.price) return false;
+  p.profile.sparks -= item.price;
+  const s = getShop(state);
+  const owned = s.owned.includes(item.id) ? s.owned : [...s.owned, item.id];
+  if (item.cat === 'mask') setShop(state, { mask: { id: item.id, pips: item.pips } });
+  else if (item.cat === 'magnet') setShop(state, { magnet: Math.max(s.magnet, item.level), owned });
+  else if (item.cat === 'ribbon') setShop(state, { owned, ribbon: item.id });
+  else setShop(state, { owned });
+  return true;
+}
+
+export function wearRibbon(state, id) {
+  setShop(state, { ribbon: id });
+}
+
+/** Λάθος με μάσκα: μία «ζωή» λιγότερη. Επιστρέφει πόσες έμειναν (0 = ράγισε). */
+export function maskHit(state) {
+  const s = getShop(state);
+  if (!s.mask) return -1;
+  const pips = s.mask.pips - 1;
+  setShop(state, { mask: pips > 0 ? { ...s.mask, pips } : null });
+  return pips;
 }
 
 export function addSparks(state, n) {

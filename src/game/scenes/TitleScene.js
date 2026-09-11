@@ -8,6 +8,7 @@ import { buildTextures } from '../textures.js';
 import * as world from '../world.js';
 import * as store from '../../shared/storage.js';
 import * as journey from '../journey.js';
+import * as shop from '../shop.js';
 
 const { W, H } = world;
 
@@ -23,6 +24,7 @@ export default class TitleScene extends Phaser.Scene {
     // ξαναπατιόταν — το παιδί κολλούσε στον τίτλο ώσπου να κλείσει η
     // εφαρμογή (βρέθηκε 11/09).
     this.leaving = false;
+    this.userPaused = false;                // το κατάστημα την παγώνει (Ζ11)
 
     world.buildSky(this);
     world.buildStars(this, calm);
@@ -92,13 +94,19 @@ export default class TitleScene extends Phaser.Scene {
     belt.fillRect(-26, -40, 52, 8);
     belt.fillStyle(beltColor, .85);
     belt.fillPoints([P(16, -34), P(28, -18), P(22, -16), P(11, -32)], true);
-    const hero = this.add.container(x, y, [shadow, tails, g, rim, eyes, belt]).setScale(1.15);
+    // Ό,τι αγόρασε από τον έμπορο (Ζ11): μάσκα στο πρόσωπο, χρώμα κορδέλας
+    const gear = store.getShop(store.loadState());
+    const mask = this.add.graphics();
+    if (gear.mask) world.drawMask(mask, gear.mask.id);
+    const rib = gear.ribbon && shop.item(gear.ribbon);
+    const ribbon = rib ? NUM[rib.color] : NUM.dojoRoof;
+    const hero = this.add.container(x, y, [shadow, tails, g, rim, mask, eyes, belt]).setScale(1.15);
 
     // Οι δύο ουρές της κορδέλας κυματίζουν (από το update της σκηνής — ένας
     // listener θα στοιβαζόταν σε κάθε επιστροφή στον τίτλο)
     this.heroTails = (time) => {
       tails.clear();
-      tails.fillStyle(NUM.dojoRoof, 1);
+      tails.fillStyle(ribbon, 1);
       for (const [ph, len, base, lift] of [[0, 44, -100, 10], [1.9, 34, -94, 3]]) {
         const top = [], bot = [];
         for (let i = 0; i <= 8; i++) {
@@ -359,5 +367,39 @@ export default class TitleScene extends Phaser.Scene {
 
     // Πού βρίσκεται στον Δρόμο (NEXT-FIXES Ε3) — ο λόγος να ξαναπατήσει τη φωτιά
     if (who) this.buildDojoPanel(store.getJourney(st), who);
+    if (who) this.buildShopButton(store.getSparks(st));
+  }
+
+  // Ο πάγκος του εμπόρου (Ζ11), μικρός, στην κάτω δεξιά γωνία — δεν χαλά την
+  // εικόνα. Δείχνει και πόσες σπίθες έχει να ξοδέψει.
+  buildShopButton(sparks) {
+    const x = W - 88, y = H - 78;
+    const c = this.add.container(x, y).setDepth(46);
+    const g = this.add.graphics();
+    g.fillStyle(NUM.night, .85);
+    g.fillRoundedRect(-66, -58, 132, 118, 22);
+    g.lineStyle(2, NUM.lantern, .5);
+    g.strokeRoundedRect(-66, -58, 132, 118, 22);
+    g.fillStyle(0x6B4E36, 1);
+    g.fillRect(-38, -26, 5, 44); g.fillRect(33, -26, 5, 44);
+    g.fillRoundedRect(-44, 6, 88, 20, 5);
+    for (let i = 0; i < 5; i++) {
+      g.fillStyle(i % 2 ? NUM.parchment : NUM.flameDeep, 1);
+      g.fillRect(-45 + i * 18, -42, 18, 14);
+      g.fillTriangle(-45 + i * 18, -28, -27 + i * 18, -28, -36 + i * 18, -20);
+    }
+    c.add([g,
+      this.add.image(-14, 38, 'spark').setScale(.9).setBlendMode(Phaser.BlendModes.ADD),
+      this.add.text(-2, 38, String(sparks), {
+        fontFamily: FONT.ui, fontSize: '20px', fontStyle: '700', color: HEX.lantern
+      }).setOrigin(0, .5)]);
+    if (!this.calm) this.tweens.add({ targets: c, scale: 1.05, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.add.zone(x, y, 140, 126).setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+      if (this.leaving) return;
+      audio.chime(0);
+      this.userPaused = true;
+      this.scene.launch('Shop', { from: 'Title' });
+      this.scene.pause();
+    });
   }
 }

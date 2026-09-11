@@ -19,6 +19,7 @@ import * as journey from '../journey.js';
 import { splitGraphemes } from '../../shared/graphemes.js';
 import * as world from '../world.js';
 import { PowerMethods } from '../powers.js';
+import * as shop from '../shop.js';
 
 const { W, H } = world;
 const LINE_Y = world.LINE_Y;     // η γραμμή του εδάφους όπου πατούν οι μορφές (640)
@@ -209,7 +210,12 @@ export default class BattleScene extends Phaser.Scene {
 
     this.buildBackdrop();
     this.master = this.buildMaster();
+    // Ό,τι φορά από το κατάστημα (Ζ11). Τα Graphics της προηγούμενης μάχης
+    // είναι κατεστραμμένα — η σκηνή ξαναχρησιμοποιείται, μηδενίζονται πρώτα.
+    this.blade = null; this.maskG = null; this.maskHud = null;
+    this.applyGear();
     this.ninja = this.makeNinja(NINJA_X, LINE_Y);
+    this.applyGear();
     this.hand.setTint(this.weaponTint(journey.weaponFor(this.cycle)));   // Ζ10: η φλόγα στο χέρι έχει το χρώμα του όπλου
     this.buildScroll();
     this.buildHUD();
@@ -307,13 +313,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // Φινίρισμα του ήρωα (11/09): ίδια σιλουέτα, περισσότερη ζωή.
     // Το σπαθί στην πλάτη — η λαβή βγαίνει πάνω από τον ώμο, πίσω από το κεφάλι
-    const sword = this.add.graphics();
-    sword.fillStyle(NUM.smoke, .7);                     // φεγγαρόφωτο: να ξεχωρίζει από τον ουρανό
-    sword.fillPoints([P(-12, -66), P(-6, -72), P(-42, -124), P(-48, -118)], true);
-    sword.fillStyle(NUM.flameDeep, .85);                // το δέσιμο της λαβής
-    for (const t of [.5, .66, .82]) sword.fillCircle(-9 - 34 * t, -69 - 48 * t, 2.6);
-    sword.fillStyle(NUM.nightHigh, 1);
-    sword.fillCircle(-30, -97, 6);                      // το τσούμπα
+    const sword = this.add.graphics();                  // ζωγραφίζεται στο paintSwords (αλλάζει με το κατάστημα)
     // Φως φεγγαριού στη δεξιά άκρη: όγκος, όχι επίπεδος λεκές
     const rim = this.add.graphics();
     rim.lineStyle(2.5, NUM.moon, .26);
@@ -344,18 +344,13 @@ export default class BattleScene extends Phaser.Scene {
     // Το σπαθί ΣΤΟ ΧΕΡΙ (Ζ5, δυνάμεις): κρυμμένο ώσπου να το τραβήξει. Η λαβή
     // στο (0,0), η λεπίδα προς τα δεξιά — γυρίζει γύρω από τη λαβή.
     const blade = this.add.graphics();
-    blade.fillStyle(NUM.nightHigh, 1);
-    blade.fillRect(-16, -3, 14, 6);                                   // λαβή
-    blade.fillStyle(NUM.flameDeep, 1);
-    blade.fillCircle(-2, 0, 5.5);                                     // τσούμπα
-    blade.fillStyle(NUM.moon, .96);
-    blade.fillPoints([P(3, -3.5), P(70, -2.5), P(80, 0), P(70, 2.5), P(3, 3.5)], true);
-    blade.lineStyle(1.2, NUM.star, .9);
-    blade.lineBetween(4, -1, 72, -1);
     blade.setVisible(false);
     this.blade = blade;
     this.backSword = sword;
-    c.add([this.aura, sword, this.tails, g, rim, this.eyes, this.belt, blade]);
+    this.paintSwords();
+    // Η μάσκα του καταστήματος (Ζ11): πάνω στο πρόσωπο, κάτω από τα μάτια
+    this.maskG = this.add.graphics();
+    c.add([this.aura, sword, this.tails, g, rim, this.maskG, this.eyes, this.belt, blade]);
     c.setScale(1.3);   // ο ήρωας πρέπει να διαβάζεται από απόσταση σε tablet
 
     // Το χέρι που κρατά τη φλόγα
@@ -364,12 +359,92 @@ export default class BattleScene extends Phaser.Scene {
     return c;
   }
 
+  // Τα δύο σπαθιά (πλάτη + χέρι) με το χρώμα του σπαθιού που αγόρασε (Ζ11)
+  paintSwords() {
+    const P = (px, py) => new Phaser.Geom.Point(px, py);
+    const tier = this.swordTier || 0;
+    const col = world.SWORD_BLADE[tier];
+    const sword = this.backSword, blade = this.blade;
+    sword.clear();
+    sword.fillStyle(col, tier ? .9 : .7);               // φεγγαρόφωτο: να ξεχωρίζει από τον ουρανό
+    sword.fillPoints([P(-12, -66), P(-6, -72), P(-42, -124), P(-48, -118)], true);
+    sword.fillStyle(NUM.flameDeep, .85);                // το δέσιμο της λαβής
+    for (const t of [.5, .66, .82]) sword.fillCircle(-9 - 34 * t, -69 - 48 * t, 2.6);
+    sword.fillStyle(tier === 4 ? NUM.flameDeep : NUM.nightHigh, 1);
+    sword.fillCircle(-30, -97, 6);                      // το τσούμπα
+    blade.clear();
+    if (tier >= 2) {                                    // φωτιά / κεραυνός / δράκος: η λεπίδα λάμπει
+      blade.fillStyle(tier === 3 ? NUM.spirit : NUM.flame, .35);
+      blade.fillPoints([P(0, -8), P(74, -6), P(90, 0), P(74, 6), P(0, 8)], true);
+    }
+    blade.fillStyle(NUM.nightHigh, 1);
+    blade.fillRect(-16, -3, 14, 6);                                   // λαβή
+    blade.fillStyle(tier === 4 ? NUM.lantern : NUM.flameDeep, 1);
+    blade.fillCircle(-2, 0, 5.5);                                     // τσούμπα
+    blade.fillStyle(tier ? col : NUM.moon, .96);
+    blade.fillPoints([P(3, -3.5), P(70, -2.5), P(80, 0), P(70, 2.5), P(3, 3.5)], true);
+    blade.lineStyle(1.2, tier >= 2 ? NUM.flameCore : NUM.star, .9);
+    blade.lineBetween(4, -1, 72, -1);
+  }
+
+  // Ό,τι φορά από το κατάστημα: σπαθί, κορδέλα, μάσκα (+ οι ζωές της στο HUD).
+  // Καλείται στην αρχή της μάχης και όταν κλείνει το κατάστημα του χάρτη.
+  applyGear() {
+    this.gear = store.getShop(store.loadState());
+    this.swordTier = shop.swordTier(this.gear);
+    const rib = this.gear.ribbon && shop.item(this.gear.ribbon);
+    this.ribbonColor = rib ? NUM[rib.color] : NUM.dojoRoof;
+    if (this.blade) this.paintSwords();
+    if (this.maskG) {
+      this.maskG.clear();
+      if (this.gear.mask) world.drawMask(this.maskG, this.gear.mask.id);
+    }
+    this.drawMaskHud();
+  }
+
+  // Οι ζωές της μάσκας, κάτω από τις σπίθες: μικρή μάσκα + κουκκίδες
+  drawMaskHud() {
+    if (!this.maskHud) this.maskHud = this.add.graphics().setDepth(46);
+    const g = this.maskHud;
+    g.clear();
+    const m = this.gear && this.gear.mask;
+    if (!m) return;
+    const it = shop.item(m.id);
+    world.drawShopIcon(g, it, W - 150, 74, 16, 1);
+    for (let i = 0; i < it.pips; i++) {
+      g.fillStyle(i < m.pips ? NUM.flameCore : NUM.nightHigh, 1);
+      g.fillCircle(W - 126 + i * 15, 74, 5);
+    }
+  }
+
+  // Λάθος με μάσκα (Ζ11: «αν κάνεις λάθη θα φεύγει σιγά σιγά η δύναμή της
+  // και θα τη χάνει»): μία ζωή λιγότερη· στο μηδέν ραγίζει και πέφτει.
+  maskDamage() {
+    if (!this.gear || !this.gear.mask) return;
+    const left = store.maskHit(store.loadState());
+    const id = this.gear.mask.id;
+    this.gear = store.getShop(store.loadState());
+    this.drawMaskHud();
+    if (left > 0) {
+      this.tweens.add({ targets: this.maskG, alpha: .3, duration: 70, yoyo: true, repeat: 2 });
+      return;
+    }
+    // Ράγισε: πέφτει από το πρόσωπο στριφογυρίζοντας και σβήνει
+    this.maskG.clear();
+    audio.poof();
+    const n = this.ninja;
+    const fall = this.add.graphics({ x: n.x, y: n.y }).setScale(1.3).setDepth(13);
+    world.drawMask(fall, id);
+    this.tweens.add({ targets: fall, y: n.y + 110, x: n.x - 40, angle: -70, alpha: 0, duration: 900, ease: 'Quad.easeIn',
+      onComplete: () => fall.destroy() });
+  }
+
   // Οι δύο ουρές της κορδέλας: λωρίδες που στενεύουν και κυματίζουν πίσω
   // από το κεφάλι, η καθεμιά με δική της φάση.
   drawNinjaTails(time) {
     const g = this.tails;
     g.clear();
-    g.fillStyle(NUM.dojoRoof, 1);
+    g.fillStyle(this.ribbonColor || NUM.dojoRoof, 1);
     for (const [ph, len, base, lift] of [[0, 44, -100, 10], [1.9, 34, -94, 3]]) {
       const top = [], bot = [];
       for (let i = 0; i <= 8; i++) {
@@ -2317,6 +2392,7 @@ export default class BattleScene extends Phaser.Scene {
     this.assemblyMiss = got;
     this.combo = 0;
     this.addRage(-RAGE_MISS);
+    this.maskDamage();
     this.hardTargets.add(this.current.targetId);
     audio.fizzle();
     this.pace(HASTE_FACTOR, HASTE_MS);
@@ -2645,6 +2721,7 @@ export default class BattleScene extends Phaser.Scene {
       this.addRage(this.combo >= COMBO_BRIGHT ? RAGE_COMBO : RAGE_HIT);
     } else {
       this.addRage(-RAGE_MISS);
+      this.maskDamage();                     // Ζ11: η μάσκα χάνει μία ζωή
       this.combo = 0;
       this.hardTargets.add(ch.targetId);
       this.tries = (this.tries || 0) + 1;
@@ -2687,7 +2764,8 @@ export default class BattleScene extends Phaser.Scene {
   chargeAndFire() {
     // Ζ5: η φωτιά είναι για τους μακρινούς· όποιος πλησίασε τρώει σπαθιά
     const front = this.frontEnemy();
-    if (front && front.x - NINJA_X < MELEE_DIST) { this.swordStrike(front); return; }
+    const reach = MELEE_DIST + ((this.swordTier || 0) >= 1 ? 80 : 0);   // Ατσάλινη Κατάνα: πιο μακριά
+    if (front && front.x - NINJA_X < reach) { this.swordStrike(front); return; }
     // Ο μαγικός ήχος ξεκινά ΕΔΩ, όχι στην αρπαγή: το ανοδικό γλίστρημα
     // καλύπτει το μάζεμα και η καμπάνα χτυπά ακριβώς στην εκτόξευση.
     audio.cast();
@@ -2764,12 +2842,25 @@ export default class BattleScene extends Phaser.Scene {
 
   // Ένα σωστό χτύπημα. Οι ανθεκτικοί εχθροί (αρχέτυπα με hp > 1) δεν πέφτουν
   // με τη μία — τραντάζονται και μένουν όρθιοι.
-  hitFrontEnemy() {
+  // melee: από σπαθιά — τα σπαθιά του καταστήματος (Ζ11) δίνουν εδώ τα δικά τους
+  hitFrontEnemy(melee = false) {
     const e = this.enemies[0];
+    const tier = melee ? (this.swordTier || 0) : 0;
     if (e) {
-      e.hp -= 1;
+      e.hp -= tier >= 4 ? 2 : 1;                         // Σπαθί του Δράκου: διπλό
+      if (tier >= 2) e.bonusSparks = 2;                  // Φλεγόμενη Κατάνα: +2 σπίθες αν πέσει
       if (e.hp > 0) this.flinchEnemy(e);
       else { this.enemies.shift(); this.killEnemy(e); }
+    }
+    // Κατάνα του Κεραυνού: η κόψη βρίσκει και τον δεύτερο της γραμμής
+    if (tier >= 3) {
+      const e2 = this.enemies.find((x) => x !== e);
+      if (e2) {
+        this.slashArc(e2.x - 20, e2.y - 84, 70, NUM.spirit);
+        e2.hp -= 1;
+        if (e2.hp > 0) this.flinchEnemy(e2);
+        else { this.enemies = this.enemies.filter((x) => x !== e2); this.killEnemy(e2); }
+      }
     }
     // Δίδυμη Φλόγα (τεχνική): δεύτερη, μικρότερη βολή στον επόμενο της γραμμής
     if (this.perks.includes('twin')) {
@@ -2899,7 +2990,8 @@ export default class BattleScene extends Phaser.Scene {
     }).setDepth(15);
     burst.explode(e.isMaster ? 60 : 34);
     this.time.delayedCall(1200, () => burst.destroy());
-    this.collectSparks(e.x, e.y - 44);
+    this.collectSparks(e.x, e.y - 44, e.bonusSparks || 0);
+    e.bonusSparks = 0;                     // ο Μάστερ Γου ξαναχρησιμοποιείται — να μην το κουβαλά
 
     // Ο Μάστερ Γου δεν καταστρέφεται ποτέ — υποχωρεί στο πόστο του.
     if (e.isMaster) { this.banishMaster(e); return; }
@@ -2920,19 +3012,23 @@ export default class BattleScene extends Phaser.Scene {
       duration: 520, ease: 'Quad.easeOut', onComplete: () => this.destroyDeep(e) });
   }
 
-  collectSparks(x, y) {
+  // Οι σπίθες του εχθρού: βάση + φανάρι-μαγνήτης, × μάσκα, + ό,τι δίνει το
+  // φλεγόμενο σπαθί (Ζ11). Πετούν ως τον μετρητή· ως 8 φαίνονται.
+  collectSparks(x, y, bonus = 0) {
     const state = store.loadState();
-    const total = store.addSparks(state, SPARKS_PER_KILL);
-    for (let i = 0; i < SPARKS_PER_KILL; i++) {
+    const n = shop.sparkGain(this.gear || { owned: [], magnet: 0, mask: null }, SPARKS_PER_KILL) + bonus;
+    const total = store.addSparks(state, n);
+    const shown = Math.min(n, 8);
+    for (let i = 0; i < shown; i++) {
       const s = this.add.image(x, y, 'spark').setScale(.9)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(46);
       this.tweens.add({
         targets: s, x: this.sparkIcon.x, y: this.sparkIcon.y, scale: .5,
-        duration: 640, delay: 120 + i * 110, ease: 'Quad.easeIn',
+        duration: 640, delay: 120 + i * 90, ease: 'Quad.easeIn',
         onComplete: () => {
           s.destroy();
-          audio.chime(i);
-          this.sparkLabel.setText(String(total - (SPARKS_PER_KILL - 1 - i)));
+          audio.chime(Math.min(i, 3));
+          this.sparkLabel.setText(String(total - Math.round((shown - 1 - i) * n / shown)));
           this.tweens.add({ targets: this.sparkIcon, scale: 1.35, duration: 110, yoyo: true });
         }
       });
@@ -3218,6 +3314,15 @@ export default class BattleScene extends Phaser.Scene {
     this.userPaused = true;
     audio.hold(true);
     this.scene.launch('Pause');
+    this.scene.pause();
+  }
+
+  // Ο έμπορος του χάρτη (Ζ11): η μάχη παγώνει, ανοίγει το κατάστημα. Στο
+  // κλείσιμο το ShopScene ξαναφορά τον εξοπλισμό (applyGear) και συνεχίζει.
+  openShop() {
+    if (this.userPaused || !this.sys.isActive()) return;
+    this.userPaused = true;
+    this.scene.launch('Shop', { from: 'Battle' });
     this.scene.pause();
   }
 
@@ -3928,11 +4033,41 @@ export default class BattleScene extends Phaser.Scene {
       this.tweens.add({ targets: objs, alpha: 0, duration: 450 });
       this.time.delayedCall(480, () => { objs.forEach((o) => this.destroyDeep(o)); done(); });
     };
+    // Ο έμπορος του Δρόμου (Ζ11): πάγκος με τέντα και φανάρι στη γωνία του
+    // χάρτη. Άγγιγμα → κατάστημα· η μάχη παγώνει όσο ψωνίζει.
+    const stall = this.add.container(px + pw - 96, py + ph - 92).setDepth(49).setAlpha(0);
+    const sg = this.add.graphics();
+    sg.fillStyle(0x6B4E36, 1);
+    sg.fillRect(-50, -40, 6, 70); sg.fillRect(44, -40, 6, 70);                // στύλοι
+    sg.fillRoundedRect(-58, 6, 116, 30, 6);                                    // πάγκος
+    sg.fillStyle(0x3A2A1E, 1);
+    sg.fillRect(-58, 30, 116, 6);
+    for (let i = 0; i < 6; i++) {                                              // τέντα με ρίγες
+      sg.fillStyle(i % 2 ? NUM.parchment : NUM.flameDeep, 1);
+      sg.fillRect(-60 + i * 20, -58, 20, 18);
+      sg.fillTriangle(-60 + i * 20, -40, -40 + i * 20, -40, -50 + i * 20, -30);
+    }
+    sg.fillStyle(NUM.lantern, 1);                                              // φανάρι
+    sg.fillRoundedRect(28, -30, 14, 20, 5);
+    stall.add([this.add.image(35, -20, 'glow-lantern').setScale(.5).setAlpha(.8).setBlendMode(Phaser.BlendModes.ADD), sg,
+      this.add.image(-20, 0, 'spark').setScale(1.2).setBlendMode(Phaser.BlendModes.ADD),
+      this.add.image(8, -2, 'spark').setScale(.9).setBlendMode(Phaser.BlendModes.ADD)]);
+    map.add(stall);
+    const stallZone = this.add.zone(stall.x, stall.y - 10, 150, 130).setDepth(49);
+    objs.push(stallZone);
+    end += 3000;                                         // χρόνος να τον προσέξει
+
     this.time.delayedCall(canGo, () => {
       if (closed) return;
       tap.setInteractive().on('pointerdown', close);
       this.tweens.add({ targets: hint, alpha: .6, duration: 400 });
       if (!this.calm) this.tweens.add({ targets: hint, alpha: .3, duration: 900, delay: 400, yoyo: true, repeat: -1 });
+      this.tweens.add({ targets: stall, alpha: 1, duration: 400 });
+      if (!this.calm) this.tweens.add({ targets: stall, scale: 1.08, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      stallZone.setInteractive({ useHandCursor: true }).on('pointerdown', (p, lx, ly, ev) => {
+        if (ev) ev.stopPropagation();
+        this.openShop();
+      });
     });
     this.time.delayedCall(end, close);
   }

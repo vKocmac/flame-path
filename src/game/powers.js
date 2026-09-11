@@ -132,8 +132,9 @@ export const PowerMethods = {
       onComplete: () => {
         audio.slash();
         this.tweens.add({ targets: this.blade, angle: 48, duration: 100, ease: 'Quad.easeOut' });
-        this.slashArc(tx + 58, ty - 84, 78);
-        this.hitFrontEnemy();
+        const tier = this.swordTier || 0;
+        this.slashArc(tx + 58, ty - 84, 78, tier >= 2 ? (tier === 3 ? NUM.spirit : NUM.flame) : NUM.moon);
+        this.hitFrontEnemy(true);
         this.time.delayedCall(150, () => {
           this.tweens.add({
             targets: n, x: NINJA_X, y: LINE_Y, duration: 280, ease: 'Quad.easeOut',

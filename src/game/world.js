@@ -857,6 +857,106 @@ export function drawStationIcon(g, station, cx, cy, s, color, alpha = 1) {
   }
 }
 
+// ------------------------------------------------ το κατάστημα (Ζ11)
+
+// Το χρώμα της λεπίδας ανά σπαθί: ξύλινο · ατσάλι · φωτιά · κεραυνός · δράκος
+export const SWORD_BLADE = [NUM.smoke, NUM.moon, NUM.flame, NUM.spirit, NUM.lantern];
+
+/** Η μάσκα πάνω στο πρόσωπο του νίντζα (τοπικές συντεταγμένες του, κεφάλι στο (0,-92)). */
+export function drawMask(g, id, alpha = 1) {
+  const Q = (x, y) => P(x, y);
+  if (id === 'mask-fox') {                                   // κιτσούνε: λευκή, κόκκινα σημάδια
+    g.fillStyle(NUM.moon, alpha);
+    g.fillTriangle(-22, -104, -14, -128, -4, -110);
+    g.fillTriangle(22, -104, 14, -128, 4, -110);
+    g.fillPoints([Q(-24, -104), Q(24, -104), Q(20, -80), Q(6, -66), Q(-6, -66), Q(-20, -80)], true);
+    g.fillStyle(NUM.flameDeep, alpha);
+    g.fillTriangle(-18, -108, -14, -122, -9, -110);
+    g.fillTriangle(18, -108, 14, -122, 9, -110);
+    g.fillEllipse(-13, -84, 7, 3); g.fillEllipse(13, -84, 7, 3);
+    g.fillCircle(0, -70, 3);
+  } else if (id === 'mask-tiger') {                          // τίγρης: πορτοκαλί με ρίγες
+    g.fillStyle(NUM.flame, alpha);
+    g.fillCircle(-19, -112, 7); g.fillCircle(19, -112, 7);
+    g.fillPoints([Q(-26, -104), Q(26, -104), Q(22, -78), Q(8, -66), Q(-8, -66), Q(-22, -78)], true);
+    g.fillStyle(NUM.shadow, alpha);
+    for (const x of [-20, -12, 12, 20]) g.fillTriangle(x - 3, -104, x + 3, -104, x, -88);
+    g.fillTriangle(-4, -76, 4, -76, 0, -70);
+  } else if (id === 'mask-dragon') {                         // δράκος: χρυσή με κέρατα
+    g.fillStyle(NUM.flameDeep, alpha);
+    g.fillTriangle(-16, -106, -30, -134, -6, -110);
+    g.fillTriangle(16, -106, 30, -134, 6, -110);
+    g.fillStyle(NUM.lantern, alpha);
+    g.fillPoints([Q(-26, -104), Q(26, -104), Q(24, -84), Q(12, -64), Q(-12, -64), Q(-24, -84)], true);
+    g.fillStyle(NUM.flameDeep, alpha);
+    g.fillPoints([Q(-24, -104), Q(-6, -104), Q(-8, -100), Q(-22, -100)], true);
+    g.fillPoints([Q(24, -104), Q(6, -104), Q(8, -100), Q(22, -100)], true);
+    g.fillTriangle(-10, -70, 10, -70, 0, -62);
+  }
+}
+
+/** Το εικονίδιο ενός είδους του καταστήματος, γύρω από (cx, cy), μέγεθος s. */
+export function drawShopIcon(g, it, cx, cy, s, alpha = 1) {
+  const Q = (x, y) => P(cx + x * s, cy + y * s);
+  if (it.cat === 'sword') {
+    const blade = SWORD_BLADE[it.tier] || NUM.moon;
+    g.fillStyle(blade, alpha);
+    g.fillPoints([Q(-.42, .3), Q(.78, -.9), Q(.92, -.98), Q(.86, -.78), Q(-.3, .42)], true);
+    if (it.tier >= 2) {                                      // λάμψη στην κόψη
+      g.lineStyle(Math.max(1.5, s * .06), it.tier === 3 ? NUM.moon : NUM.flameCore, alpha);
+      g.lineBetween(cx - .36 * s, cy + .32 * s, cx + .84 * s, cy - .88 * s);
+    }
+    g.fillStyle(it.tier === 4 ? NUM.flameDeep : NUM.lantern, alpha);   // φύλακας
+    g.fillCircle(cx - .42 * s, cy + .42 * s, .16 * s);
+    g.fillStyle(NUM.nightHigh, alpha);
+    g.fillPoints([Q(-.5, .44), Q(-.86, .8), Q(-.8, .86), Q(-.44, .5)], true);
+  } else if (it.cat === 'mask') {
+    const k = s / 34;
+    // Μικρό κεφάλι νίντζα από πίσω, για να «διαβάζεται» ως μάσκα· η μάσκα
+    // είναι ζωγραφισμένη στις συντεταγμένες του κεφαλιού και μεταφέρεται εδώ
+    g.fillStyle(NUM.dojoRoof, alpha);
+    g.fillCircle(cx, cy + 4 * k, 27 * k);
+    drawMaskAt(g, it.id, cx, cy + 96 * k, k, alpha);
+  } else if (it.cat === 'magnet') {                          // χάρτινο φανάρι με σπίθες
+    g.fillStyle(NUM.lantern, alpha);
+    g.fillRoundedRect(cx - .42 * s, cy - .5 * s, .84 * s, 1 * s, .3 * s);
+    g.fillStyle(NUM.flameDeep, alpha);
+    g.fillRect(cx - .3 * s, cy - .66 * s, .6 * s, .16 * s);
+    g.fillRect(cx - .3 * s, cy + .5 * s, .6 * s, .14 * s);
+    g.lineStyle(Math.max(1, s * .05), NUM.flame, alpha * .7);
+    for (const y of [-.2, .1]) g.lineBetween(cx - .4 * s, cy + y * s, cx + .4 * s, cy + y * s);
+    g.fillStyle(NUM.flameCore, alpha);
+    for (let i = 0; i < (it.level || 1); i++) g.fillCircle(cx + .64 * s, cy + (-.5 + i * .45) * s, .11 * s);   // μία σπίθα ανά επίπεδο
+  } else if (it.cat === 'ribbon') {                          // κορδέλα με δύο ουρές
+    const col = NUM[it.color] || NUM.flame;
+    g.fillStyle(NUM.dojoRoof, alpha);
+    g.fillCircle(cx + .1 * s, cy, .5 * s);
+    g.fillStyle(col, alpha);
+    g.fillRect(cx - .4 * s, cy - .14 * s, 1 * s, .22 * s);
+    g.fillPoints([Q(-.4, -.1), Q(-.95, -.35), Q(-.9, -.15), Q(-.4, .08)], true);
+    g.fillPoints([Q(-.4, 0), Q(-.85, .3), Q(-.75, .4), Q(-.4, .12)], true);
+  }
+}
+
+// Η μάσκα σε οποιαδήποτε θέση/κλίμακα: μεταφράζει τα σημεία του drawMask
+function drawMaskAt(g, id, ox, oy, k, alpha) {
+  const proxy = new Proxy(g, {
+    get(target, prop) {
+      const T = (x, y) => [ox + x * k, oy + y * k];
+      if (prop === 'fillTriangle') return (a, b, c, d, e, f) => {
+        const [x1, y1] = T(a, b), [x2, y2] = T(c, d), [x3, y3] = T(e, f);
+        target.fillTriangle(x1, y1, x2, y2, x3, y3);
+      };
+      if (prop === 'fillPoints') return (pts, close) => target.fillPoints(pts.map((p) => P(...T(p.x, p.y))), close);
+      if (prop === 'fillCircle') return (x, y, r) => { const [a, b] = T(x, y); target.fillCircle(a, b, r * k); };
+      if (prop === 'fillEllipse') return (x, y, w, h) => { const [a, b] = T(x, y); target.fillEllipse(a, b, w * k, h * k); };
+      const v = target[prop];
+      return typeof v === 'function' ? v.bind(target) : v;
+    }
+  });
+  drawMask(proxy, id, alpha);
+}
+
 export function buildVignette(scene) {
   return scene.add.image(W / 2, H / 2, 'vignette').setDisplaySize(W, H).setDepth(40);
 }

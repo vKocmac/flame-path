@@ -6,6 +6,7 @@ import * as engine from '../learning/engine.js';
 import TitleScene from './scenes/TitleScene.js';
 import BattleScene from './scenes/BattleScene.js';
 import PauseScene from './scenes/PauseScene.js';
+import ShopScene from './scenes/ShopScene.js';
 
 // Οι γραμματοσειρές πρέπει να είναι φορτωμένες ΠΡΙΝ ζωγραφίσει το Phaser
 // κείμενο — αλλιώς μετράει λάθος πλάτη και τα κεντραρίσματα χαλάνε.
@@ -26,7 +27,7 @@ function boot() {
       autoCenter: Phaser.Scale.CENTER_BOTH
     },
     render: { antialias: true },
-    scene: [TitleScene, BattleScene, PauseScene]
+    scene: [TitleScene, BattleScene, PauseScene, ShopScene]
   });
 
   // Η φλόγα φόρτωσης (index.html) φεύγει ΜΟΛΙΣ ξεκινήσει το παιχνίδι. Πίσω
