@@ -766,6 +766,96 @@ export function strike() {
   src.start(t); src.stop(t + 0.4);
 }
 
+/**
+ * Η ΦΩΝΗ του Μάστερ Γου (NEXT-FIXES Ζ14, απόφαση 11/09: «φωνή του κινητού,
+ * βαθιά»). Η σύνθεση ομιλίας του browser ΔΕΝ περνά από το Web Audio — δεν
+ * γίνεται βραχνάδα ή παραμόρφωση. Ό,τι γίνεται: ο πιο χαμηλός τόνος, αργά,
+ * και το υπόκωφο μουγκρητό (omen) από κάτω. Μόνο ελληνική φωνή· αν η συσκευή
+ * δεν έχει, σιωπή (μια αγγλική φωνή να διαβάζει ελληνικά θα ήταν γελοία).
+ * Ακολουθεί τον διακόπτη των εφέ. ΠΟΤΕ για τα λάθη του παιδιού — τη
+ * χρησιμοποιούν μόνο οι ατάκες του (masterSays).
+ */
+let greekVoice;
+function findGreek() {
+  const vs = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  greekVoice = vs.find((v) => /^el/i.test(v.lang) && /google/i.test(v.name))
+    || vs.find((v) => /^el/i.test(v.lang)) || null;
+}
+if (window.speechSynthesis) {
+  findGreek();
+  window.speechSynthesis.addEventListener?.('voiceschanged', findGreek);
+}
+
+export function speak(text) {
+  const ss = window.speechSynthesis;
+  if (!ss || !fxOn || muted || held) return;
+  if (greekVoice === undefined || greekVoice === null) findGreek();
+  if (!greekVoice) return;
+  ss.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/…/g, '...'));
+  u.voice = greekVoice;
+  u.lang = greekVoice.lang;
+  u.pitch = 0.05;          // το πιο βαθύ που δίνει ο browser
+  u.rate = 0.8;
+  u.volume = 1;
+  ss.speak(u);
+}
+
+/** Η κόψη του σπαθιού: σύντομο «σουίς» που ανεβαίνει και ένα μεταλλικό τσιν. */
+export function slash() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(0.25);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'bandpass';
+  hp.frequency.setValueAtTime(1200, t);
+  hp.frequency.exponentialRampToValueAtTime(5200, t + 0.12);
+  hp.Q.value = 1.2;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  src.connect(hp).connect(g).connect(fxGain);
+  src.start(t); src.stop(t + 0.25);
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.value = 2400;
+  const og = ctx.createGain();
+  og.gain.setValueAtTime(0.0001, t + 0.05);
+  og.gain.exponentialRampToValueAtTime(0.05, t + 0.06);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+  o.connect(og).connect(fxGain);
+  o.start(t + 0.05); o.stop(t + 0.4);
+}
+
+/** Το ηφαίστειο: βαθύ βουητό της γης που φουσκώνει και σβήνει. */
+export function rumble() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(1.6);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 160;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.5, t + 0.12);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+  src.connect(lp).connect(g).connect(fxGain);
+  src.start(t); src.stop(t + 1.6);
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(52, t);
+  o.frequency.exponentialRampToValueAtTime(30, t + 1.2);
+  const og = ctx.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(0.25, t + 0.05);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+  o.connect(og).connect(fxGain);
+  o.start(t); o.stop(t + 1.4);
+}
+
 export function setMusic(on) {
   musicOn = on;
   if (musicGain) musicGain.gain.value = on ? 1 : 0;
@@ -795,6 +885,7 @@ export function setMuted(m) {
 let held = false;
 export function hold(on) {
   held = on;
+  if (on && window.speechSynthesis) window.speechSynthesis.cancel();   // η φωνή σωπαίνει κι αυτή
   if (!master || !ctx) return;
   const t = ctx.currentTime;
   master.gain.cancelScheduledValues(t);

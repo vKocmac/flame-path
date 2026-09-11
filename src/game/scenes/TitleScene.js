@@ -160,34 +160,53 @@ export default class TitleScene extends Phaser.Scene {
     }).setOrigin(.5).setAlpha(.8).setDepth(45);
     name.setShadow(0, 0, HEX.shadow, 8, false, true);
 
-    // Δυνάμεις (αριστερά) και τεχνικές (δεξιά)
-    const y2 = 278, rr = 17, gap = 44;
+    // Η ζώνη ΜΠΡΟΣΤΑ από τον Δρόμο (όπως στο HUD της μάχης): ο κύκλος του
+    world.drawBelt(g, x0 - 62, y - 4, 1, journey.beltColor(jr.cycle));
+
+    // Ζ4 (11/09 βράδυ): «κάτι στρογγυλά… είναι ξεκάθαρο τι είναι;» Όχι ήταν —
+    // δυνάμεις, τεχνικές και ζώνη σε μία σειρά ίδιων κύκλων. Τώρα δύο
+    // ΞΕΧΩΡΙΣΤΕΣ πλάκες, η καθεμιά με τη μικρή λεζάντα της:
+    //   ΔΥΝΑΜΕΙΣ — όσες έχει αναμμένες· οι κλειδωμένες σβηστές με λουκέτο και
+    //              το σύμβολο του σταθμού όπου ξεκλειδώνουν
+    //   ΤΕΧΝΙΚΕΣ — δαχτυλίδι που γεμίζει όσο κατακτά λέξεις
+    const y2 = 292, rr = 20, gap = 54;
     const unlocked = journey.unlockedPowers(jr.station, jr.cycle);
     const mastered = journey.masteredCount(who);
     const have = journey.unlockedPerks(mastered);
-    const total = gap * (journey.POWERS.length + journey.PERKS.length - 1) + 36 + 70;
-    let cx = W / 2 + 30 - total / 2;
+    const pw = gap * journey.POWERS.length + 10, kw = gap * journey.PERKS.length + 10;
+    // Δεξιά από την παγόδα (φτάνει ως x ~545): εκεί ο ουρανός είναι άδειος
+    const px0 = 590, kx0 = px0 + pw + 36;
+    const plate = (x, w, label) => {
+      g.fillStyle(NUM.night, .72);
+      g.fillRoundedRect(x, y2 - 34, w, 68, 22);
+      g.lineStyle(2, NUM.smoke, .3);
+      g.strokeRoundedRect(x, y2 - 34, w, 68, 22);
+      const t = this.add.text(x + w / 2, y2 + 48, label, {
+        fontFamily: FONT.ui, fontSize: '17px', color: HEX.lantern
+      }).setOrigin(.5).setAlpha(.75).setDepth(45);
+      t.setShadow(0, 0, HEX.shadow, 8, false, true);
+    };
+    plate(px0, pw, TXT.powersLabel);
+    plate(kx0, kw, TXT.perksLabel);
 
-    // η ζώνη πρώτη: λωρίδα, κόμπος, δύο ουρές — το χρώμα του κύκλου
-    const belt = journey.beltColor(jr.cycle);
-    g.fillStyle(belt, 1);
-    g.fillRoundedRect(cx - 24, y2 - 8, 48, 11, 5);
-    g.fillPoints([P(cx - 2, y2), P(cx + 4, y2), P(cx - 6, y2 + 20), P(cx - 12, y2 + 18)], true);
-    g.fillPoints([P(cx - 2, y2), P(cx + 4, y2), P(cx + 14, y2 + 18), P(cx + 8, y2 + 20)], true);
-    g.fillStyle(NUM.shadow, .35);
-    g.fillRoundedRect(cx - 7, y2 - 10, 14, 15, 3);
-    cx += 70;
-
-    for (const { id } of journey.POWERS) {
+    let cx = px0 + 5 + gap / 2;
+    for (const { id, at } of journey.POWERS) {
       const on = unlocked.includes(id);
-      g.fillStyle(on ? NUM.flameDeep : NUM.shadow, on ? .9 : .6);
+      g.fillStyle(on ? NUM.flameDeep : NUM.shadow, on ? .95 : .7);
       g.fillCircle(cx, y2, rr);
-      g.lineStyle(2, on ? NUM.flameCore : NUM.smoke, on ? .9 : .3);
+      g.lineStyle(2.5, on ? NUM.flameCore : NUM.smoke, on ? .95 : .3);
       g.strokeCircle(cx, y2, rr);
-      world.drawPowerIcon(g, id, cx, y2, rr * .6, on ? NUM.flameCore : NUM.nightHigh, on ? 1 : .8);
+      world.drawPowerIcon(g, id, cx, y2, rr * .6, on ? NUM.flameCore : NUM.nightHigh, on ? 1 : .9);
+      if (!on) {                                   // λουκέτο + πού ξεκλειδώνει
+        g.fillStyle(NUM.smoke, .9);
+        g.fillRoundedRect(cx + 7, y2 + 6, 13, 10, 2);
+        g.lineStyle(2, NUM.smoke, .9);
+        g.beginPath(); g.arc(cx + 13.5, y2 + 6, 4.5, Math.PI, 0, false); g.strokePath();
+        world.drawStationIcon(g, at, cx - 12, y2 + 12, 5.5, NUM.smoke, .8);
+      }
       cx += gap;
     }
-    cx += 36;                                                  // χώρισμα
+    cx = kx0 + 5 + gap / 2;
     for (const p of journey.PERKS) {
       const on = have.includes(p.id);
       const f = Math.min(1, mastered / p.need);

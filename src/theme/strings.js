@@ -44,8 +44,15 @@ export const TXT = {
   tapToGo: 'άγγιξε για να συνεχίσεις',
   finalBattle: 'η τελική μάχη',
   newPower: 'Νέα δύναμη',
-  powers: { tornado: 'Πύρινος Ανεμοστρόβιλος', lightning: 'Κεραυνός', ice: 'Πάγος' },
+  powers: {
+    tornado: 'Πύρινος Ανεμοστρόβιλος', clones: 'Σκιώδεις Κλώνοι', volcano: 'Ηφαίστειο',
+    dragon: 'Δράκος της Φλόγας', lightning: 'Κεραυνός'
+  },
   powerReady: 'άγγιξε!',
+  weapons: { fire: 'Φλόγα', plasma: 'Πλάσμα', volt: 'Ηλεκτρισμός', star: 'Αστέρι του Φωτός' },
+  newWeapon: 'Νέο όπλο',
+  powersLabel: 'δυνάμεις',
+  perksLabel: 'τεχνικές',
   victory: 'Νίκησες τον Μάστερ Γου!',
   victorySub: 'Τα γράμματα γύρισαν στο ντότζο.',
   newBelt: 'Νέα ζώνη',

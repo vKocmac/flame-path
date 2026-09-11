@@ -6,6 +6,10 @@ import { NUM } from '../theme/palette.js';
 
 export const W = 1280;
 export const H = 720;
+// Τα σημάδια της σκηνής της μάχης: η γραμμή όπου πατούν οι μορφές και η
+// θέση του νίντζα. Εδώ, για να τα μοιράζονται η μάχη και οι δυνάμεις (powers.js).
+export const LINE_Y = 640;
+export const NINJA_X = 220;
 
 // Κορυφογραμμές ως ποσοστά — γραμμένες στο χέρι για σύνθεση, όχι τυχαίες:
 // ο κόσμος πρέπει να είναι ο ίδιος τόπος κάθε φορά. Μία κυρίαρχη κορυφή
@@ -725,22 +729,33 @@ export function buildStation(scene, station, layer, calm = false) {
  * μέγεθος s, ώστε το ίδιο σχήμα να μπαίνει στο HUD, στον χάρτη και στον τίτλο.
  */
 export function drawPowerIcon(g, id, cx, cy, s, color, alpha = 1) {
+  const Q = (px, py) => P(cx + px * s, cy + py * s);
   if (id === 'lightning') {
     g.fillStyle(color, alpha);
     g.fillPoints([[.28, -1], [-.48, .12], [-.04, .12], [-.32, 1], [.52, -.22], [.08, -.22], [.46, -1]]
-      .map(([px, py]) => P(cx + px * s, cy + py * s)), true);
-  } else if (id === 'ice') {
-    g.lineStyle(Math.max(1.5, s * .17), color, alpha);
-    for (let i = 0; i < 3; i++) {
-      const a = i * Math.PI / 3, dx = Math.cos(a), dy = Math.sin(a);
-      g.lineBetween(cx - dx * s, cy - dy * s, cx + dx * s, cy + dy * s);
-      for (const e of [-1, 1]) {
-        const ex = cx + dx * s * .58 * e, ey = cy + dy * s * .58 * e;
-        for (const b of [.8, -.8]) {
-          g.lineBetween(ex, ey, ex + Math.cos(a + b) * s * .34 * e, ey + Math.sin(a + b) * s * .34 * e);
-        }
-      }
+      .map(([px, py]) => Q(px, py)), true);
+  } else if (id === 'dragon') {                        // κεφάλι δράκου με κέρατα, προς τα δεξιά
+    g.fillStyle(color, alpha);
+    g.fillPoints([Q(-.85, -.15), Q(-.2, -.45), Q(.55, -.28), Q(.95, .05), Q(.45, .2), Q(.75, .5),
+      Q(.1, .42), Q(-.55, .5)], true);
+    g.fillTriangle(cx - .35 * s, cy - .38 * s, cx - .95 * s, cy - .95 * s, cx - .05 * s, cy - .44 * s);
+    g.fillStyle(NUM.shadow, alpha);
+    g.fillCircle(cx + .18 * s, cy - .12 * s, .12 * s);
+  } else if (id === 'clones') {                        // τρία κεφάλια νίντζα, το μπροστινό μεγάλο
+    for (const [ox, oy, k, a] of [[-.52, -.12, .5, .55], [.52, -.12, .5, .55], [0, .1, .66, 1]]) {
+      g.fillStyle(color, alpha * a);
+      g.fillCircle(cx + ox * s, cy + oy * s, k * s);
+      g.fillStyle(NUM.shadow, alpha);
+      g.fillRoundedRect(cx + (ox - k * .62) * s, cy + (oy - k * .2) * s, k * 1.24 * s, k * .32 * s, k * .14 * s);
     }
+  } else if (id === 'volcano') {                       // βουνό με κρατήρα και σταγόνες λάβας
+    g.fillStyle(color, alpha);
+    g.fillPoints([Q(-1, .85), Q(-.28, -.3), Q(.28, -.3), Q(1, .85)], true);
+    g.fillCircle(cx, cy - .62 * s, .16 * s);
+    g.fillCircle(cx - .42 * s, cy - .82 * s, .12 * s);
+    g.fillCircle(cx + .44 * s, cy - .78 * s, .11 * s);
+    g.fillStyle(NUM.shadow, alpha * .6);
+    g.fillPoints([Q(-.18, -.3), Q(.18, -.3), Q(.08, .2), Q(-.1, .3)], true);
   } else {                                             // πύρινος ανεμοστρόβιλος
     g.lineStyle(Math.max(1.5, s * .18), color, alpha);
     for (const [ox, oy, ew, eh] of [[0, -.68, 1.95, .44], [.14, -.2, 1.45, .38], [-.06, .24, 1, .32], [.1, .64, .5, .24]]) {
