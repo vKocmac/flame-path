@@ -774,11 +774,12 @@ await test('Μηδενισμός και εξαγωγή «μόνο λέξεις»
 
 await test('Δυνάμεις: ξεκλειδώνουν με τους σταθμούς· στον 2ο κύκλο όλες', async () => {
   const journey = await import('./src/game/journey.js');
+  // Γύρος 5 (11/09): ο πάγος έφυγε, πέντε δυνάμεις, ο κεραυνός τελευταίος
   eq(journey.unlockedPowers(0, 0), ['tornado'], 'σταθμός 1');
-  eq(journey.unlockedPowers(2, 0), ['tornado', 'lightning'], 'σταθμός 3');
-  eq(journey.unlockedPowers(4, 0), ['tornado', 'lightning', 'ice'], 'σταθμός 5');
-  eq(journey.unlockedPowers(0, 1), ['tornado', 'lightning', 'ice'], '2ος κύκλος');
-  eq(journey.powerUnlockedAt(2, 0), 'lightning', 'ο κεραυνός ανακοινώνεται στον 3ο');
+  eq(journey.unlockedPowers(2, 0), ['tornado', 'clones', 'volcano'], 'σταθμός 3');
+  eq(journey.unlockedPowers(4, 0), ['tornado', 'clones', 'volcano', 'dragon'], 'σταθμός 5');
+  eq(journey.unlockedPowers(0, 1), ['tornado', 'clones', 'volcano', 'dragon', 'lightning'], '2ος κύκλος');
+  eq(journey.powerUnlockedAt(5, 0), 'lightning', 'ο κεραυνός ανακοινώνεται στον 6ο');
   eq(journey.powerUnlockedAt(0, 0), null, 'ο ανεμοστρόβιλος υπάρχει από την αρχή');
   eq(journey.bossHp(6), 8, 'στο κάστρο πιο ανθεκτικός');
 });
