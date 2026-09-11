@@ -5,6 +5,7 @@ import * as audio from '../theme/audio.js';
 import * as engine from '../learning/engine.js';
 import TitleScene from './scenes/TitleScene.js';
 import BattleScene from './scenes/BattleScene.js';
+import PauseScene from './scenes/PauseScene.js';
 
 // Οι γραμματοσειρές πρέπει να είναι φορτωμένες ΠΡΙΝ ζωγραφίσει το Phaser
 // κείμενο — αλλιώς μετράει λάθος πλάτη και τα κεντραρίσματα χαλάνε.
@@ -25,7 +26,7 @@ function boot() {
       autoCenter: Phaser.Scale.CENTER_BOTH
     },
     render: { antialias: true },
-    scene: [TitleScene, BattleScene]
+    scene: [TitleScene, BattleScene, PauseScene]
   });
 
   // Η φλόγα φόρτωσης (index.html) φεύγει ΜΟΛΙΣ ξεκινήσει το παιχνίδι. Πίσω
@@ -157,7 +158,11 @@ function wake(game) {
     if (!game || !game.loop) return;
     if (!game.loop.running) game.loop.wake();
     if (game.scene) {
+      // ΕΚΤΟΣ από τη μάχη που την έβαλε σε παύση το ίδιο το παιδί (Ζ1):
+      // αλλιώς κάθε focus/επιστροφή στην εφαρμογή θα την ξεπάγωνε κάτω από
+      // την οθόνη παύσης.
       game.scene.scenes.forEach((s) => {
+        if (s.userPaused) return;
         if (s.sys.isPaused && s.sys.isPaused()) s.sys.resume();
       });
     }

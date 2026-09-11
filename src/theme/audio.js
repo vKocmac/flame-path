@@ -785,8 +785,21 @@ export function toggleFx() { return setFx(!fxOn); }
 
 export function setMuted(m) {
   muted = m;
-  if (master) master.gain.value = m ? 0 : 1;
+  if (master) master.gain.value = m || held ? 0 : 1;
   return muted;
+}
+
+// Παύση του παιχνιδιού (Ζ1): σιωπή, όχι ctx.suspend(). Με παγωμένο ρολόι
+// του AudioContext τα setTimeout της μουσικής συνεχίζουν και προγραμματίζουν
+// όλα στην ΙΔΙΑ στιγμή — στην επιστροφή θα έσκαγαν δεκάδες τύμπανα μαζί.
+let held = false;
+export function hold(on) {
+  held = on;
+  if (!master || !ctx) return;
+  const t = ctx.currentTime;
+  master.gain.cancelScheduledValues(t);
+  master.gain.setValueAtTime(master.gain.value, t);
+  master.gain.linearRampToValueAtTime(muted || on ? 0 : 1, t + .25);
 }
 
 export function toggleMute() { return setMuted(!muted); }

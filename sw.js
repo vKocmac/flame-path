@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v3.17.0';
+const VERSION = 'flame-v3.18.0';
 
 const CORE = [
   './',
@@ -35,7 +35,8 @@ const CORE = [
   './src/game/world.js',
   './src/game/enemies.js',
   './src/game/scenes/TitleScene.js',
-  './src/game/scenes/BattleScene.js'
+  './src/game/scenes/BattleScene.js',
+  './src/game/scenes/PauseScene.js'
 ];
 
 self.addEventListener('install', (e) => {
