@@ -66,10 +66,12 @@ const ICE_MS = 8000;
 // ξέρει να κάνει ανανέωση. Ξεκολλάμε μόνοι μας.
 const STUCK_MS = 9000;
 const IDLE_MS = 20000;       // χωρίς πρόκληση και χωρίς «απασχολημένη» (δες update)
-// Οι τρεις ζώνες της κάτω λωρίδας του HUD [x, y, πλάτος, ύψος] (δες buildRageBar)
-const HUD_POWER = [12, 659, 504, 58];
-const HUD_WAVE = [530, 659, 240, 58];
-const HUD_ROAD = [784, 659, 484, 58];
+// Οι τρεις ζώνες της ΠΑΝΩ λωρίδας του HUD [x, y, πλάτος, ύψος] (δες buildRageBar).
+// Χωρούν ανάμεσα στο ⏸ (αριστερά) και στις σπίθες (δεξιά), πάνω από τη
+// λεζάντα της Μεγάλης Τεχνικής (y 70) και την περγαμηνή (από y ~88).
+const HUD_POWER = [68, 6, 502, 48];
+const HUD_WAVE = [580, 6, 202, 48];
+const HUD_ROAD = [792, 6, 388, 48];
 
 // Ελάχιστο ορατό μέγεθος φούσκας (HYPER-NOTE §16.7). Το FIT σε 1280×720
 // συρρικνώνει τα πάντα σε κινητό (×0,52): οι 96px της φούσκας γίνονται 50
@@ -1989,7 +1991,7 @@ export default class BattleScene extends Phaser.Scene {
     this.scroll.add([sheet, bg]);
     this.scroll.setScale(0, 1).setAlpha(0);
 
-    this.label = this.add.text(W / 2, 62, '', {
+    this.label = this.add.text(W / 2, 70, '', {
       fontFamily: FONT.ui, fontSize: '22px', color: HEX.lantern
     }).setOrigin(.5).setDepth(21).setAlpha(0);
   }
@@ -3147,56 +3149,23 @@ export default class BattleScene extends Phaser.Scene {
   buildHUD() {
     world.buildVignette(this);
 
-    const back = this.add.text(38, 34, '‹', {
-      fontFamily: FONT.ui, fontSize: '40px', color: HEX.smoke
-    }).setOrigin(.5).setDepth(46).setInteractive({ useHandCursor: true });
-    back.on('pointerdown', () => {
-      this.cameras.main.fadeOut(260, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Title'));
-    });
-
-    // Δύο ΑΝΕΞΑΡΤΗΤΟΙ διακόπτες ήχου (BRANCH-SCOPE §7): μουσική/ambience
-    // αριστερά, εφέ δεξιά. Όχι ένα master mute που κλείνει τα πάντα.
-    const toggleBtn = (x, makeIcon, isOn, flip) => {
-      const icon = makeIcon(x);
-      icon.setDepth(46).setInteractive({ useHandCursor: true });
-      const bar = this.add.rectangle(x, 34, 28, 2, NUM.smoke)
-        .setAngle(-40).setAlpha(isOn() ? 0 : .7).setDepth(47);
-      const paint = () => {
-        const on = isOn();
-        bar.setAlpha(on ? 0 : .7);
-        icon.setAlpha(on ? .6 : .3);
-      };
-      paint();
-      icon.on('pointerdown', () => { flip(); paint(); });
-    };
-
-    toggleBtn(94,
-      (x) => this.add.text(x, 34, '♪', {
-        fontFamily: FONT.ui, fontSize: '26px', color: HEX.smoke
-      }).setOrigin(.5),
-      () => audio.musicOn, () => audio.toggleMusic());
-
-    toggleBtn(142,
-      (x) => this.add.image(x, 34, 'spark').setScale(1.15).setTint(NUM.smoke),
-      () => audio.fxOn, () => audio.toggleFx());
-
-    // Παύση (Ζ1): δύο ράβδοι σε δίσκο — μακριά από το ‹, να μην πατιέται
-    // το ένα αντί για το άλλο.
-    const pz = this.add.graphics({ x: 206, y: 34 }).setDepth(46);
-    pz.fillStyle(NUM.shadow, .6);
-    pz.fillCircle(0, 0, 21);
-    pz.lineStyle(2, NUM.smoke, .7);
-    pz.strokeCircle(0, 0, 21);
-    pz.fillStyle(NUM.parchment, .85);
-    pz.fillRoundedRect(-9, -10, 6, 20, 2);
-    pz.fillRoundedRect(3, -10, 6, 20, 2);
-    this.add.zone(206, 34, 56, 44).setDepth(47).setInteractive({ useHandCursor: true })
+    // Πάνω αριστερά ΜΟΝΟ η παύση (Ζ1/Ζ4, 11/09 βράδυ). Το ‹ (πίσω) και οι
+    // διακόπτες ήχου μπήκαν ΜΕΣΑ στην οθόνη παύσης: έτσι χωρά η λωρίδα του
+    // HUD, και το παιδί δεν πατά κατά λάθος «πίσω» στη μέση της μάχης.
+    const pz = this.add.graphics({ x: 34, y: 30 }).setDepth(46);
+    pz.fillStyle(NUM.night, .8);
+    pz.fillCircle(0, 0, 23);
+    pz.lineStyle(2, NUM.smoke, .6);
+    pz.strokeCircle(0, 0, 23);
+    pz.fillStyle(NUM.parchment, .9);
+    pz.fillRoundedRect(-9, -11, 6, 22, 2);
+    pz.fillRoundedRect(3, -11, 6, 22, 2);
+    this.add.zone(34, 30, 64, 60).setDepth(47).setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.pauseGame());
 
-    this.sparkIcon = this.add.image(W - 96, 36, 'spark')
+    this.sparkIcon = this.add.image(W - 70, 30, 'spark')
       .setScale(1.1).setBlendMode(Phaser.BlendModes.ADD).setDepth(46);
-    this.sparkLabel = this.add.text(W - 70, 36, String(store.getSparks(store.loadState())), {
+    this.sparkLabel = this.add.text(W - 52, 30, String(store.getSparks(store.loadState())), {
       fontFamily: FONT.ui, fontSize: '26px', fontStyle: '700', color: HEX.lantern
     }).setOrigin(0, .5).setDepth(46);
 
@@ -3257,7 +3226,7 @@ export default class BattleScene extends Phaser.Scene {
     const place = () => {
       if (!box.scene) return;
       const x = Math.max(w / 2 + 12, m.x - 70 * m.scaleX - w / 2);
-      box.setPosition(x, Math.max(h / 2 + 8, m.y - 40 * m.scaleY));
+      box.setPosition(x, Math.max(h / 2 + 64, m.y - 40 * m.scaleY));   // κάτω από τη λωρίδα του HUD
     };
     place();
     this.events.on('update', place);
@@ -3314,18 +3283,18 @@ export default class BattleScene extends Phaser.Scene {
    * Πάνω μένουν μόνο τα κουμπιά (‹ ♪ ✦ ⏸) και οι σπίθες.
    */
   buildRageBar() {
-    const [px, py] = HUD_POWER;
-    this.rageBox = { x: px + 22, y: py + 17, w: 300, h: 24 };
+    const [px, py, , ph] = HUD_POWER;
+    this.rageBox = { x: px + 20, y: py + ph / 2 - 11, w: 240, h: 22 };
     const bg = this.make.graphics({ x: 0, y: 0 }, false);
     bg.hudKey = 'hud-panels';
     bg.hudW = W;
-    bg.hudH = H - HUD_POWER[1] + 4;
-    bg.hudImg = this.add.image(0, HUD_POWER[1] - 4, '__DEFAULT').setOrigin(0).setDepth(45);
-    for (const [x, y, w, h] of [HUD_POWER, HUD_WAVE, HUD_ROAD]) {
-      bg.fillStyle(NUM.night, .78);
-      bg.fillRoundedRect(x, y - HUD_POWER[1] + 4, w, h, h / 2);
+    bg.hudH = ph + 8;
+    bg.hudImg = this.add.image(0, py - 4, '__DEFAULT').setOrigin(0).setDepth(45);
+    for (const [x, , w, h] of [HUD_POWER, HUD_WAVE, HUD_ROAD]) {
+      bg.fillStyle(NUM.night, .8);
+      bg.fillRoundedRect(x, 4, w, h, h / 2);
       bg.lineStyle(2, NUM.smoke, .32);
-      bg.strokeRoundedRect(x, y - HUD_POWER[1] + 4, w, h, h / 2);
+      bg.strokeRoundedRect(x, 4, w, h, h / 2);
     }
     this.bakeHud(bg);
 
@@ -3334,10 +3303,10 @@ export default class BattleScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
     this.powerG = this.hudLayer('power', HUD_POWER);
     this.waveG = this.hudLayer('wave', HUD_WAVE);
-    this.pathGlow = this.add.image(0, 0, 'glow-flame').setScale(.32).setAlpha(.7)
+    this.pathGlow = this.add.image(0, 0, 'glow-flame').setScale(.28).setAlpha(.7)
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
     if (!this.calm) {
-      this.tweens.add({ targets: this.pathGlow, alpha: .25, scale: .42, duration: 900,
+      this.tweens.add({ targets: this.pathGlow, alpha: .25, scale: .38, duration: 900,
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
     this.pathG = this.hudLayer('path', HUD_ROAD);
@@ -3345,7 +3314,7 @@ export default class BattleScene extends Phaser.Scene {
     this.drawMiniPath();
     // Δύο μεγάλοι στόχοι αφής για την απελευθέρωση: η ζώνη της δύναμης ΚΑΙ ο νίντζα
     const [zx, zy, zw, zh] = HUD_POWER;
-    this.add.zone(zx - 6, zy - 10, zw + 12, H - zy + 10).setOrigin(0).setDepth(47)
+    this.add.zone(zx - 6, 0, zw + 12, zy + zh + 10).setOrigin(0).setDepth(47)
       .setInteractive({ useHandCursor: true }).on('pointerdown', () => this.unleash());
     this.add.zone(NINJA_X, LINE_Y - 70, 150, 170).setOrigin(.5).setDepth(47)
       .setInteractive().on('pointerdown', () => this.unleash());
@@ -3391,12 +3360,12 @@ export default class BattleScene extends Phaser.Scene {
     const unlocked = journey.unlockedPowers(this.station, this.cycle);
     const next = this.nextPower();
     const cy = y + h / 2;
-    let left = x + w + 22;
+    let left = x + w + 18;
     for (const { id } of journey.POWERS) {
       const has = unlocked.includes(id), main = id === next;
-      const r = main ? 24 : 17;
+      const r = main ? 21 : 15;
       const cx = left + r;
-      left = cx + r + 10;
+      left = cx + r + 8;
       g.fillStyle(main && this.rageReady ? NUM.flameDeep : NUM.shadow, has ? .85 : .4);
       g.fillCircle(cx, cy, r);
       g.lineStyle(main ? 2.5 : 1.5, main ? (this.rageReady ? NUM.flameCore : NUM.flame) : NUM.smoke,
@@ -3419,10 +3388,10 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   drawWaves() {
-    const x = 20, w = 170;                    // τοπικά, μέσα στη ζώνη HUD_WAVE
+    const x = 18, w = 130;                    // τοπικά, μέσα στη ζώνη HUD_WAVE
     const g = this.waveG;
     g.clear();
-    const hh = 16, top = HUD_WAVE[3] / 2 - hh / 2, gap = 8;
+    const hh = 14, top = HUD_WAVE[3] / 2 - hh / 2, gap = 8;
     const segW = (w - gap * (BOSS_EVERY - 1)) / BOSS_EVERY;
     const cur = (Math.max(1, this.wave || 1) - 1) % BOSS_EVERY;
     const prog = this.waveProgress();
@@ -3441,7 +3410,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     // Ο Μάστερ Γου στο τέλος της μπάρας: κουκούλα με δύο μάτια που ανάβουν
     // όταν έρθει η σειρά του.
-    const mx = x + w + 26, my = top + hh / 2, k = 1.6;
+    const mx = x + w + 24, my = top + hh / 2, k = 1.4;
     const his = cur === BOSS_EVERY - 1;
     g.fillStyle(his ? NUM.nightHigh : NUM.shadow, 1);
     g.fillTriangle(mx - 10 * k, my + 9 * k, mx + 10 * k, my + 9 * k, mx, my - 11 * k);
@@ -3462,8 +3431,8 @@ export default class BattleScene extends Phaser.Scene {
   drawMiniPath() {
     const g = this.pathG;
     g.clear();
-    const y = HUD_ROAD[3] / 2, x0 = 96, step = 60, n = journey.STATIONS;
-    world.drawBelt(g, 40, y - 6, .82, journey.beltColor(this.cycle));
+    const y = HUD_ROAD[3] / 2, x0 = 78, step = 47, n = journey.STATIONS;
+    world.drawBelt(g, 36, y - 5, .7, journey.beltColor(this.cycle));
     g.lineStyle(4, NUM.nightHigh, .95);
     g.lineBetween(x0, y, x0 + step * (n - 1), y);
     if (this.station > 0) {
@@ -3473,7 +3442,7 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 0; i < n; i++) {
       const cx = x0 + i * step;
       const here = i === this.station, past = i < this.station;
-      const r = here ? 19 : 14;
+      const r = here ? 17 : 12.5;
       g.fillStyle(here ? NUM.flame : past ? NUM.lantern : NUM.shadow, 1);
       g.fillCircle(cx, y, r);
       g.lineStyle(here ? 3 : 2, here ? NUM.flameCore : past ? NUM.flameCore : NUM.smoke, here ? 1 : past ? .7 : .45);

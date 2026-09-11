@@ -112,7 +112,20 @@ const WAVES = [
   ['smoke',  'wraith', 'heavy'],    // πρώτη φορά κάτι που δεν πέφτει
   ['ninja',  'wraith', 'dragon'],
   ['ninja',  'heavy',  'wraith'],
-  ['wraith', 'ninja',  'heavy']     // από εδώ και πέρα μένει εδώ
+  ['wraith', 'ninja',  'heavy']
+];
+
+// Μετά το τέλος του πίνακα ΔΕΝ μένουμε πια στην τελευταία γραμμή: εκείνη
+// δεν είχε δράκο, και από ένα σημείο και μετά οι δράκοι χάνονταν για πάντα
+// («μετά από ένα σημείο δε φέρνει δράκους… του λείπουν» — Σταύρος μέσω
+// Κοσμά, 11/09). Τα αργά κύματα γυρίζουν σε κύκλο, δράκος στα μισά.
+const LATE_WAVES = [
+  ['ninja',  'wraith', 'dragon'],
+  ['wraith', 'ninja',  'heavy'],
+  ['smoke',  'heavy',  'dragon'],
+  ['ninja',  'heavy',  'wraith'],
+  ['wraith', 'ninja',  'dragon'],
+  ['ninja',  'smoke',  'heavy']
 ];
 
 // Πόσα κύματα ΧΩΡΙΣ αφεντικό έχουν περάσει πριν από αυτό.
@@ -127,7 +140,8 @@ function waveIndex(wave) {
  * @returns {string[]} αρχέτυπα από μπροστά προς τα πίσω
  */
 export function waveComposition(wave) {
-  return WAVES[Math.min(waveIndex(wave), WAVES.length - 1)];
+  const i = waveIndex(wave);
+  return i < WAVES.length ? WAVES[i] : LATE_WAVES[(i - WAVES.length) % LATE_WAVES.length];
 }
 
 /**
