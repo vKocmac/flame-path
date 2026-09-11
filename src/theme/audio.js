@@ -828,8 +828,19 @@ function raspOff() {
   src.stop(t + 0.35); trem.stop(t + 0.35);
 }
 
+// Τα ΚΕΦΑΛΑΙΑ η φωνή τα διαβάζει γράμμα-γράμμα («Δ-Ι-Κ-Α» — Κοσμάς, 11/09).
+// Στην οθόνη μένουν κεφαλαία για έμφαση· στη φωνή γίνονται πεζά. Τα κεφαλαία
+// δεν έχουν τόνο, οπότε όσα γνωρίζουμε παίρνουν τον σωστό από εδώ.
+const SPOKEN = { 'ΔΙΚΑ': 'δικά' };
+function forVoice(text) {
+  return text
+    .replace(/[Α-ΩΪΫΆΈΉΊΌΎΏ]{2,}/g, (w) => SPOKEN[w] || w.toLowerCase())
+    .replace(/…/g, '...');
+}
+
 let speakGen = 0;
 export function speak(text) {
+  text = forVoice(text);
   const ss = window.speechSynthesis;
   if (!ss || !fxOn || muted || held) return;
   if (greekVoice === undefined || greekVoice === null) findGreek();
