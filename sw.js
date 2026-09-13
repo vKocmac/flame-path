@@ -1,6 +1,6 @@
 // Service worker — offline cache. Σε κάθε αλλαγή αρχείων ανεβαίνει το VERSION,
 // αλλιώς οι συσκευές κρατούν την παλιά έκδοση.
-const VERSION = 'flame-v3.21.0';
+const VERSION = 'flame-v3.22.0';
 
 const CORE = [
   './',
@@ -18,6 +18,20 @@ const CORE = [
   './assets/img/icon-512.png',
   './assets/img/icon-maskable-512.png',
   './assets/img/flame.png',
+  './assets/voice/horde-1.mp3',
+  './assets/voice/horde-2.mp3',
+  './assets/voice/horde-3.mp3',
+  './assets/voice/horde-4.mp3',
+  './assets/voice/horde-5.mp3',
+  './assets/voice/horde-6.mp3',
+  './assets/voice/horde-7.mp3',
+  './assets/voice/descend-1.mp3',
+  './assets/voice/descend-2.mp3',
+  './assets/voice/descend-3.mp3',
+  './assets/voice/descend-4.mp3',
+  './assets/voice/descend-5.mp3',
+  './assets/voice/descend-6.mp3',
+  './assets/voice/descend-7.mp3',
   './src/shared/ids.js',
   './src/shared/graphemes.js',
   './src/shared/storage.js',

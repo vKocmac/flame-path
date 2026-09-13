@@ -1,5 +1,6 @@
 // Ήχος — παράγεται προγραμματιστικά με Web Audio (καθόλου αρχεία mp3).
 // Λόγοι: μηδέν βάρος στο offline πακέτο, μηδέν θέμα αδειών, πλήρης έλεγχος.
+// ΜΟΝΗ εξαίρεση: η φωνή του Μάστερ Γου — ηχογραφήσεις στο assets/voice/ (13/09).
 // Οι browsers δεν επιτρέπουν ήχο πριν το πρώτο άγγιγμα — γι' αυτό unlock().
 
 // Δύο ΑΝΕΞΑΡΤΗΤΑ κανάλια (BRANCH-SCOPE §7 / HYPER-NOTE §11):
@@ -57,6 +58,7 @@ export function unlock() {
   fxGain = ctx.createGain();
   fxGain.gain.value = fxOn ? 1 : 0;
   fxGain.connect(master);
+  loadVoices();                  // οι ατάκες του Μάστερ Γου, έτοιμες πριν τη μάχη
 }
 
 // Νυχτερινό αεράκι: φιλτραρισμένος θόρυβος με αργή αναπνοή.
@@ -767,106 +769,82 @@ export function strike() {
 }
 
 /**
- * Η ΦΩΝΗ του Μάστερ Γου (NEXT-FIXES Ζ14, απόφαση 11/09: «φωνή του κινητού,
- * βαθιά»). Η σύνθεση ομιλίας του browser ΔΕΝ περνά από το Web Audio — δεν
- * γίνεται βραχνάδα ή παραμόρφωση. Ό,τι γίνεται: ο πιο χαμηλός τόνος, αργά,
- * και το υπόκωφο μουγκρητό (omen) από κάτω. Μόνο ελληνική φωνή· αν η συσκευή
- * δεν έχει, σιωπή (μια αγγλική φωνή να διαβάζει ελληνικά θα ήταν γελοία).
+ * Η ΦΩΝΗ του Μάστερ Γου — ΗΧΟΓΡΑΦΗΣΕΙΣ (13/09).
+ *
+ * Ως τις 13/09 μιλούσε η σύνθεση ομιλίας της συσκευής, και κάθε συσκευή
+ * είχε άλλη φωνή: ανδρική στον υπολογιστή, γυναικεία στο κινητό, καμία στο
+ * tablet (Κοσμάς: «Γιατί;»). Τώρα οι 14 ατάκες είναι αρχεία μέσα στο
+ * παιχνίδι: ίδια φωνή παντού, και χωρίς ίντερνετ (τα κρατά το service worker).
+ *
+ *   assets/voice/horde-N.mp3    ← TXT.masterHorde[N-1]   (στέλνει τις ορδές)
+ *   assets/voice/descend-N.mp3  ← TXT.masterDescends[N-1] (κατεβαίνει ο ίδιος)
+ *
+ * Νέα ηχογράφηση = αντικατάσταση του αρχείου με το ίδιο όνομα. Η ένταση
+ * εξισώνεται μόνη της στη φόρτωση, ώστε μια πιο σιγανή λήψη να μη χάνεται.
  * Ακολουθεί τον διακόπτη των εφέ. ΠΟΤΕ για τα λάθη του παιδιού — τη
  * χρησιμοποιούν μόνο οι ατάκες του (masterSays).
  */
-//
-// «Πιο γέρικη» (Κοσμάς, 11/09): ό,τι επιτρέπει ο browser —
-//   · ΑΝΔΡΙΚΗ ελληνική φωνή όπου υπάρχει (π.χ. Stefanos στα Windows)
-//   · ο πιο χαμηλός τόνος και πιο αργά (0,68)
-//   · γέρικες ΠΑΥΣΕΙΣ: η ατάκα σπάει στα σημεία στίξης, ανάσα ανάμεσα
-//   · από κάτω ένα βραχνό λαχάνιασμα που ΤΡΕΜΕΙ (~6 φορές/δευτ.), φτιαγμένο
-//     στο Web Audio — δίνει την αίσθηση γέρικης, σπασμένης φωνής
-let greekVoice;
-function findGreek() {
-  const vs = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-  const el = vs.filter((v) => /^el/i.test(v.lang));
-  greekVoice = el.find((v) => /stefanos|male|άνδρ|ανδρ/i.test(v.name))
-    || el.find((v) => /google/i.test(v.name)) || el[0] || null;
-}
-if (window.speechSynthesis) {
-  findGreek();
-  window.speechSynthesis.addEventListener?.('voiceschanged', findGreek);
+const VOICE_KEYS = [1, 2, 3, 4, 5, 6, 7].flatMap((n) => [`horde-${n}`, `descend-${n}`]);
+const VOICE_TARGET_DB = -18;    // μέση ένταση ομιλίας που θέλουμε
+const VOICE_LEVEL = 0.9;        // πόσο δυνατά απέναντι στα εφέ — ρυθμίζεται με το αυτί
+const voiceBufs = new Map();    // key → { buf, gain }
+let voiceLoading = null;
+let voiceNow = null;
+
+// Μέση ένταση μόνο εκεί που ΜΙΛΑΕΙ (παράθυρα 20ms πάνω από το κατώφλι):
+// οι σιωπές δεν πρέπει να «φουσκώνουν» μια ατάκα με πολλές παύσεις.
+function speechGain(buf) {
+  const d = buf.getChannelData(0);
+  const win = Math.max(1, Math.round(buf.sampleRate * 0.02));
+  let sum = 0, n = 0;
+  for (let s = 0; s + win <= d.length; s += win) {
+    let q = 0;
+    for (let i = s; i < s + win; i++) q += d[i] * d[i];
+    const ms = q / win;
+    if (ms > 1e-4) { sum += ms; n++; }
+  }
+  if (!n) return 1;
+  const db = 10 * Math.log10(sum / n);
+  return Math.min(2, Math.max(0.5, Math.pow(10, (VOICE_TARGET_DB - db) / 20)));
 }
 
-let rasp = null;
-function raspOn() {
-  if (!ctx || rasp) return;
-  const t = ctx.currentTime;
+function loadVoices() {
+  if (voiceLoading || !ctx) return voiceLoading;
+  voiceLoading = Promise.all(VOICE_KEYS.map(async (key) => {
+    try {
+      const data = await (await fetch(`assets/voice/${key}.mp3`)).arrayBuffer();
+      // Η μορφή με callbacks δουλεύει και στα παλιά Safari (η promise όχι)
+      const buf = await new Promise((res, rej) => ctx.decodeAudioData(data, res, rej));
+      voiceBufs.set(key, { buf, gain: speechGain(buf) });
+    } catch (e) { /* λείπει ή χαλασμένο: η ατάκα μένει γραπτή */ }
+  }));
+  return voiceLoading;
+}
+
+function stopVoice() {
+  if (!voiceNow) return;
+  try { voiceNow.stop(); } catch (e) { /* είχε ήδη τελειώσει */ }
+  voiceNow = null;
+}
+
+/**
+ * Παίζει την ατάκα `key` (π.χ. 'horde-3'). Επιστρέφει πόσα δευτερόλεπτα
+ * κρατά — 0 αν δεν ακούστηκε (σίγαση, εφέ κλειστά, δεν φορτώθηκε ακόμα) —
+ * ώστε το πλαίσιο με τα λόγια να μένει όσο μιλάει.
+ */
+export function voice(key) {
+  const v = voiceBufs.get(key);
+  if (!ctx || !v || !fxOn || muted || held) return 0;
+  stopVoice();
   const src = ctx.createBufferSource();
-  src.buffer = noiseBuffer(3);
-  src.loop = true;
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 900;
-  bp.Q.value = .9;
+  src.buffer = v.buf;
   const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.045, t + 0.25);
-  const trem = ctx.createOscillator();          // το τρέμουλο των γηρατειών
-  trem.frequency.value = 5.8;
-  const tg = ctx.createGain();
-  tg.gain.value = 0.03;
-  trem.connect(tg).connect(g.gain);
-  src.connect(bp).connect(g).connect(fxGain);
-  src.start(t); trem.start(t);
-  rasp = { src, trem, g };
-}
-function raspOff() {
-  if (!rasp || !ctx) return;
-  const { src, trem, g } = rasp;
-  rasp = null;
-  const t = ctx.currentTime;
-  g.gain.cancelScheduledValues(t);
-  g.gain.setValueAtTime(g.gain.value, t);
-  g.gain.linearRampToValueAtTime(0, t + 0.3);
-  src.stop(t + 0.35); trem.stop(t + 0.35);
-}
-
-// Τα ΚΕΦΑΛΑΙΑ η φωνή τα διαβάζει γράμμα-γράμμα («Δ-Ι-Κ-Α» — Κοσμάς, 11/09).
-// Στην οθόνη μένουν κεφαλαία για έμφαση· στη φωνή γίνονται πεζά. Τα κεφαλαία
-// δεν έχουν τόνο, οπότε όσα γνωρίζουμε παίρνουν τον σωστό από εδώ.
-const SPOKEN = { 'ΔΙΚΑ': 'δικά' };
-function forVoice(text) {
-  return text
-    .replace(/[Α-ΩΪΫΆΈΉΊΌΎΏ]{2,}/g, (w) => SPOKEN[w] || w.toLowerCase())
-    .replace(/…/g, '...');
-}
-
-let speakGen = 0;
-export function speak(text) {
-  text = forVoice(text);
-  const ss = window.speechSynthesis;
-  if (!ss || !fxOn || muted || held) return;
-  if (greekVoice === undefined || greekVoice === null) findGreek();
-  if (!greekVoice) return;
-  ss.cancel();
-  raspOff();
-  const gen = ++speakGen;
-  // Κομμάτια στα σημεία στίξης: «Αρκετά! | Θα σε σταματήσω μόνος μου!»
-  // (χωρίς lookbehind στο regex: τα παλιά iPhone δεν το ξέρουν και θα έσπαγε όλο το αρχείο)
-  const parts = (text.replace(/…/g, '...').match(/[^,!;.?·]+[,!;.?·]*/g) || [text])
-    .map((s) => s.trim()).filter(Boolean);
-  const say = (i) => {
-    if (gen !== speakGen || held || i >= parts.length) { if (gen === speakGen) raspOff(); return; }
-    const u = new SpeechSynthesisUtterance(parts[i]);
-    u.voice = greekVoice;
-    u.lang = greekVoice.lang;
-    u.pitch = 0;             // το πιο βαθύ που δίνει ο browser
-    u.rate = 0.68;
-    u.volume = 1;
-    u.onstart = () => { if (gen === speakGen) raspOn(); };
-    u.onend = () => { if (gen === speakGen) { raspOff(); setTimeout(() => say(i + 1), 320); } };
-    u.onerror = () => { if (gen === speakGen) raspOff(); };
-    ss.speak(u);
-  };
-  say(0);
-  setTimeout(() => { if (gen === speakGen) raspOff(); }, 12000);   // δίχτυ: ποτέ ατελείωτο λαχάνιασμα
+  g.gain.value = v.gain * VOICE_LEVEL;
+  src.connect(g).connect(fxGain);
+  src.onended = () => { if (voiceNow === src) voiceNow = null; };
+  src.start();
+  voiceNow = src;
+  return v.buf.duration;
 }
 
 /** Η κόψη του σπαθιού: σύντομο «σουίς» που ανεβαίνει και ένα μεταλλικό τσιν. */
@@ -953,11 +931,7 @@ export function setMuted(m) {
 let held = false;
 export function hold(on) {
   held = on;
-  if (on) {                                   // η φωνή σωπαίνει κι αυτή
-    speakGen++;
-    raspOff();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-  }
+  if (on) stopVoice();                        // η φωνή σωπαίνει κι αυτή
   if (!master || !ctx) return;
   const t = ctx.currentTime;
   master.gain.cancelScheduledValues(t);

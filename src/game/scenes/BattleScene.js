@@ -1387,7 +1387,8 @@ export default class BattleScene extends Phaser.Scene {
     // Μιλάει καθώς κατεβαίνει (Ε5) — ο οιωνός έχει ήδη ακουστεί, χωρίς ήχο
     this.time.delayedCall(700, () => {
       const lines = TXT.masterDescends;
-      this.masterSays(lines[this.station % lines.length], 2400, null, false);
+      const i = this.station % lines.length;
+      this.masterSays(lines[i], 2400, null, false, `descend-${i + 1}`);
     });
 
     // 4. Η χειρονομία: ανοίγει την παλάμη και δύο δαχτυλίδια φεύγουν από μέσα
@@ -3342,7 +3343,8 @@ export default class BattleScene extends Phaser.Scene {
   startLevel() {
     this.hadChallenge = false;             // το δεύτερο δίχτυ περιμένει την πρώτη λέξη
     const lines = TXT.masterHorde;
-    this.masterSays(lines[this.station % lines.length], 2600, () => this.openLevel());
+    const i = this.station % lines.length;
+    this.masterSays(lines[i], 2600, () => this.openLevel(), true, `horde-${i + 1}`);
   }
 
   /**
@@ -3355,8 +3357,9 @@ export default class BattleScene extends Phaser.Scene {
    * @param {number} ms πόσο μένει στην οθόνη
    * @param {() => void} [done]
    * @param {boolean} [sound]
+   * @param {string} [voiceKey] η ηχογράφηση της ατάκας (assets/voice/…)
    */
-  masterSays(text, ms = 2400, done, sound = true) {
+  masterSays(text, ms = 2400, done, sound = true, voiceKey) {
     const m = this.master;
     const t = this.add.text(0, 0, text, {
       fontFamily: FONT.ui, fontSize: '26px', fontStyle: '700', color: HEX.parchment,
@@ -3384,7 +3387,10 @@ export default class BattleScene extends Phaser.Scene {
     // στα events της σκηνής (το Phaser τα κρατά από μάχη σε μάχη).
     this.events.once('shutdown', () => this.events.off('update', place));
     if (sound) audio.omen();
-    audio.speak(text);                       // Ζ14: και φωνή — βαθιά, αργή
+    // Η φωνή του (ηχογράφηση, 13/09). Το πλαίσιο μένει ΟΣΟ μιλάει — το
+    // «κάστρο» κρατά 7 δευτ. και θα κοβόταν στη μέση.
+    const secs = voiceKey ? audio.voice(voiceKey) : 0;
+    if (secs) ms = Math.max(ms, Math.round(secs * 1000) + 500);
     this.tweens.add({ targets: box, alpha: 1, scale: 1, duration: 320, ease: 'Back.easeOut' });
     this.time.delayedCall(ms - 300, () => this.tweens.add({ targets: box, alpha: 0, duration: 300 }));
     this.time.delayedCall(ms, () => {

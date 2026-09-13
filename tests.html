@@ -865,6 +865,23 @@ await test('Βασικό πακέτο σε καθαρή συσκευή: φτιά
   eq(store.activeProfile(store.loadState()).words.length, pack.STARTER_COUNT, 'σώθηκαν');
 });
 
+// ------------------------------------------ Φωνή του Μάστερ Γου (13/09)
+
+await test('Φωνή: κάθε ατάκα του Μάστερ Γου έχει την ηχογράφησή της', async () => {
+  const { TXT } = await import('./src/theme/strings.js');
+  const want = [
+    ...TXT.masterHorde.map((t, i) => `horde-${i + 1}`),
+    ...TXT.masterDescends.map((t, i) => `descend-${i + 1}`)
+  ];
+  const missing = [];
+  for (const k of want) {
+    // GET, όχι HEAD: ο τοπικός serve.ps1 δεν απαντά σε HEAD (13/09)
+    const r = await fetch(`assets/voice/${k}.mp3`, { cache: 'no-store' });
+    if (!r.ok || (await r.arrayBuffer()).byteLength < 1000) missing.push(k);
+  }
+  eq(missing, [], 'λείπουν ηχογραφήσεις');
+});
+
 // --- Επαναφορά πραγματικών δεδομένων ---
 if (BACKUP === null) localStorage.removeItem('flame.state.v1');
 else localStorage.setItem('flame.state.v1', BACKUP);
