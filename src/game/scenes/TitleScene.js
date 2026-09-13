@@ -298,6 +298,15 @@ export default class TitleScene extends Phaser.Scene {
 
   igniteFlame() {
     if (this.leaving) return;
+    // Καμία λέξη ακόμα (πρώτη φορά σε αυτόν τον browser): πρώτα η προσφορά
+    // του βασικού πακέτου — αλλιώς η μάχη θα έλεγε «δεν έχω τεχνικές».
+    if (!store.activeProfile(store.loadState())?.words.length) {
+      audio.chime(0);
+      this.userPaused = true;
+      this.scene.launch('Starter');
+      this.scene.pause();
+      return;
+    }
     this.leaving = true;
     audio.whoosh();
     // emitParticle, όχι explode: το explode γυρίζει τον εκπομπό σε μία βολή

@@ -3,7 +3,8 @@
 // Την πρώτη φορά ο γονιός ΟΡΙΖΕΙ το PIN (αποθηκεύεται μόνο σε αυτή τη συσκευή).
 
 import * as store from '../shared/storage.js';
-import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor } from '../shared/graphemes.js';
+import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor, autoTargets } from '../shared/graphemes.js';
+import { loadStarterPack, STARTER_COUNT } from '../shared/starterPack.js';
 import { errorCounts, hardestTargets, learningFlow } from '../learning/telemetry.js';
 import * as journey from '../game/journey.js';
 import { TXT } from '../theme/strings.js';
@@ -181,26 +182,6 @@ function download(text, name) {
   URL.revokeObjectURL(a.href);
 }
 
-// Αυτόματα σημεία ελέγχου για τη μαζική προσθήκη: ό,τι θα προεπέλεγε και
-// η οθόνη της μίας λέξης (φωνήεντα, διαλυτικά). Αν η λέξη δεν έχει κανένα
-// τέτοιο (π.χ. «ουρά»), παίρνει ό,τι έχει κλάση — το «ου» ρωτιέται πια στη
-// Μεγάλη Τεχνική.
-function autoTargets(text) {
-  const units = splitGraphemes(text);
-  const starts = [];
-  let pos = 0;
-  units.forEach((u) => { starts.push(pos); pos += u.length; });
-  const all = units.map((u, i) => i);
-  let idx = all.filter((i) => AUTO_CLASSES.includes(classForGrapheme(units[i])));
-  if (!idx.length) idx = all.filter((i) => classForGrapheme(units[i]));
-  return idx.map((i) => ({
-    gap: { start: starts[i], length: units[i].length },
-    grapheme: units[i],
-    confusionClass: classForGrapheme(units[i]),
-    distractors: distractorsFor(units[i])
-  }));
-}
-
 // Η πρόοδος με μια ματιά (BUILD_PLAN βήμα 7 — «στοιχειώδης λίστα προόδου»).
 function progressHTML(p) {
   const all = p.words.flatMap((w) => w.targets);
@@ -252,6 +233,10 @@ function renderMain(note = '') {
       <button class="pm-btn primary" id="next">Συνέχεια</button>
     </div>
     <div id="pick"></div>
+    <div class="pm-row" style="margin-top:10px">
+      <button class="pm-btn" id="starter">+ Βασικό πακέτο (${STARTER_COUNT} λέξεις)</button>
+    </div>
+    <p class="pm-note">Λέξεις Γ' Δημοτικού για να ξεκινήσει αμέσως. Μπαίνουν μόνο όσες λείπουν — βγάλε με 🗑 όποιες δεν θες.</p>
     <details class="pm-bulk">
       <summary>Πολλές λέξεις μαζί</summary>
       <textarea class="pm-input pm-area" id="bulk" rows="5" placeholder="μία λέξη σε κάθε γραμμή (ή με κόμματα)"></textarea>
@@ -330,6 +315,12 @@ function renderMain(note = '') {
     if (dup.length) msg += ` Υπήρχαν ήδη: ${dup.join(', ')}.`;
     if (skipped.length) msg += ` Χωρίς σημείο ελέγχου: ${skipped.join(', ')}.`;
     renderMain(msg);
+  });
+
+  w.querySelector('#starter').addEventListener('click', () => {
+    const n = loadStarterPack(state);
+    renderMain(n ? `Μπήκαν ${plural(n, 'λέξη', 'λέξεις')} από το βασικό πακέτο.`
+      : 'Όλες οι λέξεις του βασικού πακέτου υπάρχουν ήδη.');
   });
 
   w.querySelectorAll('.pm-word .del').forEach((btn) => {

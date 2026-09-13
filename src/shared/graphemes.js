@@ -135,3 +135,29 @@ export function distractorsFor(g) {
     .filter((m) => m !== plain)
     .map((m) => (accented ? addAccent(m) : m));
 }
+
+// Αυτόματα σημεία ελέγχου: ό,τι θα προεπέλεγε η οθόνη της μίας λέξης
+// (φωνήεντα, διαλυτικά). Αν η λέξη δεν έχει κανένα τέτοιο (π.χ. «ουρά»),
+// παίρνει ό,τι έχει κλάση — το «ου» ρωτιέται πια στη Μεγάλη Τεχνική.
+// Ζούσε στο parent.js· μετακόμισε εδώ (13/09) γιατί το χρειάζεται και το
+// βασικό πακέτο λέξεων. `only`: ρωτιούνται ΜΟΝΟ αυτά τα γραφήματα.
+export function autoTargets(text, only = null) {
+  const units = splitGraphemes(text);
+  const starts = [];
+  let pos = 0;
+  units.forEach((u) => { starts.push(pos); pos += u.length; });
+  const all = units.map((u, i) => i);
+  let idx;
+  if (only) {
+    idx = all.filter((i) => only.includes(units[i]) && classForGrapheme(units[i]));
+  } else {
+    idx = all.filter((i) => AUTO_CLASSES.includes(classForGrapheme(units[i])));
+    if (!idx.length) idx = all.filter((i) => classForGrapheme(units[i]));
+  }
+  return idx.map((i) => ({
+    gap: { start: starts[i], length: units[i].length },
+    grapheme: units[i],
+    confusionClass: classForGrapheme(units[i]),
+    distractors: distractorsFor(units[i])
+  }));
+}
