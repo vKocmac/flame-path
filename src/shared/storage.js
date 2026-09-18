@@ -163,6 +163,7 @@ export function resetProgress(state, id) {
   p.profile.sparks = 0;
   delete p.profile.journey;                // και ο Δρόμος από τον πρώτο σταθμό
   delete p.profile.shop;                   // και ό,τι αγόρασε με τις σπίθες
+  delete p.profile.daily;                  // και η δεκαπεντάδα, το σερί, το ημερολόγιο
   p.profile.updatedAt = now();
   saveState(state);
   return true;
@@ -220,7 +221,8 @@ export function getSparks(state) {
 // magnet: το επίπεδο του φαναριού-μαγνήτη. Ο κατάλογος: src/game/shop.js.
 export function getShop(state) {
   const s = activeProfile(state)?.profile.shop || {};
-  return { owned: s.owned || [], ribbon: s.ribbon || null, mask: s.mask || null, magnet: s.magnet || 0 };
+  return { owned: s.owned || [], ribbon: s.ribbon || null, mask: s.mask || null, magnet: s.magnet || 0,
+    weapon: s.weapon || 'fire', power: s.power || null };
 }
 
 function setShop(state, patch) {
@@ -244,12 +246,26 @@ export function buyItem(state, item) {
   if (item.cat === 'mask') setShop(state, { mask: { id: item.id, pips: item.pips } });
   else if (item.cat === 'magnet') setShop(state, { magnet: Math.max(s.magnet, item.level), owned });
   else if (item.cat === 'ribbon') setShop(state, { owned, ribbon: item.id });
+  else if (item.cat === 'weapon') setShop(state, { owned, weapon: item.weapon });   // το παίρνει αμέσως στο χέρι
+  else if (item.cat === 'power') setShop(state, { owned, power: item.power });
   else setShop(state, { owned });
   return true;
 }
 
 export function wearRibbon(state, id) {
   setShop(state, { ribbon: id });
+}
+
+/** Θ6: ποιο όπλο κρατά / ποια δύναμη ρίχνει η γεμάτη μπάρα. */
+export function chooseWeapon(state, weapon) { setShop(state, { weapon }); }
+export function choosePower(state, power) { setShop(state, { power }); }
+
+/** Η ζώνη μόνο ανεβαίνει (Θ2): κρατάμε την ψηλότερη που φόρεσε. */
+export function raiseBelt(state, belt) {
+  const j = activeProfile(state)?.profile.journey || {};
+  if ((j.beltMax || 0) >= belt) return false;
+  setJourney(state, { beltMax: belt });
+  return true;
 }
 
 /** Λάθος με μάσκα: μία «ζωή» λιγότερη. Επιστρέφει πόσες έμειναν (0 = ράγισε). */

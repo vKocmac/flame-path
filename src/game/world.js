@@ -765,11 +765,19 @@ export function drawPowerIcon(g, id, cx, cy, s, color, alpha = 1) {
 }
 
 /** Η ζώνη ως σχήμα: λωρίδα, κόμπος, δύο ουρές — γύρω από (cx, cy), μέγεθος s. */
-export function drawBelt(g, cx, cy, s, color) {
+export function drawBelt(g, cx, cy, s, color, edge = null) {
+  if (edge) {                       // σκούρες ζώνες (καφέ, μαύρη): φωτεινό περίγραμμα για να φαίνονται
+    g.fillStyle(edge, 1);
+    g.fillRoundedRect(cx - 25.5 * s, cy - 7.5 * s, 51 * s, 14 * s, 6 * s);
+  }
   g.fillStyle(color, 1);
   g.fillRoundedRect(cx - 24 * s, cy - 6 * s, 48 * s, 11 * s, 5 * s);
   g.fillPoints([P(cx - 2 * s, cy + 2 * s), P(cx + 4 * s, cy + 2 * s), P(cx - 6 * s, cy + 22 * s), P(cx - 12 * s, cy + 20 * s)], true);
   g.fillPoints([P(cx - 2 * s, cy + 2 * s), P(cx + 4 * s, cy + 2 * s), P(cx + 14 * s, cy + 20 * s), P(cx + 8 * s, cy + 22 * s)], true);
+  if (edge) {                       // η μαύρη ζώνη έχει τη χρυσή ρίγα της
+    g.fillStyle(edge, 1);
+    g.fillRect(cx + 10 * s, cy - 6 * s, 3 * s, 11 * s);
+  }
   g.fillStyle(NUM.shadow, .35);
   g.fillRoundedRect(cx - 7 * s, cy - 8 * s, 14 * s, 15 * s, 3 * s);
 }
@@ -896,9 +904,37 @@ export function drawMask(g, id, alpha = 1) {
 }
 
 /** Το εικονίδιο ενός είδους του καταστήματος, γύρω από (cx, cy), μέγεθος s. */
+/** Τα τέσσερα βασικά όπλα (Θ5/Θ6): φλόγα · πλάσμα · ηλεκτρισμός · αστέρι. */
+export function drawWeaponIcon(g, weapon, cx, cy, s, alpha = 1) {
+  const Q = (x, y) => P(cx + x * s, cy + y * s);
+  if (weapon === 'plasma') {
+    g.fillStyle(NUM.spirit, alpha); g.fillCircle(cx, cy, .5 * s);
+    g.fillStyle(NUM.moon, alpha); g.fillCircle(cx - .12 * s, cy - .12 * s, .22 * s);
+    g.lineStyle(Math.max(1.5, s * .08), NUM.moon, alpha * .9);
+    g.strokeEllipse(cx, cy, 1.9 * s, .7 * s);
+  } else if (weapon === 'volt') {
+    g.fillStyle(NUM.star, alpha);
+    g.fillPoints([[.28, -1], [-.48, .12], [-.04, .12], [-.32, 1], [.52, -.22], [.08, -.22], [.46, -1]].map(([x, y]) => Q(x, y)), true);
+  } else if (weapon === 'star') {
+    g.fillStyle(NUM.flameCore, alpha);
+    g.fillPoints([Q(0, -1), Q(.25, -.25), Q(1, 0), Q(.25, .25), Q(0, 1), Q(-.25, .25), Q(-1, 0), Q(-.25, -.25)], true);
+    g.fillStyle(NUM.moon, alpha); g.fillCircle(cx, cy, .22 * s);
+  } else {                                                   // φλόγα
+    g.fillStyle(NUM.flame, alpha);
+    g.fillPoints([Q(0, -1), Q(.42, -.2), Q(.55, .35), Q(.3, .8), Q(0, .92), Q(-.3, .8), Q(-.55, .35), Q(-.42, -.2)], true);
+    g.fillStyle(NUM.flameCore, alpha);
+    g.fillPoints([Q(0, -.35), Q(.22, .15), Q(.2, .6), Q(0, .72), Q(-.2, .6), Q(-.22, .15)], true);
+  }
+}
+
 export function drawShopIcon(g, it, cx, cy, s, alpha = 1) {
   const Q = (x, y) => P(cx + x * s, cy + y * s);
-  if (it.cat === 'sword') {
+  if (it.cat === 'power') {
+    g.fillStyle(NUM.flameDeep, alpha * .9); g.fillCircle(cx, cy, .9 * s);
+    drawPowerIcon(g, it.power, cx, cy, .6 * s, NUM.flameCore, alpha);
+  } else if (it.cat === 'weapon') {
+    drawWeaponIcon(g, it.weapon, cx, cy, .85 * s, alpha);
+  } else if (it.cat === 'sword') {
     const blade = SWORD_BLADE[it.tier] || NUM.moon;
     g.fillStyle(blade, alpha);
     g.fillPoints([Q(-.42, .3), Q(.78, -.9), Q(.92, -.98), Q(.86, -.78), Q(-.3, .42)], true);

@@ -6,6 +6,7 @@ import * as store from '../shared/storage.js';
 import { splitGraphemes } from '../shared/graphemes.js';
 import { newId } from '../shared/ids.js';
 import { selectNext, intervalMs } from './scheduler.js';
+import { ensureDaily, todayWords, recordAnswer, isMastered } from './daily.js';
 
 let cfg = null;
 let clock = () => new Date();
@@ -34,6 +35,36 @@ export async function init(options = {}) {
 }
 
 export function resetSession() { session = freshSession(); }
+
+// Η δεκαπεντάδα της μέρας (Θ3): το παιχνίδι ρωτά ΜΟΝΟ από αυτήν (+ τις
+// επαναλήψεις των κατακτημένων). Αν είναι άδεια — όλα κατακτημένα και
+// τίποτα ληξιπρόθεσμο — παίζει με όλη τη λίστα, ως προπόνηση.
+function dailyView(state, p) {
+  const r = ensureDaily(p, cfg, clock());
+  if (!r) return p;
+  if (r.changed) store.saveState(state);
+  // Έκλεισε η δεκαπεντάδα; Αν συνεχίσει να παίζει, όχι ξανά οι ίδιες 15
+  // (αυτό ακριβώς βαριόταν): όλες όσες έχει ήδη δει, ΧΩΡΙΣ νέες πέρα από τη μέρα.
+  if (r.daily.goalMet) {
+    const seen = p.words.filter((w) => !w.archived && (r.daily.ids.includes(w.id) || w.targets.some((t) => t.introduced)));
+    return seen.length ? { profile: p.profile, words: seen } : p;
+  }
+  const words = todayWords(p, r.daily);
+  return words.length ? { profile: p.profile, words } : p;
+}
+
+/** Η μέρα του προφίλ (για τίτλο, πρόοδο, Parent Mode) — τη φτιάχνει αν λείπει. */
+export function daily(profileId) {
+  if (!cfg) return null;
+  const state = store.loadState();
+  const p = state.profiles.find((x) => x.profile.id === profileId);
+  if (!p) return null;
+  const r = ensureDaily(p, cfg, clock());
+  if (r && r.changed) store.saveState(state);
+  return r ? r.daily : null;
+}
+
+export function config() { return cfg; }
 
 function shuffle(arr) {
   const a = [...arr];
@@ -76,8 +107,9 @@ function assemblyPieces(text) {
 export function getNextChallenge(profileId, { types = ['gap', 'assembly'], intro = 'gated' } = {}) {
   if (!cfg || !session) throw new Error('Learning engine: κάλεσε πρώτα init()');
   const state = store.loadState();
-  const p = state.profiles.find((x) => x.profile.id === profileId);
-  if (!p) return null;
+  const p0 = state.profiles.find((x) => x.profile.id === profileId);
+  if (!p0) return null;
+  const p = dailyView(state, p0);
   // Ο αποκλεισμός ισχύει για ΑΥΤΟ το αίτημα μόνο: ένα «ου» που δεν παίζεται
   // με κενό πρέπει να μπορεί να έρθει στο επόμενο αίτημα που επιτρέπει
   // συναρμολόγηση.
@@ -140,6 +172,7 @@ export function reportResult(r) {
   if (!target) return { ok: false, reason: 'unknown-target' };
 
   const at = r.at || clock().toISOString();
+  const wasMastered = isMastered(word, cfg.mastery_level ?? 2);
   target.lastSeenAt = at;
   target.challengeTypesUsed = [...target.challengeTypesUsed, served.type].slice(-20);
 
@@ -177,7 +210,14 @@ export function reportResult(r) {
     target.nextDueAt = new Date(new Date(at).getTime() + intervalMs(cfg, target.level)).toISOString();
   }
 
+  // Η μέρα (Θ3): σωστές απαντήσεις, λέξεις που μόλις κατακτήθηκαν, σερί
+  let daily = null;
+  if (served.type !== 'intro') {
+    const learned = !wasMastered && isMastered(word, cfg.mastery_level ?? 2);
+    daily = recordAnswer(p, word.id, !!r.correct, learned, new Date(at));
+  }
+
   word.updatedAt = at;
   store.saveState(state);
-  return { ok: true };
+  return { ok: true, daily };
 }

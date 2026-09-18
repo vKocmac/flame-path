@@ -18,8 +18,22 @@
 //            «ζωή» (pips), στο μηδέν ραγίζει και χάνεται. Νέα μάσκα = αντικαθιστά.
 //   magnet — επένδυση, για πάντα: +level σπίθες σε κάθε εχθρό
 //   ribbon — στολίδι: το χρώμα της κορδέλας στο κεφάλι
+//   power  — δύναμη της μπάρας (Θ5, 18/09). Την ξεκλειδώνει η ΖΩΝΗ (`belt`),
+//            την αγοράζουν οι σπίθες. Μόνο όσες έχει αγοράσει χτυπούν.
+//   weapon — το βασικό όπλο (Θ5/Θ6). Ίδιος κανόνας· από όσα έχει, ΔΙΑΛΕΓΕΙ
+//            ποιο κρατά (εδώ ή πάνω αριστερά στη μάχη). Η φλόγα είναι δική
+//            του από την αρχή. Δύναμη ανά όπλο: βλ. WEAPON_HIT.
 
 export const SHOP = [
+  { id: 'power-tornado', cat: 'power', power: 'tornado', price: 40, belt: 0 },
+  { id: 'power-clones', cat: 'power', power: 'clones', price: 90, belt: 1 },
+  { id: 'power-volcano', cat: 'power', power: 'volcano', price: 160, belt: 3 },
+  { id: 'power-dragon', cat: 'power', power: 'dragon', price: 280, belt: 5 },
+  { id: 'power-lightning', cat: 'power', power: 'lightning', price: 450, belt: 7 },
+  { id: 'weapon-fire', cat: 'weapon', weapon: 'fire', price: 0, belt: 0 },
+  { id: 'weapon-plasma', cat: 'weapon', weapon: 'plasma', price: 120, belt: 2 },
+  { id: 'weapon-volt', cat: 'weapon', weapon: 'volt', price: 220, belt: 4 },
+  { id: 'weapon-star', cat: 'weapon', weapon: 'star', price: 350, belt: 6 },
   { id: 'sword-steel', cat: 'sword', price: 60, tier: 1 },
   { id: 'sword-fire', cat: 'sword', price: 150, tier: 2 },
   { id: 'sword-storm', cat: 'sword', price: 300, tier: 3 },
@@ -36,7 +50,32 @@ export const SHOP = [
   { id: 'ribbon-silver', cat: 'ribbon', price: 30, color: 'moon' }
 ];
 
-export const CATS = ['sword', 'mask', 'magnet', 'ribbon'];
+export const CATS = ['power', 'weapon', 'sword', 'mask', 'magnet', 'ribbon'];
+
+// Πόσο χτυπά κάθε όπλο (Θ5: «η φωτιά… θα σε αναγκάζει να πας να αγοράσεις»):
+//   front — ζημιά στον μπροστινό · splash — ζημιά και στον δεύτερο της γραμμής
+export const WEAPON_HIT = {
+  fire: { front: 1, splash: 0 },
+  plasma: { front: 1, splash: 1 },
+  volt: { front: 2, splash: 0 },
+  star: { front: 2, splash: 1 }
+};
+
+/** Οι δυνάμεις που έχει αγοράσει, με τη σειρά του καταλόγου. */
+export function ownedPowers(shop) {
+  return SHOP.filter((x) => x.cat === 'power' && shop.owned.includes(x.id)).map((x) => x.power);
+}
+
+/** Τα όπλα που έχει (η φλόγα πάντα). */
+export function ownedWeapons(shop) {
+  return SHOP.filter((x) => x.cat === 'weapon' && (x.price === 0 || shop.owned.includes(x.id))).map((x) => x.weapon);
+}
+
+/** Το όπλο που κρατά — αν το διαλεγμένο δεν υπάρχει (π.χ. νέο προφίλ), η φλόγα. */
+export function currentWeapon(shop) {
+  const have = ownedWeapons(shop);
+  return have.includes(shop.weapon) ? shop.weapon : 'fire';
+}
 
 export function item(id) {
   return SHOP.find((x) => x.id === id) || null;
@@ -60,10 +99,15 @@ export function sparkGain(shop, base) {
 }
 
 /**
- * Μπορεί να το αγοράσει τώρα; 'owned' · 'locked' (θέλει πρώτα το προηγούμενο)
+ * Μπορεί να το αγοράσει τώρα; 'owned' · 'belt' (θέλει ανώτερη ζώνη) ·
+ * 'locked' (θέλει πρώτα το προηγούμενο)
  * · 'poor' (δεν φτάνουν οι σπίθες) · 'ok'. Οι μάσκες ξαναγοράζονται.
  */
-export function status(it, shop, sparks) {
+export function status(it, shop, sparks, belt = 0) {
+  if (it.cat === 'power' || it.cat === 'weapon') {
+    if (it.price === 0 || shop.owned.includes(it.id)) return 'owned';
+    if ((it.belt || 0) > belt) return 'belt';           // θέλει πρώτα αυτή τη ζώνη
+  }
   if (it.cat === 'sword') {
     if (shop.owned.includes(it.id)) return 'owned';
     if (it.tier > swordTier(shop) + 1) return 'locked';

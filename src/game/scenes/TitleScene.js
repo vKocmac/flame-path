@@ -48,7 +48,8 @@ export default class TitleScene extends Phaser.Scene {
     world.lantern(this, 930, 656, .9, calm);
     world.lantern(this, 1158, 640, .8, calm);
 
-    this.buildHero(522, 668, journey.beltColor(store.getJourney(store.loadState()).cycle));
+    const beltNow = journey.beltOf(store.activeProfile(store.loadState()));     // Θ2: από τις λέξεις
+    this.buildHero(522, 668, journey.beltColor(beltNow));
     this.buildBrazier(640, 676);
     this.buildTitle();
     this.buildOverlay();
@@ -168,8 +169,9 @@ export default class TitleScene extends Phaser.Scene {
     }).setOrigin(.5).setAlpha(.8).setDepth(45);
     name.setShadow(0, 0, HEX.shadow, 8, false, true);
 
-    // Η ζώνη ΜΠΡΟΣΤΑ από τον Δρόμο (όπως στο HUD της μάχης): ο κύκλος του
-    world.drawBelt(g, x0 - 62, y - 4, 1, journey.beltColor(jr.cycle));
+    // Η ζώνη ΜΠΡΟΣΤΑ από τον Δρόμο (όπως στο HUD της μάχης): από τις λέξεις (Θ2)
+    const belt = journey.beltOf(who);
+    world.drawBelt(g, x0 - 62, y - 4, 1, journey.beltColor(belt), journey.beltEdge(belt));
 
     // Ζ4 (11/09 βράδυ): «κάτι στρογγυλά… είναι ξεκάθαρο τι είναι;» Όχι ήταν —
     // δυνάμεις, τεχνικές και ζώνη σε μία σειρά ίδιων κύκλων. Τώρα δύο
@@ -178,7 +180,7 @@ export default class TitleScene extends Phaser.Scene {
     //              το σύμβολο του σταθμού όπου ξεκλειδώνουν
     //   ΤΕΧΝΙΚΕΣ — δαχτυλίδι που γεμίζει όσο κατακτά λέξεις
     const y2 = 292, rr = 20, gap = 54;
-    const unlocked = journey.unlockedPowers(jr.station, jr.cycle);
+    const unlocked = shop.ownedPowers(store.getShop(store.loadState()));     // Θ5: όσες αγόρασε
     const mastered = journey.masteredCount(who);
     const have = journey.unlockedPerks(mastered);
     const pw = gap * journey.POWERS.length + 10, kw = gap * journey.PERKS.length + 10;
@@ -198,19 +200,20 @@ export default class TitleScene extends Phaser.Scene {
     plate(kx0, kw, TXT.perksLabel);
 
     let cx = px0 + 5 + gap / 2;
-    for (const { id, at } of journey.POWERS) {
+    for (const { id } of journey.POWERS) {
+      const it = shop.SHOP.find((x) => x.cat === 'power' && x.power === id);
       const on = unlocked.includes(id);
       g.fillStyle(on ? NUM.flameDeep : NUM.shadow, on ? .95 : .7);
       g.fillCircle(cx, y2, rr);
       g.lineStyle(2.5, on ? NUM.flameCore : NUM.smoke, on ? .95 : .3);
       g.strokeCircle(cx, y2, rr);
       world.drawPowerIcon(g, id, cx, y2, rr * .6, on ? NUM.flameCore : NUM.nightHigh, on ? 1 : .9);
-      if (!on) {                                   // λουκέτο + πού ξεκλειδώνει
+      if (!on) {                                   // λουκέτο + ποια ζώνη τη ξεκλειδώνει (Θ5)
         g.fillStyle(NUM.smoke, .9);
         g.fillRoundedRect(cx + 7, y2 + 6, 13, 10, 2);
         g.lineStyle(2, NUM.smoke, .9);
         g.beginPath(); g.arc(cx + 13.5, y2 + 6, 4.5, Math.PI, 0, false); g.strokePath();
-        world.drawStationIcon(g, at, cx - 12, y2 + 12, 5.5, NUM.smoke, .8);
+        if (it) world.drawBelt(g, cx - 12, y2 + 11, .3, journey.beltColor(it.belt), journey.beltEdge(it.belt));
       }
       cx += gap;
     }
@@ -377,6 +380,38 @@ export default class TitleScene extends Phaser.Scene {
     // Πού βρίσκεται στον Δρόμο (NEXT-FIXES Ε3) — ο λόγος να ξαναπατήσει τη φωτιά
     if (who) this.buildDojoPanel(store.getJourney(st), who);
     if (who) this.buildShopButton(store.getSparks(st));
+    if (who) this.buildProgressButton(who);
+  }
+
+  // Θ1 (18/09): «ένα dashboard… να βλέπει ότι κάπου προοδεύει». Κάτω
+  // αριστερά, απέναντι από τον Πάγκο: η ζώνη του και οι φλόγες του σερί.
+  buildProgressButton(who) {
+    const x = 96, y = H - 96;
+    const c = this.add.container(x, y).setDepth(46);
+    const g = this.add.graphics();
+    g.fillStyle(NUM.night, .85);
+    g.fillRoundedRect(-70, -52, 140, 104, 22);
+    g.lineStyle(2, NUM.lantern, .5);
+    g.strokeRoundedRect(-70, -52, 140, 104, 22);
+    const belt = journey.beltOf(who);
+    world.drawBelt(g, -26, -18, 1.1, journey.beltColor(belt), journey.beltEdge(belt));
+    // ανοδικές μπάρες: «προχωράω»
+    [14, 24, 36].forEach((h, i) => {
+      g.fillStyle(i === 2 ? NUM.flameCore : NUM.flame, .95);
+      g.fillRoundedRect(22 + i * 13, -2 - h, 9, h, 3);
+    });
+    const label = this.add.text(0, 30, TXT.progressBtn, {
+      fontFamily: FONT.ui, fontSize: '16px', fontStyle: '700', color: HEX.lantern
+    }).setOrigin(.5);
+    c.add([g, label]);
+    if (!this.calm) this.tweens.add({ targets: c, scale: 1.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.add.zone(x, y, 148, 112).setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+      if (this.leaving) return;
+      audio.chime(1);
+      this.userPaused = true;
+      this.scene.launch('Progress');
+      this.scene.pause();
+    });
   }
 
   // Ο πάγκος του εμπόρου (Ζ11), μικρός, στην κάτω δεξιά γωνία — δεν χαλά την

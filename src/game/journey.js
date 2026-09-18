@@ -28,47 +28,74 @@ export const POWERS = [
   { id: 'lightning', at: 5 }
 ];
 
-/** Οι δυνάμεις που έχει ο νίντζα σε αυτό το σημείο του Δρόμου. */
-export function unlockedPowers(station, cycle) {
-  return POWERS.filter((p) => cycle > 0 || station >= p.at).map((p) => p.id);
+// Ως τη v3.23 οι δυνάμεις ξεκλείδωναν ΜΟΝΕΣ τους με τους σταθμούς και το
+// όπλο άλλαζε ΜΟΝΟ του με κάθε γύρο του Δρόμου. Γύρος 6 (Θ5/Θ6, 18/09): «δεν
+// θέλει να του δίνεις εσύ από μόνο του… τις αγοράζουμε στο marketplace…
+// αφού πάτησα αυτό το milestone μου ξεκλειδώνει και εκείνο το όπλο, το οποίο
+// όμως θέλει και λεφτά». Τώρα: η ΖΩΝΗ ξεκλειδώνει, οι ΣΠΙΘΕΣ αγοράζουν
+// (shop.js), και ο παίκτης ΔΙΑΛΕΓΕΙ όπλο και δύναμη.
+
+// Η ζώνη (Θ2, 18/09): «να ξεκινάει με τις ζώνες κανονικά… του καράτε να
+// φτάσει στη μαύρη… μετά… χρυσή, σμαραγδένια… πιο μαγικό». Ως τη v3.23 ήταν
+// 5 ζώνες, μία ανά ΟΛΟΚΛΗΡΟ Δρόμο (7 σταθμοί), και μετά η ίδια για πάντα —
+// «σμαραγδένια συνέχεια». Τώρα ανεβαίνει με τις ΛΕΞΕΙΣ ΠΟΥ ΕΜΑΘΕ (όλα τα
+// σημεία κατακτημένα, και οι αρχειοθετημένες μετράνε) και δεν πέφτει ποτέ.
+// Τα χρώματα των ζωνών καράτε δεν υπάρχουν στην παλέτα του DESIGN — εξαίρεση
+// με απόφαση ιδιοκτήτη. `edge`: περίγραμμα για τις σκούρες ζώνες.
+export const BELTS = [
+  { need: 0, color: 0xF2EFE6 },                    // Λευκή
+  { need: 3, color: 0xF4CE3A },                    // Κίτρινη
+  { need: 6, color: 0xF28C28 },                    // Πορτοκαλί
+  { need: 10, color: 0x3FAE55 },                   // Πράσινη
+  { need: 15, color: 0x3378E0 },                   // Μπλε
+  { need: 21, color: 0x8453D1 },                   // Μωβ
+  { need: 28, color: 0x8A5632, edge: 0xC9955F },   // Καφέ
+  { need: 36, color: 0x18181C, edge: 0xE0B84A },   // Μαύρη
+  { need: 46, color: 0xF1C232, magic: true },      // Χρυσή
+  { need: 58, color: 0x1ED3A0, magic: true },      // Σμαραγδένια
+  { need: 72, color: 0xE0305E, magic: true },      // Ρουμπινένια
+  { need: 88, color: 0x4F8BFF, magic: true },      // Ζαφειρένια
+  { need: 106, color: 0xC8F4FF, magic: true },     // Διαμαντένια
+  { need: 126, color: 0xFF7A1A, magic: true }      // Ζώνη της Φωτιάς
+];
+
+/** Λέξεις που έμαθε: ΟΛΑ τα σημεία κατακτημένα. Και οι αρχειοθετημένες. */
+export function learnedWords(profileEntry) {
+  if (!profileEntry) return 0;
+  return profileEntry.words.filter((w) => w.targets.length
+    && w.targets.every((t) => t.level >= MASTERY_LEVEL)).length;
 }
 
-/** Η δύναμη που ξεκλειδώνει ΑΚΡΙΒΩΣ φτάνοντας σε αυτόν τον σταθμό, αν υπάρχει. */
-export function powerUnlockedAt(station, cycle) {
-  if (cycle > 0) return null;
-  const p = POWERS.find((x) => x.at === station && x.at > 0);
-  return p ? p.id : null;
+export function beltForWords(n) {
+  let i = 0;
+  while (i + 1 < BELTS.length && n >= BELTS[i + 1].need) i++;
+  return i;
 }
 
-// Η ζώνη του νίντζα: ένα χρώμα ανά ολοκληρωμένο Δρόμο. Μόνο από την
-// εγκεκριμένη παλέτα (DESIGN.md).
-export const BELTS = ['lantern', 'flame', 'flameDeep', 'spirit', 'moon'];
-
-export function beltIndex(cycle) {
-  return Math.min(cycle, BELTS.length - 1);
+/** Η ζώνη του προφίλ — ποτέ πιο κάτω από όση έχει ήδη φορέσει (beltMax). */
+export function beltOf(profileEntry) {
+  const j = (profileEntry && profileEntry.profile.journey) || {};
+  return Math.max(j.beltMax || 0, beltForWords(learnedWords(profileEntry)));
 }
 
-export function beltColor(cycle) {
-  return NUM[BELTS[beltIndex(cycle)]];
+export function beltColor(i) { return BELTS[Math.max(0, Math.min(i, BELTS.length - 1))].color; }
+export function beltEdge(i) { return BELTS[Math.max(0, Math.min(i, BELTS.length - 1))].edge || null; }
+
+/** Πόσες λέξεις λείπουν για την επόμενη ζώνη (null στην τελευταία). */
+export function toNextBelt(profileEntry) {
+  const i = beltOf(profileEntry);
+  if (i + 1 >= BELTS.length) return null;
+  return { next: i + 1, need: BELTS[i + 1].need, have: learnedWords(profileEntry) };
 }
 
-// Το βασικό όπλο του νίντζα αλλάζει με ΚΑΘΕ νέα ζώνη (Ζ10, απόφαση 11/09:
-// «όσο ανεβαίνει… τα όπλα να αναβαθμίζονται… πλάσμα, κεραυνό, ηλεκτρισμό
-// από τα χέρια του»). Μόνιμη, ορατή ενδυνάμωση από τη νίκη στο κάστρο —
-// δηλαδή από ορθογραφία (SPEC κεφ. 7).
+// Το βασικό όπλο (Ζ10): φλόγα · πλάσμα · ηλεκτρισμός · αστέρι. Από τη v3.24
+// το ΔΙΑΛΕΓΕΙ ο παίκτης ανάμεσα σε όσα αγόρασε (shop.js).
 export const WEAPONS = ['fire', 'plasma', 'volt', 'star'];
 
-export function weaponFor(cycle) {
-  return WEAPONS[Math.min(cycle, WEAPONS.length - 1)];
-}
-
-// Η ζώνη δίνει κάτι και ΜΕΣΑ στη μάχη (Ε3): κάθε ζώνη μετά την πρώτη
-// ξεκινά τη μπάρα δύναμης +10 (ως +40 στην ασημένια). Ο επόμενος Δρόμος
-// είναι πιο δύσκολος — η ζώνη είναι το αντίβαρο που κέρδισε.
-export const BELT_RAGE = 10;
-
-export function beltRage(cycle) {
-  return beltIndex(cycle) * BELT_RAGE;
+// Η ζώνη δίνει κάτι και ΜΕΣΑ στη μάχη: η μπάρα ξεκινά λίγο πιο γεμάτη.
+export const BELT_RAGE = 4;
+export function beltRage(belt) {
+  return Math.min(40, belt * BELT_RAGE);
 }
 
 // Τεχνικές (BUILD_PLAN βήμα 6, PROJECT_SPEC κεφ. 7): ξεκλειδώνουν όταν οι
