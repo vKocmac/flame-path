@@ -430,14 +430,43 @@ export default class BattleScene extends Phaser.Scene {
     if (!this.maskHud) this.maskHud = this.add.graphics().setDepth(46);
     const g = this.maskHud;
     g.clear();
+    const rows = [];
     const m = this.gear && this.gear.mask;
-    if (!m) return;
-    const it = shop.item(m.id);
-    world.drawShopIcon(g, it, W - 150, 74, 16, 1);
-    for (let i = 0; i < it.pips; i++) {
-      g.fillStyle(i < m.pips ? NUM.flameCore : NUM.nightHigh, 1);
-      g.fillCircle(W - 126 + i * 15, 74, 5);
+    if (m) rows.push([shop.item(m.id), m.pips]);
+    const r = this.gear && this.gear.robe;
+    if (r && typeof r === 'object' && r.pips > 0) rows.push([shop.item(r.id), r.pips]);   // Λ1β
+    rows.forEach(([it, left], k) => {
+      const y = 74 + k * 30;
+      world.drawShopIcon(g, it, W - 150, y, 16, 1);
+      for (let i = 0; i < it.pips; i++) {
+        g.fillStyle(i < left ? NUM.flameCore : NUM.nightHigh, 1);
+        g.fillCircle(W - 126 + i * 15, y, 5);
+      }
+    });
+  }
+
+  // Λ1β: πρώτο λάθος της λέξης → η στολή χάνει μία ζωή· στο μηδέν σκίζεται
+  robeDamage() {
+    const r = this.gear && this.gear.robe;
+    if (!r || typeof r !== 'object') return;
+    const left = store.robeHit(store.loadState());
+    this.gear = store.getShop(store.loadState());
+    this.drawMaskHud();
+    if (left > 0) {
+      this.tweens.add({ targets: this.robeG, alpha: .35, duration: 70, yoyo: true, repeat: 2 });
+      return;
     }
+    audio.poof();
+    const n = this.ninja;
+    for (let i = 0; i < 6; i++) {                        // κουρέλια που πέφτουν
+      const rag = this.add.rectangle(n.x + Phaser.Math.Between(-30, 30), n.y - 60, 14, 10,
+        (world.ROBE_LOOK[r.id] || {}).color || NUM.flame).setDepth(13);
+      this.tweens.add({ targets: rag, y: n.y + 30, x: rag.x + Phaser.Math.Between(-60, 60), angle: Phaser.Math.Between(-180, 180),
+        alpha: 0, duration: 900, ease: 'Quad.easeIn', onComplete: () => rag.destroy() });
+    }
+    this.robeG.clear();
+    world.drawRobe(this.robeG, 'robe-night');
+    this.flashHint(TXT.robeTorn);
   }
 
   // Λάθος με μάσκα (Ζ11: «αν κάνεις λάθη θα φεύγει σιγά σιγά η δύναμή της
@@ -2493,6 +2522,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     this.addRage(-RAGE_STARTLE);
     this.startle();
+    this.robeDamage();
   }
 
   // Θ8: ο νίντζα ξαφνιάζεται — πηδά, «!» πάνω από το κεφάλι. Η μπάρα χάνει

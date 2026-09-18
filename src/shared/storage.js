@@ -248,7 +248,7 @@ export function buyItem(state, item) {
   else if (item.cat === 'ribbon') setShop(state, { owned, ribbon: item.id });
   else if (item.cat === 'weapon') setShop(state, { owned, weapon: item.weapon });   // το παίρνει αμέσως στο χέρι
   else if (item.cat === 'power') setShop(state, { owned, power: item.power });
-  else if (item.cat === 'robe') setShop(state, { owned, robe: item.id });           // τη φοράει αμέσως
+  else if (item.cat === 'robe') setShop(state, { robe: { id: item.id, pips: item.pips } });   // τη φοράει αμέσως
   else setShop(state, { owned });
   return true;
 }
@@ -260,7 +260,14 @@ export function wearRibbon(state, id) {
 /** Θ6: ποιο όπλο κρατά / ποια δύναμη ρίχνει η γεμάτη μπάρα. */
 export function chooseWeapon(state, weapon) { setShop(state, { weapon }); }
 export function choosePower(state, power) { setShop(state, { power }); }
-export function wearRobe(state, id) { setShop(state, { robe: id }); }
+/** Πρώτο λάθος λέξης με στολή (Λ1β): μία ζωή λιγότερη. 0 = σκίστηκε. -1 = δεν φορά. */
+export function robeHit(state) {
+  const s = getShop(state);
+  if (!s.robe || typeof s.robe !== 'object') return -1;
+  const pips = s.robe.pips - 1;
+  setShop(state, { robe: pips > 0 ? { ...s.robe, pips } : null });
+  return pips;
+}
 
 /** Η Πύλη (Λ2): πέρασε σήμερα; και το ρεκόρ φωτιών. */
 export function markBonusDone(state, got) {

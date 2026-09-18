@@ -24,6 +24,9 @@
 //            όπως έχει μια ρόμπα νίντζα… να το αγοράζει και να αλλάζει… ίσως
 //            να δίνει κάτι»). Ίδιος κανόνας με όπλα: ζώνη ξεκλειδώνει, σπίθες
 //            αγοράζουν, φοράει μία. Η «Στολή της Νύχτας» είναι δική του. ROBE_FX.
+//            Λ1β (18/09): «να την χάνεις όπως και τη μάσκα… να αγοράζεις στολή
+//            όπως τα άλλα» — κάθε πρώτο λάθος λέξης φθείρει μία ζωή (pips)· στο
+//            μηδέν σκίζεται και ξαναφορά τη Νύχτας. Ξαναγοράζεται, όποια θέλει.
 //   power  — δύναμη της μπάρας (Θ5, 18/09). Την ξεκλειδώνει η ΖΩΝΗ (`belt`),
 //            την αγοράζουν οι σπίθες. Μόνο όσες έχει αγοράσει χτυπούν.
 //   weapon — το βασικό όπλο (Θ5/Θ6). Ίδιος κανόνας· από όσα έχει, ΔΙΑΛΕΓΕΙ
@@ -37,10 +40,10 @@ export const SHOP = [
   { id: 'power-dragon', cat: 'power', power: 'dragon', price: 280, belt: 5 },
   { id: 'power-lightning', cat: 'power', power: 'lightning', price: 450, belt: 7 },
   { id: 'robe-night', cat: 'robe', price: 0, belt: 0 },
-  { id: 'robe-fire', cat: 'robe', price: 150, belt: 1 },
-  { id: 'robe-water', cat: 'robe', price: 200, belt: 2 },
-  { id: 'robe-earth', cat: 'robe', price: 250, belt: 3 },
-  { id: 'robe-sky', cat: 'robe', price: 300, belt: 4 },
+  { id: 'robe-fire', cat: 'robe', price: 80, belt: 1, pips: 8 },
+  { id: 'robe-water', cat: 'robe', price: 100, belt: 2, pips: 8 },
+  { id: 'robe-earth', cat: 'robe', price: 120, belt: 3, pips: 7 },
+  { id: 'robe-sky', cat: 'robe', price: 150, belt: 4, pips: 6 },
   { id: 'weapon-fire', cat: 'weapon', weapon: 'fire', price: 0, belt: 0 },
   { id: 'weapon-plasma', cat: 'weapon', weapon: 'plasma', price: 120, belt: 2 },
   { id: 'weapon-volt', cat: 'weapon', weapon: 'volt', price: 220, belt: 4 },
@@ -75,8 +78,10 @@ export const ROBE_FX = {
   'robe-sky': { keepCombo: true }
 };
 
+/** Η στολή που φορά: { id, pips } όσο έχει ζωές· αλλιώς της Νύχτας. */
 export function currentRobe(shop) {
-  return shop && shop.robe && shop.owned.includes(shop.robe) ? shop.robe : 'robe-night';
+  const r = shop && shop.robe;
+  return r && typeof r === 'object' && r.pips > 0 ? r.id : 'robe-night';
 }
 
 export function robeFx(shop) { return ROBE_FX[currentRobe(shop)] || {}; }
@@ -150,7 +155,12 @@ export function sparkGain(shop, base) {
  * · 'poor' (δεν φτάνουν οι σπίθες) · 'ok'. Οι μάσκες ξαναγοράζονται.
  */
 export function status(it, shop, sparks, belt = 0) {
-  if (it.cat === 'power' || it.cat === 'weapon' || it.cat === 'robe') {
+  if (it.cat === 'robe') {                          // σαν τη μάσκα: ξαναγοράζεται
+    if (it.price === 0 || currentRobe(shop) === it.id) return 'owned';
+    if ((it.belt || 0) > belt) return 'belt';
+    return sparks >= it.price ? 'ok' : 'poor';
+  }
+  if (it.cat === 'power' || it.cat === 'weapon') {
     if (it.price === 0 || shop.owned.includes(it.id)) return 'owned';
     if ((it.belt || 0) > belt) return 'belt';           // θέλει πρώτα αυτή τη ζώνη
   }

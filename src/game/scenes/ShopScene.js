@@ -79,7 +79,7 @@ export default class ShopScene extends Phaser.Scene {
     if (it.cat === 'ribbon') return shop.ribbon === it.id;
     if (it.cat === 'mask') return true;
     if (it.cat === 'weapon') return currentWeapon(shop) === it.weapon;
-    if (it.cat === 'robe') return currentRobe(shop) === it.id;
+    if (it.cat === 'robe') return currentRobe(shop) === it.id;      // όσο έχει ζωές
     if (it.cat === 'power') {
       const have = ownedPowers(shop);
       return (have.includes(shop.power) ? shop.power : have[0]) === it.power;
@@ -161,6 +161,11 @@ export default class ShopScene extends Phaser.Scene {
     this.detail.add(this.add.text(cx, 420, desc, {
       fontFamily: FONT.ui, fontSize: '19px', color: HEX.parchment, align: 'center', wordWrap: { width: w - 50 }
     }).setOrigin(.5, 0).setAlpha(.9));
+    if (it.cat === 'robe' && it.price) {
+      this.detail.add(this.add.text(cx, 480, TXT.robeNote, {
+        fontFamily: FONT.ui, fontSize: '16px', color: HEX.smoke, align: 'center', wordWrap: { width: w - 50 }
+      }).setOrigin(.5, 0));
+    }
     if (it.cat === 'ribbon') {
       this.detail.add(this.add.text(cx, 490, TXT.ribbonNote, {
         fontFamily: FONT.ui, fontSize: '16px', color: HEX.smoke, align: 'center', wordWrap: { width: w - 50 }
@@ -173,8 +178,8 @@ export default class ShopScene extends Phaser.Scene {
     }
     const s = status(it, shop, sparks, this.belt);
     const worn = this.wearing(it, shop, s);
-    const canWear = ['ribbon', 'weapon', 'power', 'robe'].includes(it.cat) && s === 'owned' && !worn;
-    const wearLabel = { ribbon: TXT.wear, weapon: TXT.hold, power: TXT.pick, robe: TXT.wear }[it.cat];
+    const canWear = ['ribbon', 'weapon', 'power'].includes(it.cat) && s === 'owned' && !worn;
+    const wearLabel = { ribbon: TXT.wear, weapon: TXT.hold, power: TXT.pick }[it.cat];
     const wornLabel = { ribbon: TXT.wearing, mask: TXT.wearing, weapon: TXT.holding, power: TXT.picked, robe: TXT.wearing }[it.cat] || TXT.owned;
     const label = s === 'ok' ? `${TXT.buy}  ✦ ${it.price}` : canWear ? wearLabel
       : s === 'owned' ? wornLabel
@@ -200,7 +205,6 @@ export default class ShopScene extends Phaser.Scene {
     if (wear) {
       if (it.cat === 'weapon') store.chooseWeapon(st, it.weapon);
       else if (it.cat === 'power') store.choosePower(st, it.power);
-      else if (it.cat === 'robe') store.wearRobe(st, it.id);
       else store.wearRibbon(st, it.id);
       audio.chime(1);
     } else {

@@ -818,8 +818,12 @@ await test('Λ1 Στολές: η Νύχτας δική του, οι άλλες �
   s = store.loadState();
   eq(shop.currentRobe(store.getShop(s)), 'robe-fire', 'τη φοράει αμέσως');
   eq(shop.robeFx(store.getShop(s)).bonus, 1.25, 'δίνει φωτιές στην Πύλη');
-  store.wearRobe(s, 'robe-night');
-  eq(shop.robeFx(store.getShop(store.loadState())), {}, 'η Νύχτας δεν δίνει κάτι');
+  // Λ1β: φθείρεται σαν τη μάσκα και ξαναγοράζεται
+  for (let i = 0; i < 7; i++) store.robeHit(store.loadState());
+  eq(store.getShop(store.loadState()).robe.pips, 1, '7 λάθη: μία ζωή');
+  eq(store.robeHit(store.loadState()), 0, 'το 8ο τη σκίζει');
+  eq(shop.currentRobe(store.getShop(store.loadState())), 'robe-night', 'πίσω στη Νύχτας');
+  eq(shop.status(shop.item('robe-fire'), store.getShop(store.loadState()), 400, 1), 'ok', 'ξαναγοράζεται');
 });
 
 await test('Λ2 Πύλη: ανοίγει όταν κλείσει η δεκαπεντάδα, μία φορά τη μέρα', async () => {
