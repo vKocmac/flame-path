@@ -78,6 +78,18 @@ function normalizeWord(raw) {
   return raw.trim().toLowerCase().replace(/σ$/, 'ς');
 }
 
+// Γραμμένη με ΚΕΦΑΛΑΙΑ και χωρίς τόνο: τα κεφαλαία δεν έχουν τόνο, οπότε
+// το «ΟΥΡΑΝΟΣ» θα έμπαινε «ουρανος» — λάθος μορφή μέσα στο παιχνίδι
+// (ARCHITECTURE §8.1). Δεν μαντεύουμε τον τόνο: ζητάμε να ξαναγραφτεί με πεζά.
+// Μονοσύλλαβες (π.χ. «ΚΑΙ») περνούν — δεν τονίζονται.
+function capsWithoutAccent(raw) {
+  const t = raw.trim();
+  if (!/[Α-Ω]/.test(t) || t !== t.toUpperCase()) return false;
+  const low = t.toLowerCase();
+  if (/[άέήίόύώΐΰ]/.test(low)) return false;
+  return (low.match(/αι|ει|οι|ου|αυ|ευ|[αεηιουω]/g) || []).length >= 2;
+}
+
 // --- PIN ---
 
 function renderPinSetup() {
@@ -339,7 +351,9 @@ function renderMain(note = '') {
 
   // Οι λέξεις της εβδομάδας σε μία κίνηση (BUILD_PLAN βήμα 7: < 2 λεπτά)
   w.querySelector('#bulkadd').addEventListener('click', () => {
-    const list = w.querySelector('#bulk').value.split(/[\n,;]+/).map(normalizeWord).filter(Boolean);
+    const raws = w.querySelector('#bulk').value.split(/[\n,;]+/).filter((x) => x.trim());
+    const caps = raws.filter(capsWithoutAccent).map((x) => x.trim());
+    const list = raws.filter((x) => !capsWithoutAccent(x)).map(normalizeWord).filter(Boolean);
     const have = new Set(p.words.map((x) => x.text));
     let added = 0;
     const dup = [], skipped = [];
@@ -355,6 +369,7 @@ function renderMain(note = '') {
     let msg = `Μπήκαν ${plural(added, 'λέξη', 'λέξεις')}.`;
     if (dup.length) msg += ` Υπήρχαν ήδη: ${dup.join(', ')}.`;
     if (skipped.length) msg += ` Χωρίς σημείο ελέγχου: ${skipped.join(', ')}.`;
+    if (caps.length) msg += ` Γράψε με πεζά (για τον τόνο): ${caps.join(', ')}.`;
     renderMain(msg);
   });
 
@@ -496,6 +511,7 @@ function renderPick(w) {
   err.textContent = '';
   const text = normalizeWord(raw);
   if (!text || text.includes(' ')) { err.textContent = 'Γράψε μία λέξη, χωρίς κενά.'; return; }
+  if (capsWithoutAccent(raw)) { err.textContent = 'Γράψε τη με πεζά, για να έχει τόνο (τα κεφαλαία δεν τονίζονται).'; return; }
   w.querySelector('#word').value = text;
 
   const units = splitGraphemes(text);
