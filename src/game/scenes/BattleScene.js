@@ -213,6 +213,7 @@ export default class BattleScene extends Phaser.Scene {
     this.belt = journey.beltOf(store.activeProfile(state));
     store.raiseBelt(state, this.belt);
     this.answerK = 1;
+    this.shieldWave = -1;
     this.chStart = 0;
     this.chDur = 0;
     this.rage = 0;              // η μπάρα δύναμης ζει μόνο μέσα στη μάχη
@@ -1769,7 +1770,7 @@ export default class BattleScene extends Phaser.Scene {
         if (e.multMs <= 0) { e.mult = 1; e.multMs = 0; }
       }
       // Η Μεγάλη Τεχνική θέλει περισσότερο χρόνο: η πίεση πέφτει στο μισό
-      e.x -= e.speed * e.mult * dt * (this.assembling ? .45 : 1);
+      e.x -= e.speed * e.mult * dt * (this.assembling ? .45 : 1) * (shop.ribbonFx(this.gear).slow || 1);   // Κ1: Ανάσα
     }
     if (this.enemies[0].x <= RETREAT_X) {
       // Μέσα στη συναρμολόγηση ο εχθρός σταματά στη γραμμή — η ανασύνταξη
@@ -2307,8 +2308,8 @@ export default class BattleScene extends Phaser.Scene {
     this.startedAt = performance.now();
     // Θ7: το ρολόι της ανταμοιβής ξεκινά μαζί με τη λέξη (χρόνος σκηνής: η παύση το σταματά)
     this.chStart = this.sceneMs;
-    this.chDur = ch.type === 'assembly'
-      ? ASM_BASE_MS + ASM_PER_UNIT_MS * splitGraphemes(ch.text).length : GAP_MIN_MS;
+    this.chDur = (ch.type === 'assembly'
+      ? ASM_BASE_MS + ASM_PER_UNIT_MS * splitGraphemes(ch.text).length : GAP_MIN_MS) * this.timeScale();
     this.clockOn = true;
     this.answerK = 1;
     if (ch.type === 'assembly') this.showAssembly(ch);
@@ -2317,10 +2318,13 @@ export default class BattleScene extends Phaser.Scene {
 
   // Θ7: πόσο αξίζει τώρα η απάντηση (1 → REWARD_MIN). Στη συναρμολόγηση,
   // 0 όταν τελειώσει ο χρόνος.
+  // Κ1: Κορδέλα του Χρόνου — όλο το ρολόι μιάμιση φορά πιο αργό
+  timeScale() { return shop.ribbonFx(this.gear).time || 1; }
+
   rewardK() {
-    const t = this.sceneMs - this.chStart;
+    const t = (this.sceneMs - this.chStart) / this.timeScale();
     if (this.current && this.current.type === 'assembly') {
-      const f = 1 - t / this.chDur;
+      const f = 1 - (this.sceneMs - this.chStart) / this.chDur;
       return f <= 0 ? 0 : REWARD_MIN + (1 - REWARD_MIN) * f;
     }
     if (t <= GAP_FULL_MS) return 1;
@@ -2339,6 +2343,10 @@ export default class BattleScene extends Phaser.Scene {
     const asm = this.current.type === 'assembly';
     const f = asm ? Math.max(0, 1 - (this.sceneMs - this.chStart) / this.chDur) : (k - REWARD_MIN) / (1 - REWARD_MIN);
     const w = 380, h = 10, x = W / 2 - w / 2, y = 200;
+    if (this.timeScale() > 1) {                        // Κ1: η μπάρα με το χρώμα της κορδέλας
+      g.lineStyle(2, NUM.spirit, .8);
+      g.strokeRoundedRect(x - 3, y - 3, w + 6, h + 6, (h + 6) / 2);
+    }
     g.fillStyle(NUM.ink, .22);
     g.fillRoundedRect(x - 2, y - 2, w + 4, h + 4, (h + 4) / 2);
     if (f > 0) {
@@ -2465,6 +2473,20 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 250, hold: 1100, yoyo: true, onComplete: () => t.destroy() });
     this.label.setAlpha(0);
     this.hideScroll(() => this.time.delayedCall(900, () => this.nextChallenge()));
+  }
+
+  // Θ8 + Κ1: το πρώτο λάθος της λέξης. Με την Κορδέλα της Ασπίδας, μία
+  // φορά ανά κύμα η ασπίδα το σταματά: η μπάρα δεν πέφτει, ο νίντζα δεν ξαφνιάζεται.
+  firstMiss() {
+    if (shop.ribbonFx(this.gear).shield && this.shieldWave !== this.wave) {
+      this.shieldWave = this.wave;
+      this.sealRing(this.ninja.x, this.ninja.y - 70, NUM.spirit);
+      audio.chime(2);
+      this.flashHint(TXT.shielded);
+      return;
+    }
+    this.addRage(-RAGE_STARTLE);
+    this.startle();
   }
 
   // Θ8: ο νίντζα ξαφνιάζεται — πηδά, «!» πάνω από το κεφάλι. Η μπάρα χάνει
@@ -2609,7 +2631,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     // Λάθος σειρά: το πλακίδιο τινάζεται και σβήνει για λίγο. Κανένα
     // κόκκινο, και ΔΕΝ μπαίνει στην περγαμηνή — η λάθος μορφή δεν φαίνεται.
-    if (!this.assemblyMiss) { this.addRage(-RAGE_STARTLE); this.startle(); }   // Θ8
+    if (!this.assemblyMiss) this.firstMiss();   // Θ8
     this.assemblyMiss = got;
     this.combo = 0;
     this.maskDamage();
@@ -2953,7 +2975,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.revealed) this.praiseSpeed(this.answerK);
     } else {
       // Θ8: ΜΟΝΟ το πρώτο λάθος της λέξης ξαφνιάζει και ρίχνει τη μπάρα
-      if (!this.tries) { this.addRage(-RAGE_STARTLE); this.startle(); }
+      if (!this.tries) this.firstMiss();
       this.maskDamage();                     // Ζ11: η μάσκα χάνει μία ζωή
       this.combo = 0;
       this.hardTargets.add(ch.targetId);
@@ -3936,7 +3958,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   addRage(n) {
-    const k = n > 0 && this.perks.includes('ember') ? 1.25 : 1;   // Φλογερή Καρδιά
+    const k = n > 0 ? (this.perks.includes('ember') ? 1.25 : 1) * (shop.ribbonFx(this.gear).rage || 1) : 1;   // Φλογερή Καρδιά · Κ1 Φλόγα
     const before = this.rage;
     this.rage = Math.max(0, Math.min(RAGE_MAX, this.rage + n * k));
     // Το λάθος «τρώει ξύλο» ΚΑΙ από τη γεμάτη μπάρα (ιδιοκτήτης 11/09 —

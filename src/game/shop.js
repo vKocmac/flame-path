@@ -17,7 +17,9 @@
 //   mask   — φοριέται ΜΙΑ· πολλαπλασιάζει τις σπίθες· κάθε λάθος σβήνει μία
 //            «ζωή» (pips), στο μηδέν ραγίζει και χάνεται. Νέα μάσκα = αντικαθιστά.
 //   magnet — επένδυση, για πάντα: +level σπίθες σε κάθε εχθρό
-//   ribbon — στολίδι: το χρώμα της κορδέλας στο κεφάλι
+//   ribbon — η κορδέλα στο κεφάλι. Ως τη v3.24 μόνο στολίδι· Κ1 (18/09): «θέλω
+//            να δίνει κάτι… σαν άμυνα? ή… περισσότερο περιθώριο χρόνου? Κάθε
+//            ζώνη κάτι». Φοριέται μία· το όφελός της: RIBBON_FX.
 //   power  — δύναμη της μπάρας (Θ5, 18/09). Την ξεκλειδώνει η ΖΩΝΗ (`belt`),
 //            την αγοράζουν οι σπίθες. Μόνο όσες έχει αγοράσει χτυπούν.
 //   weapon — το βασικό όπλο (Θ5/Θ6). Ίδιος κανόνας· από όσα έχει, ΔΙΑΛΕΓΕΙ
@@ -44,10 +46,10 @@ export const SHOP = [
   { id: 'magnet-1', cat: 'magnet', price: 80, level: 1 },
   { id: 'magnet-2', cat: 'magnet', price: 200, level: 2 },
   { id: 'magnet-3', cat: 'magnet', price: 400, level: 3 },
-  { id: 'ribbon-red', cat: 'ribbon', price: 30, color: 'flameDeep' },
-  { id: 'ribbon-spirit', cat: 'ribbon', price: 30, color: 'spirit' },
-  { id: 'ribbon-gold', cat: 'ribbon', price: 30, color: 'lantern' },
-  { id: 'ribbon-silver', cat: 'ribbon', price: 30, color: 'moon' }
+  { id: 'ribbon-red', cat: 'ribbon', price: 60, color: 'flameDeep' },
+  { id: 'ribbon-spirit', cat: 'ribbon', price: 90, color: 'spirit' },
+  { id: 'ribbon-gold', cat: 'ribbon', price: 120, color: 'lantern' },
+  { id: 'ribbon-silver', cat: 'ribbon', price: 150, color: 'moon' }
 ];
 
 export const CATS = ['power', 'weapon', 'sword', 'mask', 'magnet', 'ribbon'];
@@ -60,6 +62,23 @@ export const WEAPON_HIT = {
   volt: { front: 2, splash: 0 },
   star: { front: 2, splash: 1 }
 };
+
+// Κ1: τι δίνει η κορδέλα που φορά (μία τη φορά)
+//   shield — Ασπίδα: το πρώτο λάθος κάθε κύματος δεν ρίχνει τη μπάρα δύναμης
+//   time   — Χρόνος: η μπάρα χρόνου κρατά ×1,5 (και στη Μεγάλη Τεχνική)
+//   rage   — Φλόγα: η μπάρα δύναμης γεμίζει ×1,25
+//   slow   — Ανάσα: οι εχθροί πλησιάζουν ×0,8
+export const RIBBON_FX = {
+  'ribbon-red': { shield: true },
+  'ribbon-spirit': { time: 1.5 },
+  'ribbon-gold': { rage: 1.25 },
+  'ribbon-silver': { slow: .8 }
+};
+
+/** Το όφελος της κορδέλας που φορά (κενό αν δεν φορά ή δεν την έχει). */
+export function ribbonFx(shop) {
+  return (shop && shop.ribbon && shop.owned.includes(shop.ribbon) && RIBBON_FX[shop.ribbon]) || {};
+}
 
 /** Οι δυνάμεις που έχει αγοράσει, με τη σειρά του καταλόγου. */
 export function ownedPowers(shop) {

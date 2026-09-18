@@ -160,6 +160,11 @@ export default class ShopScene extends Phaser.Scene {
     this.detail.add(this.add.text(cx, 420, desc, {
       fontFamily: FONT.ui, fontSize: '19px', color: HEX.parchment, align: 'center', wordWrap: { width: w - 50 }
     }).setOrigin(.5, 0).setAlpha(.9));
+    if (it.cat === 'ribbon') {
+      this.detail.add(this.add.text(cx, 490, TXT.ribbonNote, {
+        fontFamily: FONT.ui, fontSize: '16px', color: HEX.smoke, align: 'center', wordWrap: { width: w - 50 }
+      }).setOrigin(.5, 0));
+    }
     if (it.cat === 'mask') {
       this.detail.add(this.add.text(cx, 470, TXT.maskNote, {
         fontFamily: FONT.ui, fontSize: '16px', color: HEX.smoke, align: 'center', wordWrap: { width: w - 50 }

@@ -797,6 +797,15 @@ await test('Θ5 Κατάστημα: η ζώνη ξεκλειδώνει, οι σ�
   eq(store.getSparks(store.loadState()), 380, 'πληρώθηκε');
 });
 
+await test('Κ1 Κορδέλες: η κορδέλα που φοράς δίνει το δικό της — μόνο αν την έχεις', async () => {
+  const shop = await import('./src/game/shop.js');
+  eq(shop.ribbonFx({ owned: [], ribbon: null }), {}, 'χωρίς κορδέλα: τίποτα');
+  eq(shop.ribbonFx({ owned: ['ribbon-spirit'], ribbon: 'ribbon-spirit' }).time, 1.5, 'Χρόνου');
+  eq(shop.ribbonFx({ owned: ['ribbon-red'], ribbon: 'ribbon-red' }).shield, true, 'Ασπίδας');
+  eq(shop.ribbonFx({ owned: [], ribbon: 'ribbon-gold' }), {}, 'δεν την αγόρασε: τίποτα');
+  eq(Object.keys(shop.RIBBON_FX).length, shop.SHOP.filter((x) => x.cat === 'ribbon').length, 'κάθε κορδέλα κάτι');
+});
+
 // ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)
 
 // Ένα προφίλ με μια λέξη που έχει ΠΡΟΟΔΟ: επίπεδο 3, σπίθες, ιστορικό.
