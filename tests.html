@@ -506,22 +506,65 @@ await test('Όριο μάθησης: λέξη που άρχισε δεν μέν�
   assert(seq[3] !== 'intro:λιμάνι', 'η επόμενη λέξη περιμένει σειρά');
 }));
 
-await test('Μόλις κατακτηθούν (επίπεδο 2), ανοίγει χώρος για τις επόμενες', () => withCap(2, () => {
+await test('Μόλις απαντηθούν σωστά, ανοίγει χώρος για τις επόμενες — την ίδια μέρα', () => withCap(2, () => {
   const { pid } = seed([
-    { text: 'λιθάρι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] },
-    { text: 'λιβάδι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] },
+    { text: 'λιθάρι', targets: [iT({ level: 0, introduced: true, due: PAST })] },
+    { text: 'λιβάδι', targets: [iT({ level: 0, introduced: true, due: PAST })] },
     { text: 'ωδείο', targets: [oT] }
   ]);
   engine.resetSession();
   const a = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
-  assert(a.type !== 'intro', 'γεμάτο όριο → όχι νέα λέξη');
+  assert(a.type !== 'intro', 'δύο αναπάντητα σημεία = γεμάτο όριο → όχι νέα λέξη');
   const s = store.loadState();
-  store.activeProfile(s).words.slice(0, 2).forEach((w) => { w.targets[0].level = 2; });
+  store.activeProfile(s).words.slice(0, 2).forEach((w) => { w.targets[0].level = 1; w.targets[0].nextDueAt = FUTURE; });
   store.saveState(s);
   engine.resetSession();
   const b = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
-  eq(`${b.type}:${b.text}`, 'intro:ωδείο', 'κατακτήθηκαν → μπαίνει η επόμενη');
+  eq(`${b.type}:${b.text}`, 'intro:ωδείο', 'απαντήθηκαν σωστά, περιμένουν το αύριο → μπαίνει η επόμενη');
 }));
+
+// 18/09 — «βγάζει 3-5 λέξεις ξανά και ξανά ενώ του έχω βάλει μια πολύ μεγάλη
+// λίστα»: με όλα σωστά, η λίστα πρέπει να προχωρά ΜΕΣΑ στην ίδια μέρα.
+await test('Μεγάλη λίστα, όλα σωστά: νέες λέξεις μπαίνουν την ίδια μέρα (όχι 3-5 ξανά και ξανά)', () => {
+  const specs = [];
+  for (let i = 0; i < 30; i++) specs.push({ text: 'λεξη' + i, targets: [eT, { g: 'ι', start: 5, len: 1, cls: 'i', d: ['η'] }] });
+  const { pid } = seed(specs);
+  const words = new Set();
+  for (let lvl = 0; lvl < 3; lvl++) {
+    engine.resetSession();
+    const pap = new Set();
+    let ch = null;
+    for (let i = 0; i < 20; i++) {
+      ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+      if (!ch || ch.type !== 'intro') break;
+      if (!pap.has(ch.text) && pap.size >= 5) { ch = null; break; }
+      pap.add(ch.text); reportAs(pid, ch);
+    }
+    for (let q = 0; q < 12; q++) {
+      if (!ch) ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+      if (!ch) break;
+      words.add(ch.text); reportAs(pid, ch); ch = null;
+    }
+  }
+  assert(words.size >= 12, `σε 3 λεβελ ρωτήθηκαν μόνο ${words.size} διαφορετικές λέξεις`);
+});
+
+await test('Όριο νέων λέξεων ανά μέρα (new_words_per_day)', () => {
+  const specs = [];
+  for (let i = 0; i < 20; i++) specs.push({ text: 'λεξη' + i, targets: [eT] });
+  const { pid } = seed(specs);
+  CFG.active_set.new_words_per_day = 4;
+  try {
+    engine.resetSession();
+    let intros = 0;
+    for (let i = 0; i < 30; i++) {
+      const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'first' });
+      if (!ch || ch.type !== 'intro') { if (ch) reportAs(pid, ch); continue; }
+      intros++; reportAs(pid, ch);
+    }
+    eq(intros, 4, 'τελετές τη μέρα');
+  } finally { delete CFG.active_set.new_words_per_day; }
+});
 
 await test('Προπόνηση: πρώτα η κατακτημένη λέξη που έχει ξεχαστεί περισσότερο', () => {
   const { pid } = seed([
@@ -563,6 +606,44 @@ await test('Ροή μάθησης (Parent): κατακτημένες / μαθα�
   const f = learningFlow(store.activeProfile(store.loadState()), fakeNow, 2);
   eq([f.mastered, f.learning, f.waiting, f.dueToday], [1, 1, 1, 1], 'μετρητές');
   eq([f.recent, f.recentMastered], [2, 0], 'νέες 7 ημερών');
+});
+
+await test('Κατάταξη λέξεων (Η4): δυσκολότερη πρώτη, λίγα στοιχεία χωριστά', async () => {
+  const { wordRanking } = await import('./src/learning/telemetry.js');
+  seed([
+    { text: 'λιμάνι', targets: [iT({ level: 1, introduced: true, due: FUTURE })] },
+    { text: 'λιθάρι', targets: [iT({ level: 3, introduced: true, due: FUTURE })] },
+    { text: 'λιβάδι', targets: [iT({ level: 0, introduced: true, due: PAST })] }
+  ]);
+  const s = store.loadState();
+  const [a, b, c] = store.activeProfile(s).words;
+  Object.assign(a.targets[0], { attempts: 10, successes: 4, errorHistory: [{ grapheme: 'η', type: 'gap', at: PAST }] });
+  Object.assign(b.targets[0], { attempts: 8, successes: 8 });
+  Object.assign(c.targets[0], { attempts: 1, successes: 0 });
+  store.saveState(s);
+  const r = wordRanking(store.activeProfile(store.loadState()), 2);
+  eq(r.ranked.map((x) => x.word.text), ['λιμάνι', 'λιθάρι'], 'σειρά');
+  eq([r.ranked[0].wrong, r.ranked[0].asked, r.ranked[0].chose], [6, 10, { 'η': 1 }], 'λάθη / ερωτήσεις / τι έβαλε');
+  eq(r.few.map((x) => x.word.text), ['λιβάδι'], 'μία ερώτηση = λίγα στοιχεία');
+});
+
+await test('Αρχειοθέτηση (Η4): δεν ρωτιέται, αλλά μετράει στις τεχνικές', async () => {
+  const journey = await import('./src/game/journey.js');
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT({ level: 4, introduced: true, due: PAST })] },
+    { text: 'λιθάρι', targets: [iT({ level: 4, introduced: true, due: PAST })] }
+  ]);
+  const s = store.loadState();
+  const id = store.activeProfile(s).words[0].id;
+  store.setArchived(s, id, true);
+  for (let i = 0; i < 4; i++) {
+    engine.resetSession();
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+    assert(ch.text !== 'λιμάνι', 'η αρχειοθετημένη ρωτήθηκε');
+  }
+  eq(journey.masteredCount(store.activeProfile(store.loadState())), 2, 'κατακτημένα για τις τεχνικές');
+  store.setArchived(store.loadState(), id, false);
+  eq(store.activeProfile(store.loadState()).words[0].archived, false, 'επαναφορά');
 });
 
 // Προσομοίωση: 8 εβδομάδες, 15 νέες λέξεις κάθε Δευτέρα, 3 λεβελ τη μέρα
@@ -609,7 +690,9 @@ await test('Προσομοίωση 8 εβδομάδων: νέες λέξεις �
       }
     }
     const p = store.activeProfile(store.loadState());
-    const learning = p.words.flatMap((w) => w.targets).filter((t) => t.introduced && t.level < 2).length;
+    // Ό,τι ΧΡΩΣΤΑΕΙ τώρα (18/09): αναπάντητα ή ληξιπρόθεσμα, όχι κατακτημένα
+    const learning = p.words.flatMap((w) => w.targets).filter((t) => t.introduced && t.level < 2
+      && (t.level === 0 || !t.nextDueAt || new Date(t.nextDueAt) <= fakeNow)).length;
     maxLearning = Math.max(maxLearning, learning);
   }
   const p = store.activeProfile(store.loadState());

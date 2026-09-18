@@ -146,6 +146,7 @@ export function reportResult(r) {
   if (served.type === 'intro') {
     // Πρώτη έκθεση χωρίς δυνατότητα λάθους — δεν είναι «προσπάθεια».
     target.introduced = true;
+    target.introducedAt = at; // για το όριο νέων λέξεων ανά μέρα (18/09)
     target.nextDueAt = at; // διαθέσιμος αμέσως μέσα στο ίδιο session
   } else if (served.isPractice) {
     // Προπόνηση: μετράει στο telemetry, ΔΕΝ αγγίζει επίπεδο.

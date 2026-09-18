@@ -60,3 +60,20 @@
 .pm-badge { color: #FF7A1A; font-size: .82rem; font-weight: 700; }
 .pm-prof .ren, .pm-prof .del { background: none; border: none; color: #7C86A0;
   font-size: 1.1rem; cursor: pointer; padding: 6px 8px; }
+/* Κατάταξη λέξεων (Η4) — πορτοκαλί / κεχριμπάρι / γαλάζιο, όχι κόκκινο-πράσινο */
+.pm-rk { display: grid; grid-template-columns: 26px 1fr auto; gap: 4px 10px;
+  align-items: center; background: #141A33; border-radius: 10px;
+  padding: 10px 12px; margin: 6px 0; }
+.pm-rk .n { color: #FFC857; font-weight: 700; text-align: right; }
+.pm-rk .w { font-family: 'Andika', 'Segoe UI', sans-serif; font-size: 1.15rem; }
+.pm-rk .w b { color: #FF7A1A; }
+.pm-rk .arc { background: none; border: none; font-size: 1.1rem; cursor: pointer;
+  padding: 6px 8px; min-width: 40px; min-height: 40px; }
+.pm-rk .bar { grid-column: 2 / 4; height: 10px; border-radius: 5px; background: #232A4D;
+  overflow: hidden; }
+.pm-rk .bar i, .pm-legend i { display: block; height: 100%; border-radius: 5px; }
+.pm-rk .meta { grid-column: 2 / 4; color: #7C86A0; font-size: .78rem; }
+.hard { background: #FF7A1A; } .mid { background: #FFC857; } .easy { background: #57C7B8; }
+.pm-legend { display: flex; gap: 14px; color: #7C86A0; font-size: .78rem; margin: 6px 0 10px; }
+.pm-legend span { display: flex; align-items: center; gap: 6px; }
+.pm-legend i { width: 12px; height: 12px; display: inline-block; }

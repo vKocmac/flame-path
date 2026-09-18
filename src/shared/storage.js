@@ -139,7 +139,7 @@ function freshTarget(t) {
     level: 0, attempts: 0, successes: 0,
     errorHistory: [], challengeTypesUsed: [],
     lastSeenAt: null, nextDueAt: null,
-    introduced: false
+    introduced: false, introducedAt: null
   };
 }
 
@@ -183,7 +183,7 @@ export function newTarget({ gap, grapheme, confusionClass, distractors }) {
     level: 0, attempts: 0, successes: 0,
     errorHistory: [], challengeTypesUsed: [],
     lastSeenAt: null, nextDueAt: null,
-    introduced: false
+    introduced: false, introducedAt: null
   };
 }
 
@@ -318,6 +318,19 @@ export function advanceJourney(state, stations) {
   const next = finished ? { ...j, station: 0, cycle: j.cycle + 1 } : { ...j, station: j.station + 1 };
   setJourney(state, next);
   return { ...next, finished, from: j.station };
+}
+
+// Αρχειοθέτηση (Η4, 18/09): η λέξη δεν ξαναρωτιέται, αλλά μένει με την
+// πρόοδό της — οι τεχνικές του νίντζα δεν χάνονται. Επανέρχεται με ένα άγγιγμα.
+export function setArchived(state, wordId, on) {
+  const p = activeProfile(state);
+  const w = p.words.find((x) => x.id === wordId);
+  if (!w) return false;
+  w.archived = !!on;
+  w.updatedAt = now();
+  p.profile.updatedAt = now();
+  saveState(state);
+  return true;
 }
 
 export function removeWord(state, wordId) {

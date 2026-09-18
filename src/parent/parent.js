@@ -5,7 +5,7 @@
 import * as store from '../shared/storage.js';
 import { AUTO_CLASSES, canBeGap, splitGraphemes, classForGrapheme, distractorsFor, autoTargets } from '../shared/graphemes.js';
 import { loadStarterPack, STARTER_COUNT } from '../shared/starterPack.js';
-import { errorCounts, hardestTargets, learningFlow } from '../learning/telemetry.js';
+import { errorCounts, learningFlow, wordRanking, rankBand, RANK_MIN_ASKED } from '../learning/telemetry.js';
 import * as journey from '../game/journey.js';
 import { TXT } from '../theme/strings.js';
 
@@ -194,7 +194,6 @@ function progressHTML(p) {
     for (const [g, n] of Object.entries(m)) conf.push({ g, n });
   }
   conf.sort((a, b) => b.n - a.n);
-  const hard = hardestTargets(p, 5).filter((r) => r.failRate > 0);
   const f = learningFlow(p, new Date(), journey.MASTERY_LEVEL);
   return `
     <p class="pm-stat">Λέξεις: <b>${f.mastered}</b> κατακτημένες · <b>${f.learning}</b> μαθαίνει τώρα · <b>${f.waiting}</b> περιμένουν σειρά</p>
@@ -205,10 +204,46 @@ function progressHTML(p) {
     <p class="pm-note">Γράμματα που διαλέγει λάθος: ${conf.length
       ? conf.slice(0, 8).map((c) => `<b>${esc(c.g)}</b> ×${c.n}`).join(' · ')
       : 'κανένα ακόμα'}</p>
-    ${hard.length ? `<p class="pm-note">Δυσκολεύουν: ${hard.map((r) =>
-      `${esc(r.word)} (${esc(r.grapheme)}, ${Math.round(r.failRate * 100)}% σε ${r.attempts})`).join(' · ')}</p>` : ''}
     <p class="pm-note">«Κατακτημένο» = σωστό σε δύο διαφορετικές μέρες. Οι κατακτημένες λέξεις ξεκλειδώνουν τεχνικές του νίντζα.</p>
-    <p class="pm-note">Οι νέες λέξεις μπαίνουν σιγά σιγά: όσο πολλές είναι ακόμα «μαθαίνει τώρα», οι επόμενες περιμένουν σειρά. Οι κατακτημένες ξανάρχονται μόνες τους σε 3, 7, 14 και 30 μέρες — και ανάμεσα, στην προπόνηση. Καμία δεν αποσύρεται.</p>`;
+    <p class="pm-note">Οι νέες λέξεις μπαίνουν σιγά σιγά: μόλις απαντήσει σωστά σε όσες έχει μπροστά του, μπαίνουν οι επόμενες — ως 15 νέες τη μέρα. Οι κατακτημένες ξανάρχονται μόνες τους σε 3, 7, 14 και 30 μέρες — και ανάμεσα, στην προπόνηση. Καμία δεν αποσύρεται.</p>`;
+}
+
+// Κατάταξη λέξεων (Η4): από τη δυσκολότερη στην πιο εύκολη, με μπάρα.
+const PHASE = { waiting: 'περιμένει σειρά', learning: 'μαθαίνει', mastered: 'κατακτημένη' };
+function choseText(chose) {
+  const e = Object.entries(chose).sort((a, b) => b[1] - a[1]);
+  return e.length ? ` · έβαλε ${e.map(([g, n]) => `${esc(g)} ×${n}`).join(', ')}` : '';
+}
+function rankingHTML(p) {
+  const { ranked, few, archived } = wordRanking(p, journey.MASTERY_LEVEL);
+  const rows = ranked.map((r, i) => {
+    const pct = Math.round(r.rate * 100);
+    return `
+    <div class="pm-rk" data-id="${r.word.id}">
+      <span class="n">${i + 1}</span>
+      <span class="w">${wordHTML(r.word)}</span>
+      <button class="arc" aria-label="Αρχειοθέτηση" title="Αρχειοθέτηση: δεν ξαναρωτιέται">📦</button>
+      <span class="bar"><i class="${rankBand(r.rate)}" style="width:${Math.max(pct, 2)}%"></i></span>
+      <span class="meta">${plural(r.wrong, 'λάθος', 'λάθη')} σε ${r.asked} (${pct}%)${choseText(r.chose)} · ${PHASE[r.phase]}</span>
+    </div>`;
+  }).join('');
+  const some = few.filter((r) => r.asked > 0), none = few.length - some.length;
+  const fewHTML = (some.length ? `<p class="pm-note">Λίγα στοιχεία ακόμα (κάτω από ${RANK_MIN_ASKED} ερωτήσεις): ${some.map((r) =>
+    `${esc(r.word.text)} ${plural(r.wrong, 'λάθος', 'λάθη')} σε ${r.asked}`).join(' · ')}</p>` : '')
+    + (none ? `<p class="pm-note">Δεν έχουν ρωτηθεί ακόμα: ${plural(none, 'λέξη', 'λέξεις')}.</p>` : '');
+  const arcHTML = archived.length ? `<details class="pm-bulk"><summary>Αρχειοθετημένες (${archived.length})</summary>${archived.map((r) => `
+    <div class="pm-word" data-id="${r.word.id}">
+      <span class="w">${wordHTML(r.word)}</span>
+      <span class="meta">${plural(r.wrong, 'λάθος', 'λάθη')} σε ${r.asked}</span>
+      <button class="pm-btn small unarc">Επαναφορά</button>
+    </div>`).join('')}
+    <p class="pm-note">Δεν ρωτιούνται. Μετράνε όμως ακόμα στις τεχνικές του νίντζα — τίποτα δεν χάνεται.</p></details>` : '';
+  if (!ranked.length && !few.length && !archived.length) return '<p class="pm-note">Δεν υπάρχουν λέξεις ακόμα.</p>';
+  return `
+    <p class="pm-note">Από τη δυσκολότερη στην πιο εύκολη: σε πόσες από τις φορές που ρωτήθηκε έκανε λάθος με την πρώτη. Τις εύκολες μπορείς να τις αρχειοθετήσεις με 📦.</p>
+    <div class="pm-legend"><span><i class="hard"></i>δύσκολη</span><span><i class="mid"></i>μέτρια</span><span><i class="easy"></i>εύκολη</span></div>
+    ${rows || '<p class="pm-note">Καμία λέξη δεν έχει ρωτηθεί ακόμα αρκετές φορές.</p>'}
+    ${fewHTML}${arcHTML}`;
 }
 
 function renderMain(note = '') {
@@ -218,7 +253,7 @@ function renderMain(note = '') {
   const words = p.words.map((wd) => `
     <div class="pm-word" data-id="${wd.id}">
       <span class="w">${wordHTML(wd)}</span>
-      <span class="meta">${plural(wd.targets.length, 'σημείο', 'σημεία')} · κατακτημένα ${wd.targets.filter((t) => t.level >= journey.MASTERY_LEVEL).length}/${wd.targets.length}</span>
+      <span class="meta">${plural(wd.targets.length, 'σημείο', 'σημεία')} · κατακτημένα ${wd.targets.filter((t) => t.level >= journey.MASTERY_LEVEL).length}/${wd.targets.length}${wd.archived ? ' · 📦 αρχειοθετημένη' : ''}</span>
       <button class="del" aria-label="Διαγραφή">🗑</button>
     </div>`).join('') || '<p class="pm-note">Καμία λέξη ακόμα.</p>';
 
@@ -242,13 +277,16 @@ function renderMain(note = '') {
       <textarea class="pm-input pm-area" id="bulk" rows="5" placeholder="μία λέξη σε κάθε γραμμή (ή με κόμματα)"></textarea>
       <button class="pm-btn primary" id="bulkadd">Προσθήκη όλων</button>
       <p class="pm-note">Τα σημεία ελέγχου μπαίνουν αυτόματα (φωνήεντα και διαλυτικά). Για διπλά σύμφωνα, πρόσθεσε τη λέξη μόνη της πιο πάνω και διάλεξε το σημείο.</p>
-      <p class="pm-note">Βάλε όσες θέλεις — π.χ. τη λίστα της εβδομάδας. Το παιχνίδι τις φέρνει σιγά σιγά (περίπου 6 λέξεις μαθαίνονται μαζί) και συνεχίζει να ρωτά και τις παλιές.</p>
+      <p class="pm-note">Βάλε όσες θέλεις — π.χ. τη λίστα της εβδομάδας. Το παιχνίδι τις φέρνει σιγά σιγά (ως 15 νέες τη μέρα, όσο απαντά σωστά) και συνεχίζει να ρωτά και τις παλιές.</p>
     </details>
     <h3>Λίστα (${p.words.length})</h3>
     <div id="list">${words}</div>
 
     <h3>Πρόοδος — ${name}</h3>
     <div id="progress">${progressHTML(p)}</div>
+
+    <h3>Κατάταξη λέξεων — ${name}</h3>
+    <div id="rank">${rankingHTML(p)}</div>
 
     <h3>Προφίλ</h3>
     <p class="pm-note">Κάθε προφίλ έχει δικές του λέξεις, πρόοδο και σπίθες. Για δοκιμές φτιάξε ένα «Δοκιμή» — δεν αγγίζει κανέναν άλλον.</p>
@@ -327,12 +365,28 @@ function renderMain(note = '') {
     btn.addEventListener('click', () => {
       const id = btn.closest('.pm-word').dataset.id;
       const wd = p.words.find((x) => x.id === id);
-      if (confirm(`Διαγραφή «${wd.text}» και της προόδου της;`)) {
+      const won = wd.targets.some((t) => t.level >= journey.MASTERY_LEVEL);
+      if (confirm(`Διαγραφή «${wd.text}» και της προόδου της;${won
+        ? '\n\nΕίναι κατακτημένη: αν σβηστεί, μπορεί να χαθεί τεχνική του νίντζα. Προτίμησε 📦 αρχειοθέτηση (Κατάταξη λέξεων).' : ''}`)) {
         store.removeWord(state, id);
         renderMain();
       }
     });
   });
+
+  // --- κατάταξη: αρχειοθέτηση / επαναφορά (Η4) ---
+  w.querySelectorAll('.pm-rk .arc').forEach((btn) => btn.addEventListener('click', () => {
+    const id = btn.closest('.pm-rk').dataset.id;
+    const wd = p.words.find((x) => x.id === id);
+    store.setArchived(state, id, true);
+    renderMain(`Η «${wd.text}» αρχειοθετήθηκε — δεν θα ξαναρωτηθεί.`);
+  }));
+  w.querySelectorAll('#rank .unarc').forEach((btn) => btn.addEventListener('click', () => {
+    const id = btn.closest('.pm-word').dataset.id;
+    const wd = p.words.find((x) => x.id === id);
+    store.setArchived(state, id, false);
+    renderMain(`Η «${wd.text}» ξαναμπήκε στο παιχνίδι.`);
+  }));
 
   // --- προφίλ ---
   w.querySelectorAll('.pm-prof').forEach((row) => {

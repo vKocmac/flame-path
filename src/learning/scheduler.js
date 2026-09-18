@@ -13,10 +13,12 @@ export function isDue(target, nowDate) {
   return target.introduced && (!target.nextDueAt || new Date(target.nextDueAt) <= nowDate);
 }
 
-// Όλα τα ζεύγη (λέξη, στόχος) ενός προφίλ.
+// Όλα τα ζεύγη (λέξη, στόχος) ενός προφίλ. Οι αρχειοθετημένες λέξεις (Η4)
+// δεν ρωτιούνται πια — μετρούν όμως ακόμα στις τεχνικές (journey.masteredCount).
 export function allPairs(profileEntry) {
   const pairs = [];
   for (const word of profileEntry.words) {
+    if (word.archived) continue;
     for (const target of word.targets) pairs.push({ word, target });
   }
   return pairs;
@@ -39,14 +41,49 @@ export function inProgressCount(pairs, cfg) {
   return pairs.filter((x) => x.target.introduced && x.target.level < m).length;
 }
 
+// Όριο μάθησης = ό,τι ΧΡΩΣΤΑΕΙ το παιδί ΤΩΡΑ (18/09). Ο Κοσμάς: «βγάζει 3-5
+// λέξεις ξανά και ξανά ενώ του έχω βάλει μια πολύ μεγάλη λίστα και το
+// βαριέται». Αιτία: το όριο μετρούσε κάθε μη κατακτημένο σημείο, και η
+// κατάκτηση θέλει σωστό σε ΔΥΟ μέρες — άρα μόλις γέμιζε (~6 λέξεις), καμία
+// νέα λέξη δεν έμπαινε ως αύριο και η προπόνηση ανακύκλωνε τις ίδιες.
+// Τώρα μετράει μόνο όσα δεν έχουν απαντηθεί σωστά ακόμα (επίπεδο 0) ή είναι
+// ληξιπρόθεσμα. Σημείο που απαντήθηκε σωστά και περιμένει την αυριανή
+// επανάληψη ΔΕΝ πιάνει θέση — μπαίνει η επόμενη λέξη της λίστας.
+export function learningLoad(pairs, cfg, nowDate) {
+  const m = masteryLevel(cfg);
+  return pairs.filter((x) => x.target.introduced && x.target.level < m
+    && (x.target.level === 0 || isDue(x.target, nowDate))).length;
+}
+
 function learningCap(cfg) { return cfg.active_set.learning_cap_targets ?? 12; }
+
+// Δεύτερο φρένο: πόσες ΝΕΕΣ λέξεις το πολύ ανά μέρα (`new_words_per_day`).
+// Χωρίς αυτό, ένα μεγάλο απόγευμα θα παρουσίαζε όλη τη λίστα και την άλλη
+// μέρα θα χρωστούσε δεκάδες επαναλήψεις μαζί.
+function sameDay(iso, nowDate) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return d.getFullYear() === nowDate.getFullYear() && d.getMonth() === nowDate.getMonth()
+    && d.getDate() === nowDate.getDate();
+}
+export function wordsIntroducedToday(pairs, nowDate) {
+  const ids = new Set();
+  for (const x of pairs) if (sameDay(x.target.introducedAt, nowDate)) ids.add(x.word.id);
+  return ids.size;
+}
+function dailyWords(cfg) { return cfg.active_set.new_words_per_day ?? Infinity; }
 
 // Λέξη που άρχισε να παρουσιάζεται τελειώνει, ό,τι κι αν λέει το όριο —
 // αλλιώς θα έμενε μισή λέξη αθέατη ως τον επόμενο πάπυρο.
 function started(word) { return word.targets.some((t) => t.introduced); }
 
-function mayIntroduce(pair, everything, cfg) {
-  return started(pair.word) || inProgressCount(everything, cfg) < learningCap(cfg);
+function roomForNewWord(everything, cfg, nowDate) {
+  return learningLoad(everything, cfg, nowDate) < learningCap(cfg)
+    && wordsIntroducedToday(everything, nowDate) < dailyWords(cfg);
+}
+
+function mayIntroduce(pair, everything, cfg, nowDate) {
+  return started(pair.word) || roomForNewWord(everything, cfg, nowDate);
 }
 
 // «Τρέχων» στόχος: χαμηλό επίπεδο ή πρόσφατη λέξη (μίγμα 60/40, SPEC κεφ. 5).
@@ -63,7 +100,8 @@ export function buildActiveSet(pairs, cfg, nowDate) {
 
   // Νέοι ΜΟΝΟ όσοι χωράνε στο όριο μάθησης (+ τα υπόλοιπα σημεία λέξεων
   // που ήδη άρχισαν) — αλλιώς 30 νέες λέξεις γέμιζαν όλο το σύνολο.
-  const room = Math.max(0, learningCap(cfg) - inProgressCount(pairs, cfg));
+  const room = Math.max(0, Math.min(learningCap(cfg) - learningLoad(pairs, cfg, nowDate),
+    dailyWords(cfg) - wordsIntroducedToday(pairs, nowDate)));
   const fresh = pairs.filter((x) => !x.target.introduced)
     .sort((a, b) => (a.word.addedAt < b.word.addedAt ? -1 : 1));
   const intro = [...fresh.filter((x) => started(x.word)),
@@ -99,7 +137,7 @@ export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated
   if (!pairs.length) return null;
   // Νέοι στόχοι που ΧΩΡΑΝΕ στο όριο μάθησης — όλα τα παρακάτω (και ο
   // πάπυρος του 'first') βλέπουν μόνο αυτούς· οι άλλοι περιμένουν σειρά.
-  const fresh = pairs.filter((x) => !x.target.introduced && mayIntroduce(x, everything, cfg));
+  const fresh = pairs.filter((x) => !x.target.introduced && mayIntroduce(x, everything, cfg, nowDate));
 
   // Άνοιγμα λεβελ: οι νέοι στόχοι βγαίνουν ΟΜΑΔΟΠΟΙΗΜΕΝΟΙ ανά λέξη, με τη
   // σειρά που μπήκαν οι λέξεις. Έτσι ο καλών μπορεί να σταματήσει σε όριο
