@@ -913,31 +913,52 @@ export const ROBE_LOOK = {
   'robe-sky': { color: 0xE3DED0, collar: NUM.spirit }
 };
 
-/** Η ρόμπα πάνω στο σώμα του νίντζα (τοπικές συντεταγμένες: σώμα -26..26, -74..-12). */
+// Πιο σκούρα απόχρωση (το παντελόνι της στολής)
+function darker(hex, f = .62) {
+  const c = (v) => Math.round(v * f);
+  return (c((hex >> 16) & 255) << 16) | (c((hex >> 8) & 255) << 8) | c(hex & 255);
+}
+
+/**
+ * Η στολή πάνω στο σώμα του νίντζα (τοπικές συντεταγμένες: σώμα -26..26,
+ * -74..-12, πόδια ως 0). Λ1γ (18/09, ο Σταύρος: «να μην είναι σαν φόρεμα»):
+ * ΔΥΟ κομμάτια, όπως η στολή του καράτε — κοντό σακάκι με γιακά ως τη μέση,
+ * ίσιο, και παντελόνι σε πιο σκούρα απόχρωση ως τα πόδια.
+ */
 export function drawRobe(g, id, alpha = 1) {
   const r = ROBE_LOOK[id] || ROBE_LOOK['robe-night'];
-  g.fillStyle(r.color, alpha);
-  g.fillRoundedRect(-26, -74, 52, 62, 15);
-  g.fillPoints([P(-27, -36), P(27, -36), P(30, -11), P(-30, -11)], true);   // η φούστα της ρόμπας
-  g.fillStyle(r.collar, alpha);
-  g.fillPoints([P(18, -73), P(9, -73), P(-3, -52), P(3, -48)], true);        // δεξί πέτο, από κάτω
-  g.fillPoints([P(-18, -73), P(-9, -73), P(9, -41), P(1, -38)], true);       // αριστερό πέτο, από πάνω
-  g.fillStyle(0x000000, alpha * .18);                                      // σκιά στα μανίκια
-  g.fillRect(-26, -66, 5, 30);
-  g.fillRect(21, -66, 5, 30);
+  const pants = r.color === NUM.dojoRoof ? NUM.dojoRoof : darker(r.color);
+  g.fillStyle(pants, alpha);                                             // παντελόνι
+  g.fillRect(-24, -34, 48, 22);
+  g.fillRect(-19, -14, 15, 14);
+  g.fillRect(6, -14, 15, 14);
+  g.fillStyle(0x000000, alpha * .22);                                    // η ραφή ανάμεσα στα πόδια
+  g.fillRect(-2, -22, 4, 22);
+  g.fillStyle(r.color, alpha);                                           // σακάκι, ίσιο, ως τη μέση
+  g.fillRoundedRect(-26, -74, 52, 46, { tl: 15, tr: 15, bl: 3, br: 3 });
+  g.fillStyle(r.collar, alpha);                                          // ο σταυρωτός γιακάς
+  g.fillPoints([P(18, -73), P(9, -73), P(-3, -52), P(3, -48)], true);    // δεξί πέτο, από κάτω
+  g.fillPoints([P(-18, -73), P(-9, -73), P(9, -41), P(1, -38)], true);   // αριστερό πέτο, από πάνω
+  g.fillStyle(0x000000, alpha * .18);                                    // σκιά στα πλάγια
+  g.fillRect(-26, -66, 5, 36);
+  g.fillRect(21, -66, 5, 36);
 }
 
 function drawRobeIcon(g, id, cx, cy, s, alpha = 1) {
   const r = ROBE_LOOK[id] || ROBE_LOOK['robe-night'];
   const Q = (x, y) => P(cx + x * s, cy + y * s);
-  g.fillStyle(r.color, alpha);
-  g.fillPoints([Q(-.5, -.8), Q(.5, -.8), Q(.95, -.45), Q(.75, -.2), Q(.5, -.35), Q(.55, .9), Q(-.55, .9), Q(-.5, -.35), Q(-.75, -.2), Q(-.95, -.45)], true);
+  const pants = r.color === NUM.dojoRoof ? NUM.nightHigh : darker(r.color);
+  g.fillStyle(pants, alpha);                                             // παντελόνι: δύο πόδια
+  g.fillPoints([Q(-.42, .05), Q(.42, .05), Q(.46, .95), Q(.08, .95), Q(0, .35), Q(-.08, .95), Q(-.46, .95)], true);
+  const jacket = [Q(-.5, -.85), Q(.5, -.85), Q(.95, -.5), Q(.75, -.25), Q(.5, -.4), Q(.5, .15), Q(-.5, .15), Q(-.5, -.4), Q(-.75, -.25), Q(-.95, -.5)];
+  g.fillStyle(r.color, alpha);                                           // σακάκι με μανίκια
+  g.fillPoints(jacket, true);
   g.fillStyle(r.collar, alpha);
-  g.fillPoints([Q(.32, -.8), Q(.14, -.8), Q(-.08, -.3), Q(.02, -.22)], true);
-  g.fillPoints([Q(-.32, -.8), Q(-.14, -.8), Q(.2, .05), Q(.06, .12)], true);
+  g.fillPoints([Q(.32, -.85), Q(.14, -.85), Q(-.08, -.4), Q(.02, -.32)], true);
+  g.fillPoints([Q(-.32, -.85), Q(-.14, -.85), Q(.2, -.05), Q(.06, .02)], true);
   if (r.color === NUM.dojoRoof) {                         // η σκούρα στολή: περίγραμμα για να φαίνεται
     g.lineStyle(Math.max(1, s * .05), NUM.smoke, alpha * .8);
-    g.strokePoints([Q(-.5, -.8), Q(.5, -.8), Q(.95, -.45), Q(.75, -.2), Q(.5, -.35), Q(.55, .9), Q(-.55, .9), Q(-.5, -.35), Q(-.75, -.2), Q(-.95, -.45)], true);
+    g.strokePoints(jacket, true);
   }
 }
 
