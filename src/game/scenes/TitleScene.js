@@ -9,6 +9,8 @@ import * as world from '../world.js';
 import * as store from '../../shared/storage.js';
 import * as journey from '../journey.js';
 import * as shop from '../shop.js';
+import * as engine from '../../learning/engine.js';
+import { bonusOpen } from '../../learning/daily.js';
 
 const { W, H } = world;
 
@@ -101,7 +103,9 @@ export default class TitleScene extends Phaser.Scene {
     if (gear.mask) world.drawMask(mask, gear.mask.id);
     const rib = gear.ribbon && shop.item(gear.ribbon);
     const ribbon = rib ? NUM[rib.color] : NUM.dojoRoof;
-    const hero = this.add.container(x, y, [shadow, tails, g, rim, mask, eyes, belt]).setScale(1.15);
+    const robe = this.add.graphics();                   // Λ1: η στολή του
+    world.drawRobe(robe, shop.currentRobe(gear));
+    const hero = this.add.container(x, y, [shadow, tails, g, robe, rim, mask, eyes, belt]).setScale(1.15);
 
     // Οι δύο ουρές της κορδέλας κυματίζουν (από το update της σκηνής — ένας
     // listener θα στοιβαζόταν σε κάθε επιστροφή στον τίτλο)
@@ -381,6 +385,36 @@ export default class TitleScene extends Phaser.Scene {
     if (who) this.buildDojoPanel(store.getJourney(st), who);
     if (who) this.buildShopButton(store.getSparks(st));
     if (who) this.buildProgressButton(who);
+    if (who && bonusOpen(engine.daily(who.profile.id), new Date())) this.buildPortal();
+  }
+
+  // Λ2: η Πύλη — ο χώρος μέσα στο τόρι γίνεται δίνη προς την Άλλη Διάσταση.
+  // Ανοίγει μία φορά τη μέρα, όταν κλείσει η δεκαπεντάδα.
+  buildPortal() {
+    const x = 1062, y = 560;
+    const glow = this.add.image(x, y, 'glow-spirit').setScale(1.5).setAlpha(.7).setBlendMode(Phaser.BlendModes.ADD).setDepth(44);
+    const g = this.add.graphics({ x, y }).setDepth(44);
+    const cols = [0x7B4FD6, 0x3FD6C8, 0xE0679E];
+    for (let i = 0; i < 6; i++) {
+      g.lineStyle(5 - i * .5, cols[i % 3], .9 - i * .1);
+      g.strokeEllipse(0, 0, 72 - i * 11, 100 - i * 15);
+    }
+    const label = this.add.text(x, y - 92, TXT.portal, {
+      fontFamily: FONT.ui, fontSize: '22px', fontStyle: '700', color: '#3FD6C8'
+    }).setOrigin(.5).setDepth(46);
+    label.setShadow(0, 0, '#7B4FD6', 14, false, true);
+    if (!this.calm) {
+      this.tweens.add({ targets: g, scaleX: .82, scaleY: 1.08, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });   // όρθια, πάλλεται
+      this.tweens.add({ targets: glow, scale: 1.9, alpha: .4, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.tweens.add({ targets: label, y: y - 100, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+    this.add.zone(x, y - 10, 170, 200).setDepth(47).setInteractive({ useHandCursor: true }).on('pointerdown', () => {
+      if (this.leaving) return;
+      this.leaving = true;
+      audio.whoosh();
+      const flash = this.add.rectangle(W / 2, H / 2, W, H, 0x7B4FD6).setAlpha(0).setDepth(50);
+      this.tweens.add({ targets: flash, alpha: .8, duration: 420, onComplete: () => this.scene.start('Bonus') });
+    });
   }
 
   // Θ1 (18/09): «ένα dashboard… να βλέπει ότι κάπου προοδεύει». Κάτω

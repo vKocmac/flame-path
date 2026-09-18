@@ -69,7 +69,8 @@ export function ensureDaily(profileEntry, cfg, now) {
       ids: carry.slice(0, size).map((w) => w.id),
       review: review.map((w) => w.id),
       correct: [],
-      goalMet: false
+      goalMet: false,
+      bonusDone: false
     };
     changed = true;
   }
@@ -123,6 +124,14 @@ export function recordAnswer(profileEntry, wordId, correct, learned, now) {
   d.lastGoal = key;
   d.best = Math.max(d.best || 0, d.streak);
   return { goalJustMet: true, streak: d.streak };
+}
+
+/**
+ * Η Πύλη (Λ2, 18/09): ανοίγει όταν κλείσει η δεκαπεντάδα της μέρας, μία
+ * φορά τη μέρα. Ανταμοιβή για τη δουλειά της μέρας — όχι παράκαμψή της.
+ */
+export function bonusOpen(daily, now) {
+  return !!(daily && daily.date === dayKey(now) && daily.goalMet && !daily.bonusDone);
 }
 
 /** Το σερί που ΙΣΧΥΕΙ: μετράει μόνο αν ο στόχος έκλεισε σήμερα ή χτες. */

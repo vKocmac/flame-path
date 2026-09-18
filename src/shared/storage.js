@@ -222,7 +222,7 @@ export function getSparks(state) {
 export function getShop(state) {
   const s = activeProfile(state)?.profile.shop || {};
   return { owned: s.owned || [], ribbon: s.ribbon || null, mask: s.mask || null, magnet: s.magnet || 0,
-    weapon: s.weapon || 'fire', power: s.power || null };
+    weapon: s.weapon || 'fire', power: s.power || null, robe: s.robe || null };
 }
 
 function setShop(state, patch) {
@@ -248,6 +248,7 @@ export function buyItem(state, item) {
   else if (item.cat === 'ribbon') setShop(state, { owned, ribbon: item.id });
   else if (item.cat === 'weapon') setShop(state, { owned, weapon: item.weapon });   // το παίρνει αμέσως στο χέρι
   else if (item.cat === 'power') setShop(state, { owned, power: item.power });
+  else if (item.cat === 'robe') setShop(state, { owned, robe: item.id });           // τη φοράει αμέσως
   else setShop(state, { owned });
   return true;
 }
@@ -259,6 +260,19 @@ export function wearRibbon(state, id) {
 /** Θ6: ποιο όπλο κρατά / ποια δύναμη ρίχνει η γεμάτη μπάρα. */
 export function chooseWeapon(state, weapon) { setShop(state, { weapon }); }
 export function choosePower(state, power) { setShop(state, { power }); }
+export function wearRobe(state, id) { setShop(state, { robe: id }); }
+
+/** Η Πύλη (Λ2): πέρασε σήμερα; και το ρεκόρ φωτιών. */
+export function markBonusDone(state, got) {
+  const p = activeProfile(state);
+  if (!p) return 0;
+  if (p.profile.daily) p.profile.daily.bonusDone = true;
+  const j = p.profile.journey || (p.profile.journey = {});
+  j.bonusBest = Math.max(j.bonusBest || 0, got);
+  p.profile.updatedAt = now();
+  saveState(state);
+  return j.bonusBest;
+}
 
 /** Η ζώνη μόνο ανεβαίνει (Θ2): κρατάμε την ψηλότερη που φόρεσε. */
 export function raiseBelt(state, belt) {

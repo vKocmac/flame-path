@@ -806,6 +806,38 @@ await test('Κ1 Κορδέλες: η κορδέλα που φοράς δίνει
   eq(Object.keys(shop.RIBBON_FX).length, shop.SHOP.filter((x) => x.cat === 'ribbon').length, 'κάθε κορδέλα κάτι');
 });
 
+await test('Λ1 Στολές: η Νύχτας δική του, οι άλλες με ζώνη + σπίθες, φοράει μία', async () => {
+  const shop = await import('./src/game/shop.js');
+  seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  let s = store.loadState();
+  store.addSparks(s, 400);
+  eq(shop.currentRobe(store.getShop(s)), 'robe-night', 'αρχή: Στολή της Νύχτας');
+  eq(shop.status(shop.item('robe-night'), store.getShop(s), 400, 0), 'owned', 'η πρώτη είναι δική του');
+  eq(shop.status(shop.item('robe-water'), store.getShop(s), 400, 1), 'belt', 'θέλει πορτοκαλί');
+  assert(store.buyItem(s, shop.item('robe-fire')), 'αγορά');
+  s = store.loadState();
+  eq(shop.currentRobe(store.getShop(s)), 'robe-fire', 'τη φοράει αμέσως');
+  eq(shop.robeFx(store.getShop(s)).bonus, 1.25, 'δίνει φωτιές στην Πύλη');
+  store.wearRobe(s, 'robe-night');
+  eq(shop.robeFx(store.getShop(store.loadState())), {}, 'η Νύχτας δεν δίνει κάτι');
+});
+
+await test('Λ2 Πύλη: ανοίγει όταν κλείσει η δεκαπεντάδα, μία φορά τη μέρα', async () => {
+  const daily = await import('./src/learning/daily.js');
+  seed([{ text: 'λιμάνι', targets: [iT()] }]);
+  const s = store.loadState(); const p = store.activeProfile(s);
+  const { daily: d } = daily.ensureDaily(p, { ...CFG, daily_words: 3 }, fakeNow);
+  eq(daily.bonusOpen(d, fakeNow), false, 'πριν τον στόχο: κλειστή');
+  daily.recordAnswer(p, d.ids[0], true, false, fakeNow);
+  eq(daily.bonusOpen(p.profile.daily, fakeNow), true, 'στόχος → ανοιχτή');
+  store.saveState(s);
+  store.markBonusDone(store.loadState(), 42);
+  const p2 = store.activeProfile(store.loadState());
+  eq(daily.bonusOpen(p2.profile.daily, fakeNow), false, 'μία φορά τη μέρα');
+  eq(p2.profile.journey.bonusBest, 42, 'ρεκόρ');
+  eq(daily.bonusOpen(p2.profile.daily, new Date(fakeNow.getTime() + 86400000)), false, 'αύριο ξανά μόνο με τον στόχο');
+});
+
 // ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)
 
 // Ένα προφίλ με μια λέξη που έχει ΠΡΟΟΔΟ: επίπεδο 3, σπίθες, ιστορικό.

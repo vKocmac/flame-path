@@ -370,7 +370,9 @@ export default class BattleScene extends Phaser.Scene {
     this.paintSwords();
     // Η μάσκα του καταστήματος (Ζ11): πάνω στο πρόσωπο, κάτω από τα μάτια
     this.maskG = this.add.graphics();
-    c.add([this.aura, sword, this.tails, g, rim, this.maskG, this.eyes, this.beltG, blade]);
+    this.robeG = this.add.graphics();                   // Λ1: η στολή με τον γιακά
+    world.drawRobe(this.robeG, shop.currentRobe(this.gear));
+    c.add([this.aura, sword, this.tails, g, this.robeG, rim, this.maskG, this.eyes, this.beltG, blade]);
     c.setScale(1.3);   // ο ήρωας πρέπει να διαβάζεται από απόσταση σε tablet
 
     // Το χέρι που κρατά τη φλόγα
@@ -415,6 +417,7 @@ export default class BattleScene extends Phaser.Scene {
     const rib = this.gear.ribbon && shop.item(this.gear.ribbon);
     this.ribbonColor = rib ? NUM[rib.color] : NUM.dojoRoof;
     if (this.blade) this.paintSwords();
+    if (this.robeG) { this.robeG.clear(); world.drawRobe(this.robeG, shop.currentRobe(this.gear)); }
     if (this.maskG) {
       this.maskG.clear();
       if (this.gear.mask) world.drawMask(this.maskG, this.gear.mask.id);
@@ -644,7 +647,8 @@ export default class BattleScene extends Phaser.Scene {
     // να αγοράσεις». Οι ανθεκτικοί εχθροί αντέχουν περισσότερο όσο
     // προχωράει ο Δρόμος — η φλόγα μόνη της δεν φτάνει για πάντα.
     const tough = arch.hp > 1 ? (this.station >= 5 ? 2 : this.station >= 2 ? 1 : 0) + Math.min(2, this.cycle || 0) : 0;
-    c.hp = arch.hp + tough;
+    const earth = arch.hp > 1 ? (shop.robeFx(this.gear).tough || 0) : 0;   // Λ1: Στολή του Βουνού
+    c.hp = Math.max(1, arch.hp + tough + earth);
     c.maxHp = c.hp;
     c.speed = arch.speed;
     c.mult = 1;        // τρέχων πολλαπλασιαστής ταχύτητας
@@ -2309,7 +2313,8 @@ export default class BattleScene extends Phaser.Scene {
     // Θ7: το ρολόι της ανταμοιβής ξεκινά μαζί με τη λέξη (χρόνος σκηνής: η παύση το σταματά)
     this.chStart = this.sceneMs;
     this.chDur = (ch.type === 'assembly'
-      ? ASM_BASE_MS + ASM_PER_UNIT_MS * splitGraphemes(ch.text).length : GAP_MIN_MS) * this.timeScale();
+      ? ASM_BASE_MS + ASM_PER_UNIT_MS * splitGraphemes(ch.text).length + (shop.robeFx(this.gear).asmTime || 0)
+      : GAP_MIN_MS) * this.timeScale();
     this.clockOn = true;
     this.answerK = 1;
     if (ch.type === 'assembly') this.showAssembly(ch);
@@ -2389,6 +2394,7 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 0; i < flames; i++) {
       row.push(this.add.image(-flames * 17 + 17 + i * 34 - 90, 26, 'flame').setScale(.2).setBlendMode(Phaser.BlendModes.ADD));
     }
+    this.time.delayedCall(3000, () => this.flashHint(TXT.portalOpen));   // Λ2
     const t2 = this.add.text(flames ? -90 + flames * 17 + 14 : 0, 26, TXT.streakDays(streak), {
       fontFamily: FONT.ui, fontSize: '24px', fontStyle: '700', color: HEX.lantern
     }).setOrigin(flames ? 0 : .5, .5);
@@ -2631,9 +2637,10 @@ export default class BattleScene extends Phaser.Scene {
     }
     // Λάθος σειρά: το πλακίδιο τινάζεται και σβήνει για λίγο. Κανένα
     // κόκκινο, και ΔΕΝ μπαίνει στην περγαμηνή — η λάθος μορφή δεν φαίνεται.
+    const saved = !this.assemblyMiss && shop.robeFx(this.gear).keepCombo;   // Λ1
     if (!this.assemblyMiss) this.firstMiss();   // Θ8
     this.assemblyMiss = got;
-    this.combo = 0;
+    if (!saved) this.combo = 0;
     this.maskDamage();
     this.hardTargets.add(this.current.targetId);
     audio.fizzle();
@@ -2975,9 +2982,10 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.revealed) this.praiseSpeed(this.answerK);
     } else {
       // Θ8: ΜΟΝΟ το πρώτο λάθος της λέξης ξαφνιάζει και ρίχνει τη μπάρα
+      const saved = !this.tries && shop.robeFx(this.gear).keepCombo;   // Λ1: Στολή του Ουρανού
       if (!this.tries) this.firstMiss();
       this.maskDamage();                     // Ζ11: η μάσκα χάνει μία ζωή
-      this.combo = 0;
+      if (!saved) this.combo = 0;
       this.hardTargets.add(ch.targetId);
       this.tries = (this.tries || 0) + 1;
       this.lostWord = this.tries >= this.maxTries;

@@ -11,13 +11,13 @@ import { TXT } from '../../theme/strings.js';
 import * as audio from '../../theme/audio.js';
 import * as store from '../../shared/storage.js';
 import * as world from '../world.js';
-import { SHOP, CATS, status, currentWeapon, ownedPowers } from '../shop.js';
+import { SHOP, CATS, status, currentWeapon, ownedPowers, currentRobe } from '../shop.js';
 import * as journey from '../journey.js';
 
 const W = 1280, H = 720;
 // Θ5 (18/09): έξι σειρές — δυνάμεις και όπλα πρώτα, γιατί αυτά ξεκλειδώνει η ζώνη
-const ROW_Y = [150, 243, 336, 429, 522, 615];
-const CARD_W = 128, CARD_H = 84, CARD_X0 = 240, CARD_STEP = 139;
+const ROW_Y = [134, 216, 298, 380, 462, 544, 626];    // Λ1: + οι στολές
+const CARD_W = 128, CARD_H = 74, CARD_X0 = 240, CARD_STEP = 139;
 
 export default class ShopScene extends Phaser.Scene {
   constructor() { super('Shop'); }
@@ -79,6 +79,7 @@ export default class ShopScene extends Phaser.Scene {
     if (it.cat === 'ribbon') return shop.ribbon === it.id;
     if (it.cat === 'mask') return true;
     if (it.cat === 'weapon') return currentWeapon(shop) === it.weapon;
+    if (it.cat === 'robe') return currentRobe(shop) === it.id;
     if (it.cat === 'power') {
       const have = ownedPowers(shop);
       return (have.includes(shop.power) ? shop.power : have[0]) === it.power;
@@ -103,7 +104,7 @@ export default class ShopScene extends Phaser.Scene {
         g.lineStyle(sel ? 4 : 2, sel ? NUM.flameCore : (s === 'owned' ? NUM.lantern : NUM.smoke), sel ? 1 : (s === 'owned' ? .9 : .35));
         g.strokeRoundedRect(x - CARD_W / 2, y - CARD_H / 2, CARD_W, CARD_H, 16);
         const dim = s === 'locked' || s === 'belt' ? .3 : s === 'poor' ? .6 : 1;
-        world.drawShopIcon(g, it, x, y - 10, 24, dim);
+        world.drawShopIcon(g, it, x, y - 9, 21, dim);
         this.cards.add(g);
         if (s === 'owned') {                              // ✓ ή «το φοράς»
           const b = this.add.graphics({ x: x + CARD_W / 2 - 18, y: y - CARD_H / 2 + 18 });
@@ -112,16 +113,16 @@ export default class ShopScene extends Phaser.Scene {
           b.strokePoints([new Phaser.Geom.Point(-6, 0), new Phaser.Geom.Point(-1, 5), new Phaser.Geom.Point(7, -5)]);
           this.cards.add(b);
         } else if (s === 'locked' || s === 'belt') {      // λουκέτο (+ η ζώνη που θέλει)
-          const b = this.add.graphics({ x, y: y - 10 });
+          const b = this.add.graphics({ x, y: y - 9 });
           b.fillStyle(NUM.smoke, .95); b.fillRoundedRect(-11, -4, 22, 17, 3);
           b.lineStyle(3, NUM.smoke, .95); b.beginPath(); b.arc(0, -4, 7, Math.PI, 0, false); b.strokePath();
           if (s === 'belt') world.drawBelt(b, 34, -18, .55, journey.beltColor(it.belt), journey.beltEdge(it.belt));
           this.cards.add(b);
         }
         if (s !== 'owned') {                              // η τιμή
-          this.cards.add(this.add.image(x - 22, y + 26, 'spark').setScale(.7).setAlpha(dim)
+          this.cards.add(this.add.image(x - 22, y + 23, 'spark').setScale(.65).setAlpha(dim)
             .setBlendMode(Phaser.BlendModes.ADD));
-          this.cards.add(this.add.text(x - 10, y + 26, String(it.price), {
+          this.cards.add(this.add.text(x - 10, y + 23, String(it.price), {
             fontFamily: FONT.ui, fontSize: '20px', fontStyle: '700', color: s === 'poor' ? HEX.smoke : HEX.lantern
           }).setOrigin(0, .5).setAlpha(s === 'locked' || s === 'belt' ? .4 : 1));
         }
@@ -172,9 +173,9 @@ export default class ShopScene extends Phaser.Scene {
     }
     const s = status(it, shop, sparks, this.belt);
     const worn = this.wearing(it, shop, s);
-    const canWear = ['ribbon', 'weapon', 'power'].includes(it.cat) && s === 'owned' && !worn;
-    const wearLabel = { ribbon: TXT.wear, weapon: TXT.hold, power: TXT.pick }[it.cat];
-    const wornLabel = { ribbon: TXT.wearing, mask: TXT.wearing, weapon: TXT.holding, power: TXT.picked }[it.cat] || TXT.owned;
+    const canWear = ['ribbon', 'weapon', 'power', 'robe'].includes(it.cat) && s === 'owned' && !worn;
+    const wearLabel = { ribbon: TXT.wear, weapon: TXT.hold, power: TXT.pick, robe: TXT.wear }[it.cat];
+    const wornLabel = { ribbon: TXT.wearing, mask: TXT.wearing, weapon: TXT.holding, power: TXT.picked, robe: TXT.wearing }[it.cat] || TXT.owned;
     const label = s === 'ok' ? `${TXT.buy}  ✦ ${it.price}` : canWear ? wearLabel
       : s === 'owned' ? wornLabel
       : s === 'belt' ? `${TXT.needBelt} ${TXT.belts[it.belt]}`
@@ -199,6 +200,7 @@ export default class ShopScene extends Phaser.Scene {
     if (wear) {
       if (it.cat === 'weapon') store.chooseWeapon(st, it.weapon);
       else if (it.cat === 'power') store.choosePower(st, it.power);
+      else if (it.cat === 'robe') store.wearRobe(st, it.id);
       else store.wearRibbon(st, it.id);
       audio.chime(1);
     } else {

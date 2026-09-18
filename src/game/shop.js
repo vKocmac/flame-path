@@ -20,6 +20,10 @@
 //   ribbon — η κορδέλα στο κεφάλι. Ως τη v3.24 μόνο στολίδι· Κ1 (18/09): «θέλω
 //            να δίνει κάτι… σαν άμυνα? ή… περισσότερο περιθώριο χρόνου? Κάθε
 //            ζώνη κάτι». Φοριέται μία· το όφελός της: RIBBON_FX.
+//   robe   — η στολή (Λ1, 18/09, ιδέα και σχέδιο του Σταύρου: «να έχει γιακά
+//            όπως έχει μια ρόμπα νίντζα… να το αγοράζει και να αλλάζει… ίσως
+//            να δίνει κάτι»). Ίδιος κανόνας με όπλα: ζώνη ξεκλειδώνει, σπίθες
+//            αγοράζουν, φοράει μία. Η «Στολή της Νύχτας» είναι δική του. ROBE_FX.
 //   power  — δύναμη της μπάρας (Θ5, 18/09). Την ξεκλειδώνει η ΖΩΝΗ (`belt`),
 //            την αγοράζουν οι σπίθες. Μόνο όσες έχει αγοράσει χτυπούν.
 //   weapon — το βασικό όπλο (Θ5/Θ6). Ίδιος κανόνας· από όσα έχει, ΔΙΑΛΕΓΕΙ
@@ -32,6 +36,11 @@ export const SHOP = [
   { id: 'power-volcano', cat: 'power', power: 'volcano', price: 160, belt: 3 },
   { id: 'power-dragon', cat: 'power', power: 'dragon', price: 280, belt: 5 },
   { id: 'power-lightning', cat: 'power', power: 'lightning', price: 450, belt: 7 },
+  { id: 'robe-night', cat: 'robe', price: 0, belt: 0 },
+  { id: 'robe-fire', cat: 'robe', price: 150, belt: 1 },
+  { id: 'robe-water', cat: 'robe', price: 200, belt: 2 },
+  { id: 'robe-earth', cat: 'robe', price: 250, belt: 3 },
+  { id: 'robe-sky', cat: 'robe', price: 300, belt: 4 },
   { id: 'weapon-fire', cat: 'weapon', weapon: 'fire', price: 0, belt: 0 },
   { id: 'weapon-plasma', cat: 'weapon', weapon: 'plasma', price: 120, belt: 2 },
   { id: 'weapon-volt', cat: 'weapon', weapon: 'volt', price: 220, belt: 4 },
@@ -52,7 +61,25 @@ export const SHOP = [
   { id: 'ribbon-silver', cat: 'ribbon', price: 150, color: 'moon' }
 ];
 
-export const CATS = ['power', 'weapon', 'sword', 'mask', 'magnet', 'ribbon'];
+export const CATS = ['power', 'weapon', 'robe', 'sword', 'mask', 'magnet', 'ribbon'];
+
+// Λ1: τι δίνει η στολή που φορά
+//   bonus    — Φωτιάς: ×1,25 φωτιές στην Πύλη (πίστα μπόνους)
+//   asmTime  — Νερού: +4 δευτ. στη Μεγάλη Τεχνική
+//   tough    — Βουνού: οι ανθεκτικοί εχθροί έρχονται με μία ζωή λιγότερη
+//   keepCombo — Ουρανού: η σειρά σωστών δεν σπάει στο πρώτο λάθος της λέξης
+export const ROBE_FX = {
+  'robe-fire': { bonus: 1.25 },
+  'robe-water': { asmTime: 4000 },
+  'robe-earth': { tough: -1 },
+  'robe-sky': { keepCombo: true }
+};
+
+export function currentRobe(shop) {
+  return shop && shop.robe && shop.owned.includes(shop.robe) ? shop.robe : 'robe-night';
+}
+
+export function robeFx(shop) { return ROBE_FX[currentRobe(shop)] || {}; }
 
 // Πόσο χτυπά κάθε όπλο (Θ5: «η φωτιά… θα σε αναγκάζει να πας να αγοράσεις»):
 //   front — ζημιά στον μπροστινό · splash — ζημιά και στον δεύτερο της γραμμής
@@ -123,7 +150,7 @@ export function sparkGain(shop, base) {
  * · 'poor' (δεν φτάνουν οι σπίθες) · 'ok'. Οι μάσκες ξαναγοράζονται.
  */
 export function status(it, shop, sparks, belt = 0) {
-  if (it.cat === 'power' || it.cat === 'weapon') {
+  if (it.cat === 'power' || it.cat === 'weapon' || it.cat === 'robe') {
     if (it.price === 0 || shop.owned.includes(it.id)) return 'owned';
     if ((it.belt || 0) > belt) return 'belt';           // θέλει πρώτα αυτή τη ζώνη
   }

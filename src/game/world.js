@@ -904,6 +904,43 @@ export function drawMask(g, id, alpha = 1) {
 }
 
 /** Το εικονίδιο ενός είδους του καταστήματος, γύρω από (cx, cy), μέγεθος s. */
+// Λ1: οι στολές — ρόμπα νίντζα με ΓΙΑΚΑ σταυρωτό στο στήθος (το σχέδιο του Σταύρου)
+export const ROBE_LOOK = {
+  'robe-night': { color: NUM.dojoRoof, collar: NUM.nightHigh },
+  'robe-fire': { color: 0xA8322A, collar: NUM.lantern },
+  'robe-water': { color: 0x2D5E9E, collar: NUM.moon },
+  'robe-earth': { color: 0x4A6B3A, collar: NUM.parchment },
+  'robe-sky': { color: 0xE3DED0, collar: NUM.spirit }
+};
+
+/** Η ρόμπα πάνω στο σώμα του νίντζα (τοπικές συντεταγμένες: σώμα -26..26, -74..-12). */
+export function drawRobe(g, id, alpha = 1) {
+  const r = ROBE_LOOK[id] || ROBE_LOOK['robe-night'];
+  g.fillStyle(r.color, alpha);
+  g.fillRoundedRect(-26, -74, 52, 62, 15);
+  g.fillPoints([P(-27, -36), P(27, -36), P(30, -11), P(-30, -11)], true);   // η φούστα της ρόμπας
+  g.fillStyle(r.collar, alpha);
+  g.fillPoints([P(18, -73), P(9, -73), P(-3, -52), P(3, -48)], true);        // δεξί πέτο, από κάτω
+  g.fillPoints([P(-18, -73), P(-9, -73), P(9, -41), P(1, -38)], true);       // αριστερό πέτο, από πάνω
+  g.fillStyle(0x000000, alpha * .18);                                      // σκιά στα μανίκια
+  g.fillRect(-26, -66, 5, 30);
+  g.fillRect(21, -66, 5, 30);
+}
+
+function drawRobeIcon(g, id, cx, cy, s, alpha = 1) {
+  const r = ROBE_LOOK[id] || ROBE_LOOK['robe-night'];
+  const Q = (x, y) => P(cx + x * s, cy + y * s);
+  g.fillStyle(r.color, alpha);
+  g.fillPoints([Q(-.5, -.8), Q(.5, -.8), Q(.95, -.45), Q(.75, -.2), Q(.5, -.35), Q(.55, .9), Q(-.55, .9), Q(-.5, -.35), Q(-.75, -.2), Q(-.95, -.45)], true);
+  g.fillStyle(r.collar, alpha);
+  g.fillPoints([Q(.32, -.8), Q(.14, -.8), Q(-.08, -.3), Q(.02, -.22)], true);
+  g.fillPoints([Q(-.32, -.8), Q(-.14, -.8), Q(.2, .05), Q(.06, .12)], true);
+  if (r.color === NUM.dojoRoof) {                         // η σκούρα στολή: περίγραμμα για να φαίνεται
+    g.lineStyle(Math.max(1, s * .05), NUM.smoke, alpha * .8);
+    g.strokePoints([Q(-.5, -.8), Q(.5, -.8), Q(.95, -.45), Q(.75, -.2), Q(.5, -.35), Q(.55, .9), Q(-.55, .9), Q(-.5, -.35), Q(-.75, -.2), Q(-.95, -.45)], true);
+  }
+}
+
 /** Τα τέσσερα βασικά όπλα (Θ5/Θ6): φλόγα · πλάσμα · ηλεκτρισμός · αστέρι. */
 export function drawWeaponIcon(g, weapon, cx, cy, s, alpha = 1) {
   const Q = (x, y) => P(cx + x * s, cy + y * s);
@@ -934,6 +971,8 @@ export function drawShopIcon(g, it, cx, cy, s, alpha = 1) {
     drawPowerIcon(g, it.power, cx, cy, .6 * s, NUM.flameCore, alpha);
   } else if (it.cat === 'weapon') {
     drawWeaponIcon(g, it.weapon, cx, cy, .85 * s, alpha);
+  } else if (it.cat === 'robe') {
+    drawRobeIcon(g, it.id, cx, cy, s, alpha);
   } else if (it.cat === 'sword') {
     const blade = SWORD_BLADE[it.tier] || NUM.moon;
     g.fillStyle(blade, alpha);
