@@ -840,20 +840,17 @@ await test('Λ1 Στολές: η Νύχτας δική του, οι άλλες �
   eq(shop.status(shop.item('robe-fire'), store.getShop(store.loadState()), 400, 1), 'ok', 'ξαναγοράζεται');
 });
 
-await test('Λ2 Πύλη: ανοίγει όταν κλείσει η δεκαπεντάδα, μία φορά τη μέρα', async () => {
-  const daily = await import('./src/learning/daily.js');
+await test('Ξ3 Πύλη: ανοίγει κάθε 25 σωστές και με τη δεκαπεντάδα, ως 3 φυλαγμένες', async () => {
   seed([{ text: 'λιμάνι', targets: [iT()] }]);
-  const s = store.loadState(); const p = store.activeProfile(s);
-  const { daily: d } = daily.ensureDaily(p, { ...CFG, daily_words: 3 }, fakeNow);
-  eq(daily.bonusOpen(d, fakeNow), false, 'πριν τον στόχο: κλειστή');
-  daily.recordAnswer(p, d.ids[0], true, false, fakeNow);
-  eq(daily.bonusOpen(p.profile.daily, fakeNow), true, 'στόχος → ανοιχτή');
-  store.saveState(s);
+  let opened = 0;
+  for (let i = 0; i < 25; i++) if (store.portalTick(store.loadState())) opened++;
+  eq(opened, 1, '25 σωστές = μία πύλη');
+  eq(store.getPortal(store.loadState()).charges, 1, 'φόρτιση');
+  store.portalGrant(store.loadState()); store.portalGrant(store.loadState()); store.portalGrant(store.loadState());
+  eq(store.getPortal(store.loadState()).charges, 3, 'ως 3');
   store.markBonusDone(store.loadState(), 42);
-  const p2 = store.activeProfile(store.loadState());
-  eq(daily.bonusOpen(p2.profile.daily, fakeNow), false, 'μία φορά τη μέρα');
-  eq(p2.profile.journey.bonusBest, 42, 'ρεκόρ');
-  eq(daily.bonusOpen(p2.profile.daily, new Date(fakeNow.getTime() + 86400000)), false, 'αύριο ξανά μόνο με τον στόχο');
+  const g = store.getPortal(store.loadState());
+  eq([g.charges, g.best], [2, 42], 'η είσοδος ξοδεύει μία, κρατά το ρεκόρ');
 });
 
 // ------------------------------------- Προφίλ και πρόοδος (NEXT-FIXES Ε1/Ε6/Ε7)

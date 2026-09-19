@@ -193,6 +193,7 @@ export default class BattleScene extends Phaser.Scene {
     // 2η μάχη ζωγράφιζαν σε κατεστραμμένα αντικείμενα.
     this.clockG = null;
     this.clockOn = false;
+    this.leavingPortal = false;
     this.powerZones = null;
     this.hintText = null;
     this.userPaused = false;
@@ -2398,10 +2399,15 @@ export default class BattleScene extends Phaser.Scene {
 
   // Μετά από κάθε απάντηση: έκλεισε η δεκαπεντάδα της μέρας (Θ3); ανέβηκε
   // η ζώνη (Θ2); Και τα δύο γιορτάζονται ΧΩΡΙΣ να σταματά η μάχη.
-  afterReport(res) {
+  afterReport(res, correct = false) {
+    // Ξ3: η Πύλη γεμίζει με κάθε σωστή απάντηση· η δεκαπεντάδα δίνει μία ακόμα
+    let opened = correct && store.portalTick(store.loadState());
     if (res && res.daily && res.daily.goalJustMet) {
       this.time.delayedCall(900, () => this.showDailyDone(res.daily.streak));
+      opened = store.portalGrant(store.loadState()) || opened;
     }
+    this.drawPortalButton();
+    if (opened) this.time.delayedCall(res && res.daily && res.daily.goalJustMet ? 3400 : 700, () => this.portalOpened());
     const b = journey.beltOf(store.activeProfile(store.loadState()));
     if (b > this.belt) {
       this.belt = b;
@@ -2430,7 +2436,6 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 0; i < flames; i++) {
       row.push(this.add.image(-flames * 17 + 17 + i * 34 - 90, 26, 'flame').setScale(.2).setBlendMode(Phaser.BlendModes.ADD));
     }
-    this.time.delayedCall(3000, () => this.flashHint(TXT.portalOpen));   // Λ2
     const t2 = this.add.text(flames ? -90 + flames * 17 + 14 : 0, 26, TXT.streakDays(streak), {
       fontFamily: FONT.ui, fontSize: '24px', fontStyle: '700', color: HEX.lantern
     }).setOrigin(flames ? 0 : .5, .5);
@@ -2734,7 +2739,7 @@ export default class BattleScene extends Phaser.Scene {
         chosenGrapheme: null,
         revealUsed: !!this.asmHinted,
         durationMs: Math.round(performance.now() - this.startedAt)
-      }));
+      }), correct);
     }
     // Θ4/Θ7: γρήγορη συναρμολόγηση = μεγάλη ανταμοιβή· αργή = μικρή
     this.answerK = correct ? k : REWARD_MIN;
@@ -3006,7 +3011,7 @@ export default class BattleScene extends Phaser.Scene {
         chosenGrapheme: correct ? null : chosen,
         revealUsed: !correct,
         durationMs: Math.round(performance.now() - this.startedAt)
-      }));
+      }), correct);
     }
 
     // Combo: μόνο ΠΡΟΣΘΕΤΕΙ. Όταν σπάει, σβήνει σιωπηλά — κανένας μετρητής,
@@ -3690,6 +3695,71 @@ export default class BattleScene extends Phaser.Scene {
 
     this.buildRageBar();
     this.buildWeaponButton();
+    this.buildPortalButton();
+  }
+
+  // Ξ2 (19/09): «να σε ειδοποιεί και μέσα στο παιχνίδι ότι άνοιξε η Πύλη και να
+  // μπορεί να πατήσει και από εκεί». Κάτω από το όπλο: δίνη που γεμίζει όσο
+  // απαντά σωστά· όταν ανοίξει, ανάβει και πάλλεται — ένα άγγιγμα και μπαίνει.
+  buildPortalButton() {
+    const x = 34, y = 162;
+    this.portalGlow = this.add.image(x, y, 'glow-spirit').setScale(.7).setAlpha(0)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(45);
+    this.portalBtn = this.add.graphics({ x, y }).setDepth(46);
+    this.portalPulse = null;
+    this.drawPortalButton();
+    this.add.zone(x, y, 64, 64).setDepth(47).setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.enterPortal());
+  }
+
+  drawPortalButton() {
+    const g = this.portalBtn;
+    if (!g || !g.scene) return;
+    const { charges, progress } = store.getPortal(store.loadState());
+    const open = charges > 0;
+    g.clear();
+    g.fillStyle(NUM.night, .85);
+    g.fillCircle(0, 0, 25);
+    const cols = [0x7B4FD6, 0x3FD6C8, 0xE0679E];
+    for (let i = 0; i < 3; i++) {
+      g.lineStyle(3, cols[i], open ? .95 : .35);
+      g.strokeEllipse(0, 0, 30 - i * 8, 40 - i * 11);
+    }
+    if (!open) {                                  // πόσο λείπει: δαχτυλίδι που γεμίζει
+      g.lineStyle(4, 0x3FD6C8, .9);
+      g.beginPath();
+      g.arc(0, 0, 25, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress / store.PORTAL_EVERY, false);
+      g.strokePath();
+    } else if (charges > 1) {
+      g.fillStyle(0x3FD6C8, 1); g.fillCircle(19, -19, 9);
+      g.fillStyle(NUM.shadow, 1); g.fillCircle(19, -19, 3);
+    }
+    this.portalGlow.setAlpha(open ? .7 : 0);
+    if (open && !this.portalPulse && !this.calm) {
+      this.portalPulse = this.tweens.add({ targets: this.portalGlow, scale: 1.05, alpha: .35, duration: 700, yoyo: true, repeat: -1 });
+    } else if (!open && this.portalPulse) { this.portalPulse.stop(); this.portalPulse = null; }
+  }
+
+  portalOpened() {
+    audio.cast();
+    [0, 2, 3].forEach((k, i) => this.time.delayedCall(i * 120, () => audio.chime(k)));
+    this.flashHint(TXT.portalOpen);
+    if (this.portalBtn && this.portalBtn.scene) {
+      this.tweens.add({ targets: this.portalBtn, scale: 1.5, duration: 220, yoyo: true, repeat: 2 });
+    }
+  }
+
+  enterPortal() {
+    if (this.userPaused || this.leavingPortal) return;
+    if (store.getPortal(store.loadState()).charges <= 0) {
+      const { progress } = store.getPortal(store.loadState());
+      this.flashHint(TXT.portalSoon(store.PORTAL_EVERY - progress));
+      return;
+    }
+    this.leavingPortal = true;
+    audio.whoosh();
+    const flash = this.add.rectangle(W / 2, H / 2, W, H, 0x7B4FD6).setAlpha(0).setDepth(60);
+    this.tweens.add({ targets: flash, alpha: .85, duration: 420, onComplete: () => this.scene.start('Bonus') });
   }
 
   // Παύση (Ζ1). Η σκηνή σταματά ΟΛΗ: update (άρα και η πίεση του χρόνου),

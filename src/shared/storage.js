@@ -269,12 +269,49 @@ export function robeHit(state) {
   return pips;
 }
 
-/** Η Πύλη (Λ2): πέρασε σήμερα; και το ρεκόρ φωτιών. */
+// Η Πύλη (Λ2 → Ξ3, 19/09): «όσο παίζεις και μαθαίνεις λέξεις να τη βγάζει,
+// όχι μια φορά μέσα στη μέρα». Κάθε PORTAL_EVERY σωστές απαντήσεις = μία
+// «φόρτιση» (και μία όταν κλείνει η δεκαπεντάδα). Κάθε είσοδος ξοδεύει μία.
+// Ως PORTAL_MAX φυλάγονται — δεν χάνεται τίποτα αν δεν μπει αμέσως.
+export const PORTAL_EVERY = 25, PORTAL_MAX = 3;
+
+export function getPortal(state) {
+  const j = activeProfile(state)?.profile.journey || {};
+  return { charges: j.portalCharges || 0, progress: j.portalProgress || 0, best: j.bonusBest || 0 };
+}
+
+/** Μία σωστή απάντηση. true = μόλις άνοιξε νέα φόρτιση. */
+export function portalTick(state) {
+  const p = activeProfile(state);
+  if (!p) return false;
+  const j = p.profile.journey || (p.profile.journey = {});
+  j.portalProgress = (j.portalProgress || 0) + 1;
+  let opened = false;
+  if (j.portalProgress >= PORTAL_EVERY) {
+    j.portalProgress = 0;
+    if ((j.portalCharges || 0) < PORTAL_MAX) { j.portalCharges = (j.portalCharges || 0) + 1; opened = true; }
+  }
+  saveState(state);
+  return opened;
+}
+
+/** Δώρο φόρτισης (κλείσιμο δεκαπεντάδας). */
+export function portalGrant(state) {
+  const p = activeProfile(state);
+  if (!p) return false;
+  const j = p.profile.journey || (p.profile.journey = {});
+  if ((j.portalCharges || 0) >= PORTAL_MAX) return false;
+  j.portalCharges = (j.portalCharges || 0) + 1;
+  saveState(state);
+  return true;
+}
+
+/** Βγήκε από την Πύλη: ξοδεύεται μία φόρτιση, κρατιέται το ρεκόρ φωτιών. */
 export function markBonusDone(state, got) {
   const p = activeProfile(state);
   if (!p) return 0;
-  if (p.profile.daily) p.profile.daily.bonusDone = true;
   const j = p.profile.journey || (p.profile.journey = {});
+  j.portalCharges = Math.max(0, (j.portalCharges || 0) - 1);
   j.bonusBest = Math.max(j.bonusBest || 0, got);
   p.profile.updatedAt = now();
   saveState(state);

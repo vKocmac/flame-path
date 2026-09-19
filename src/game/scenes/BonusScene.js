@@ -29,7 +29,7 @@ import * as shop from '../shop.js';
 const W = 1280, H = 720;
 const RUN_MS = 75000;
 const FULL_MS = 1500, MIN_MS = 6000, K_MIN = .25;
-const BASE = 3, MULT_MAX = 5, RAIN_EVERY = 6, RAIN_MS = 3600;
+const BASE = 3, MULT_MAX = 5, RAIN_EVERY = 6, RAIN_MS = 6500;   // Ξ1: η βροχή κρατά περισσότερο
 const VIOLET = 0x7B4FD6, TEAL = 0x3FD6C8, PINK = 0xE0679E;
 
 export default class BonusScene extends Phaser.Scene {
@@ -367,11 +367,15 @@ export default class BonusScene extends Phaser.Scene {
   fireRain(done) {
     this.raining = true;
     this.clearOrbs();
+    // Ξ1 (19/09): «να βγάζει την περγαμηνή από μπροστά για να πιάσει τη
+    // φλογοβροχή» — η πλάκα της λέξης και η μπάρα της φεύγουν όσο βρέχει
+    this.tweens.add({ targets: [this.slab, this.wordK, ...this.wordParts], alpha: 0, duration: 250 });
     audio.cast();
     const t = this.add.text(W / 2, 170, TXT.bonusRain, { fontFamily: FONT.ui, fontSize: '50px', fontStyle: '700', color: '#FFE08A' })
       .setOrigin(.5).setDepth(50);
     t.setShadow(0, 0, HEX.flame, 24, false, true);
     this.tweens.add({ targets: t, scale: 1.12, duration: 300, yoyo: true, repeat: 3 });
+    this.tweens.add({ targets: t, alpha: 0, duration: 400, delay: 1600 });   // να μην κρύβει τις φωτιές
     const drop = () => {
       if (!this.raining) return;
       const f = this.add.container(Phaser.Math.Between(340, 1180), -40).setDepth(30);
@@ -387,11 +391,12 @@ export default class BonusScene extends Phaser.Scene {
       this.tweens.add({ targets: f, y: H + 60, duration: Phaser.Math.Between(1700, 2600), ease: 'Quad.easeIn', onComplete: () => f.destroy() });
       this.rain.push(f);
     };
-    const ev = this.time.addEvent({ delay: 220, repeat: Math.floor(RAIN_MS / 220), callback: drop });
+    const ev = this.time.addEvent({ delay: 170, repeat: Math.floor(RAIN_MS / 170), callback: drop });
     this.time.delayedCall(RAIN_MS + 400, () => {
       this.raining = false;
       ev.remove();
       t.destroy();
+      this.tweens.add({ targets: [this.slab, this.wordK], alpha: 1, duration: 250 });
       done();
     });
   }
