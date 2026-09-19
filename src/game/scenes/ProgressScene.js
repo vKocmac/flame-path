@@ -76,7 +76,8 @@ export default class ProgressScene extends Phaser.Scene {
       fontFamily: FONT.ui, fontSize: '32px', fontStyle: '700', color: HEX.flameCore
     }).setOrigin(0, .5);
     name.setShadow(0, 0, HEX.flame, 12, false, true);
-    this.add.text(x + 170, y + 82, TXT.progLearned(learned), {
+    const roads = (who.profile.journey && who.profile.journey.cycle) || 0;
+    this.add.text(x + 170, y + 82, TXT.progLearned(learned) + (roads ? ` · ${TXT.progRoads(roads)}` : ''), {
       fontFamily: FONT.ui, fontSize: '21px', color: HEX.parchment
     }).setOrigin(0, .5);
 
@@ -147,6 +148,12 @@ export default class ProgressScene extends Phaser.Scene {
     this.add.text(sx, y + 150, `${TXT.streakDays(streak)} · ${TXT.progBest} ${best}`, {
       fontFamily: FONT.ui, fontSize: '18px', color: HEX.smoke
     }).setOrigin(0, .5);
+    if (total) {                                      // Μ3: πόσες από χθες, πόσες καινούριες
+      const carried = Math.min(daily.carried || 0, total);
+      this.add.text(cx, y + 164, TXT.progFromYesterday(carried, total - carried), {
+        fontFamily: FONT.ui, fontSize: '15px', color: HEX.smoke
+      }).setOrigin(.5);
+    }
   }
 
   // Η εβδομάδα: μπάρα = σωστές απαντήσεις της μέρας, αστεράκι = λέξεις που

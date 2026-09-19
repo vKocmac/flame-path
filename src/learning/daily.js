@@ -63,10 +63,15 @@ export function ensureDaily(profileEntry, cfg, now) {
     const review = live.filter((w) => isMastered(w, m) && w.targets.some((t) => isDue(t, now)))
       .sort((a, b) => (earliestDue(a) < earliestDue(b) ? -1 : 1))
       .slice(0, cfg.review_per_day ?? 3);
+    // Μ3 (19/09): «του δίνει πάλι τις χθεσινές». Ως `daily_carry_max` από
+    // χθες, ώστε κάθε μέρα να έρχονται και καινούριες· οι υπόλοιπες μένουν
+    // στη σειρά για τις επόμενες μέρες (δεν χάνονται).
+    const carryMax = Math.min(size, cfg.daily_carry_max ?? size);
     d = {
       ...(d || {}),
       date: key,
-      ids: carry.slice(0, size).map((w) => w.id),
+      ids: carry.slice(0, carryMax).map((w) => w.id),
+      carried: Math.min(carry.length, carryMax),
       review: review.map((w) => w.id),
       correct: [],
       goalMet: false,

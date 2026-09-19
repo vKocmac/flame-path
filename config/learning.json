@@ -11,6 +11,7 @@
     "learning_cap_targets": 24
   },
   "daily_words": 15,
+  "daily_carry_max": 10,
   "review_per_day": 3,
   "practice_after_queue_empty": true,
   "practice_serve_cap_per_session": 2,

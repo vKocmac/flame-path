@@ -188,6 +188,13 @@ export default class BattleScene extends Phaser.Scene {
     // σκοτείνιασμα του Shadow Focus απλώς δεν φαίνονταν πια.
     this.fog = null;
     this.focusVeil = null;
+    // Μ1 (19/09): ίδιο σφάλμα — «δεν βγάζει χρόνο στις λέξεις πλέον». Η μπάρα
+    // χρόνου και τα αγγίγματα στις δυνάμεις φτιάχνονταν «μία φορά» και από τη
+    // 2η μάχη ζωγράφιζαν σε κατεστραμμένα αντικείμενα.
+    this.clockG = null;
+    this.clockOn = false;
+    this.powerZones = null;
+    this.hintText = null;
     this.userPaused = false;
     this.asmIdleMs = 0;
     this.asmHintAt = 0;
@@ -4492,16 +4499,31 @@ export default class BattleScene extends Phaser.Scene {
     const sub = this.add.text(W / 2, 300, TXT.victorySub, {
       fontFamily: FONT.ui, fontSize: '28px', color: HEX.parchment
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    // Θ2/Θ5: η ζώνη έρχεται από τις λέξεις και τα όπλα από τον Πάγκο — εδώ
-    // μόνο η νίκη και ο επόμενος, πιο δύσκολος γύρος.
-    const again = this.add.text(W / 2, 400, TXT.victoryRoad, {
+    // Μ2 (19/09): «νίκησε τον Μάστερ Γου και δεν του έδωσε κάποια ζώνη ή
+    // κάτι». Η ζώνη έρχεται από τις λέξεις (Θ2) — εδώ: ΘΗΣΑΥΡΟΣ σπίθων που
+    // μεγαλώνει κάθε γύρο, μετάλλιο Δρόμου, και πόσες λέξεις λείπουν για τη ζώνη.
+    const roads = this.cycle;                               // ήδη ανέβηκε στο completeStation
+    const treasure = Math.min(400, 100 + 50 * (roads - 1));
+    store.addSparks(store.loadState(), treasure);
+    this.time.delayedCall(1600, () => this.sparkLabel && this.sparkLabel.setText(String(store.getSparks(store.loadState()))));
+    const gift = this.add.text(W / 2, 372, TXT.roadTreasure(treasure, roads), {
+      fontFamily: FONT.ui, fontSize: '30px', fontStyle: '700', color: HEX.lantern
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    const nx = journey.toNextBelt(store.activeProfile(store.loadState()));
+    const beltLine = this.add.text(W / 2, 430, nx ? TXT.progNextBelt(Math.max(0, nx.need - nx.have), TXT.belts[nx.next]) + ' — ' + TXT.beltHow : TXT.progTopBelt, {
+      fontFamily: FONT.ui, fontSize: '21px', color: HEX.parchment, align: 'center', wordWrap: { width: 900 }
+    }).setOrigin(.5).setDepth(40).setAlpha(0);
+    this.tweens.add({ targets: gift, alpha: 1, scale: { from: .6, to: 1 }, duration: 500, delay: 1400, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: beltLine, alpha: .95, duration: 500, delay: 2400 });
+    this.time.delayedCall(1400, () => { audio.cast(); [0, 1, 2, 3].forEach((i) => this.time.delayedCall(i * 100, () => audio.chime(i))); });
+    const again = this.add.text(W / 2, 486, TXT.victoryRoad, {
       fontFamily: FONT.ui, fontSize: '22px', color: HEX.smoke
     }).setOrigin(.5).setDepth(40).setAlpha(0);
-    objs.push(big, sub, again);
+    objs.push(big, sub, gift, beltLine, again);
 
     this.tweens.add({ targets: big, alpha: 1, scale: { from: .6, to: 1 }, duration: 600, ease: 'Back.easeOut' });
     this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 900 });
-    this.tweens.add({ targets: again, alpha: 1, duration: 500, delay: 2200 });
+    this.tweens.add({ targets: again, alpha: 1, duration: 500, delay: 3600 });
     this.time.delayedCall(6300, () => this.tweens.add({ targets: objs, alpha: 0, duration: 500 }));
     this.time.delayedCall(6850, () => {
       objs.forEach((o) => o.destroy());

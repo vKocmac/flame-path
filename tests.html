@@ -731,6 +731,20 @@ await test('Θ3 Δεκαπεντάδα: όσες δεν κατακτήθηκαν
   eq(d.review.length, 0, 'η κατακτημένη δεν είναι ληξιπρόθεσμη → όχι επανάληψη');
 });
 
+await test('Μ3 Δεκαπεντάδα: ως 10 από χθες, οι υπόλοιπες νέες — οι παλιές περιμένουν σειρά', async () => {
+  const daily = await import('./src/learning/daily.js');
+  const specs = [];
+  for (let i = 0; i < 14; i++) specs.push({ text: 'παλια' + i, addedAt: OLD, targets: [iT({ level: 1, introduced: true, due: PAST })] });
+  for (let i = 0; i < 8; i++) specs.push({ text: 'νεα' + i, addedAt: PAST, targets: [iT()] });
+  seed(specs);
+  const p = store.activeProfile(store.loadState());
+  const { daily: d } = daily.ensureDaily(p, { ...CFG, daily_words: 15, daily_carry_max: 10 }, fakeNow);
+  const names = d.ids.map((id) => p.words.find((w) => w.id === id).text);
+  eq(names.filter((x) => x.startsWith('παλια')).length, 10, '10 από χθες');
+  eq(names.filter((x) => x.startsWith('νεα')).length, 5, '5 καινούριες');
+  eq(d.carried, 10, 'μετρητής για την «Πρόοδό μου»');
+});
+
 await test('Θ3 Σερί: κλείνει η μέρα → +1· χθες και σήμερα → 2· χαμένη μέρα → ξαναρχίζει, το καλύτερο μένει', async () => {
   const daily = await import('./src/learning/daily.js');
   seed([{ text: 'λιμάνι', targets: [iT()] }]);
