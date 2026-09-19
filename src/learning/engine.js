@@ -18,6 +18,7 @@ function freshSession() {
     served: new Map(),     // challengeId -> { wordId, targetId, type, isPractice }
     reported: new Set(),   // invariant 6: ένα αποτέλεσμα ανά challenge
     lastWordId: null,
+    recent: [],            // Ν1: λέξεις των τελευταίων ερωτήσεων (η πιο πρόσφατη πρώτη)
     serveCounts: new Map(),
     practiceCounts: new Map(),
     activeIds: null,
@@ -45,12 +46,33 @@ function dailyView(state, p) {
   if (r.changed) store.saveState(state);
   // Έκλεισε η δεκαπεντάδα; Αν συνεχίσει να παίζει, όχι ξανά οι ίδιες 15
   // (αυτό ακριβώς βαριόταν): όλες όσες έχει ήδη δει, ΧΩΡΙΣ νέες πέρα από τη μέρα.
+  // Ν2 (19/09): «δεν βάζει νέες λέξεις… πρέπει να βάζει άλλη λέξη ακόμα και αν
+  // πρέπει να είναι καινούργια… πέρα από τις 15… αλλιώς το παιδί τιμωρείται αν
+  // το παίζει παραπάνω». Μόλις παρουσιαστούν όλες οι νέες της δεκαπεντάδας (ή
+  // κλείσει ο στόχος), ανοίγουν οι ΕΠΟΜΕΝΕΣ νέες της λίστας (`extra_words`).
+  const started = (w) => w.targets.some((t) => t.introduced);
+  const extras = (list) => {
+    const n = cfg.extra_words ?? 5;
+    return p.words.filter((w) => !w.archived && w.targets.length && !started(w) && !list.includes(w)).slice(0, n);
+  };
   if (r.daily.goalMet) {
-    const seen = p.words.filter((w) => !w.archived && (r.daily.ids.includes(w.id) || w.targets.some((t) => t.introduced)));
-    return seen.length ? { profile: p.profile, words: seen } : p;
+    const seen = p.words.filter((w) => !w.archived && (r.daily.ids.includes(w.id) || started(w)));
+    const all = [...seen, ...extras(seen)];
+    return all.length ? { profile: p.profile, words: all } : p;
   }
-  const words = todayWords(p, r.daily);
+  let words = todayWords(p, r.daily);
+  if (words.length && words.every(started)) words = [...words, ...extras(words)];
   return words.length ? { profile: p.profile, words } : p;
+}
+
+/** Ν2: υπάρχουν νέες λέξεις να παρουσιαστούν τώρα; (για νέο πάπυρο μέσα στο λεβελ) */
+export function hasFresh(profileId) {
+  if (!cfg) return false;
+  const state = store.loadState();
+  const p0 = state.profiles.find((x) => x.profile.id === profileId);
+  if (!p0) return false;
+  const v = dailyView(state, p0);
+  return v.words.some((w) => w.targets.length && !w.targets.some((t) => t.introduced));
 }
 
 /** Η μέρα του προφίλ (για τίτλο, πρόοδο, Parent Mode) — τη φτιάχνει αν λείπει. */
@@ -149,6 +171,7 @@ export function getNextChallenge(profileId, { types = ['gap', 'assembly'], intro
 
   session.served.set(ch.challengeId, { wordId: word.id, targetId: target.id, type, isPractice });
   session.lastWordId = word.id;
+  session.recent = [word.id, ...session.recent.filter((id) => id !== word.id)].slice(0, 6);
   session.serveCounts.set(target.id, (session.serveCounts.get(target.id) || 0) + 1);
   if (isPractice) {
     session.practiceCounts.set(target.id, (session.practiceCounts.get(target.id) || 0) + 1);

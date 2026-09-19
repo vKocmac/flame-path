@@ -174,12 +174,20 @@ export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated
     // ληξιπρόθεσμη έρχεται αμέσως μετά. Αλλιώς το παιδί ξαναβλέπει τη λέξη που
     // μόλις έχασε, θυμάται ποιες επιλογές ήταν λάθος και βρίσκει το σωστό με
     // αποκλεισμό αντί να το θυμηθεί.
-    const nonSame = pool.filter((x) => x.word.id !== session.lastWordId);
+    // Ν1 (19/09): «δεν γίνεται να σου βάζει το "εκεί" κάθε μία παρά μία». Το
+    // φρένο ήταν μόνο «όχι δύο συνεχόμενα» — με λίγες λέξεις και λέξεις δύο
+    // σημείων (ε + ει) η ίδια λέξη γύριζε κάθε δεύτερη ερώτηση. Τώρα καμία
+    // λέξη από τις RECENT τελευταίες δεν ξαναβγαίνει, αν υπάρχει άλλη.
+    let nonSame = pool.filter((x) => !recentWord(session, x.word.id));
+    // Το ενεργό σύνολο τελείωσε σε πρόσφατες λέξεις; Ψάξε σε ΟΛΕΣ όσες
+    // χρωστάει, πριν δεχτείς εναλλαγή δύο λέξεων («τυρί μήλο τυρί μήλο»).
+    if (!nonSame.length) nonSame = eligible.filter((x) => !recentWord(session, x.word.id));
     if (!nonSame.length && cfg.practice_after_queue_empty) {
-      const other = practicePick(pairs, cfg, session, { otherWordOnly: true });
+      const other = practicePick(pairs, cfg, session, { otherWordOnly: true, nowDate });
       if (other) return other;
     }
-    const usePool = nonSame.length ? nonSame : pool;
+    const usePool = nonSame.length ? nonSame : pool.filter((x) => x.word.id !== session.lastWordId).length
+      ? pool.filter((x) => x.word.id !== session.lastWordId) : pool;
 
     usePool.sort((a, b) => {
       // intro πρώτα
@@ -198,12 +206,25 @@ export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated
   // Τίποτα ληξιπρόθεσμο → «προπόνηση» με κατακτημένες λέξεις (DESIGN απόφ. 6):
   // παίζεται κανονικά αλλά ΔΕΝ αλλάζει επίπεδα/χρονοδιάγραμμα.
   if (!cfg.practice_after_queue_empty) return null;
-  return practicePick(pairs, cfg, session);
+  return practicePick(pairs, cfg, session, { nowDate });
+}
+
+// Οι λέξεις των τελευταίων ερωτήσεων (engine: session.recent, η πιο πρόσφατη πρώτη)
+const RECENT = 4;
+function recentWord(session, wordId) {
+  return (session.recent || [session.lastWordId]).slice(0, RECENT).includes(wordId);
+}
+
+function seenToday(target, nowDate) {
+  if (!target.lastSeenAt || !nowDate) return false;
+  const d = new Date(target.lastSeenAt);
+  return d.getFullYear() === nowDate.getFullYear() && d.getMonth() === nowDate.getMonth()
+    && d.getDate() === nowDate.getDate();
 }
 
 // Προπόνηση: στόχος που έχει ήδη παρουσιαστεί. Με `otherWordOnly` αποκλείεται
 // αυστηρά η λέξη που μόλις παίχτηκε (αλλιώς απλώς προτιμάται άλλη).
-function practicePick(pairs, cfg, session, { otherWordOnly = false } = {}) {
+function practicePick(pairs, cfg, session, { otherWordOnly = false, nowDate = null } = {}) {
   let pool = pairs.filter((x) => x.target.introduced);
   if (otherWordOnly) pool = pool.filter((x) => x.word.id !== session.lastWordId);
   if (!pool.length) return null;
@@ -211,8 +232,11 @@ function practicePick(pairs, cfg, session, { otherWordOnly = false } = {}) {
   const cap = cfg.practice_serve_cap_per_session ?? 2;
   const rested = pool.filter((x) => (session.practiceCounts.get(x.target.id) || 0) < cap);
   if (rested.length) pool = rested;
-  const nonSame = pool.filter((x) => x.word.id !== session.lastWordId);
+  const nonSame = pool.filter((x) => !recentWord(session, x.word.id));
   if (nonSame.length) pool = nonSame;
+  // Ν1: πρώτα λέξεις που ΔΕΝ είδε σήμερα — η προπόνηση δεν ξαναφέρνει τις ίδιες
+  const fresh = pool.filter((x) => !seenToday(x.target, nowDate));
+  if (fresh.length) pool = fresh;
 
   // Γυρνάμε στις ΠΑΛΙΕΣ (11/09): πρώτα οι κατακτημένες (νιώθει δυνατός) και
   // ανάμεσά τους αυτή που έχει να τη δει τον περισσότερο καιρό. Κάθε

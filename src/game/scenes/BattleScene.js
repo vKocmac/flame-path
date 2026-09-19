@@ -2755,7 +2755,7 @@ export default class BattleScene extends Phaser.Scene {
     targets.forEach((e, i) => this.time.delayedCall(hitTime(e.x), () => {
       if (!e.scene || !this.enemies.includes(e)) return;
       e.hp -= i === 0 ? 2 : 1;
-      if (e.hp > 0) this.flinchEnemy(e);
+      if (e.hp > 0) this.hurled(e, 'wave', i);      // Ν3
       else { this.enemies = this.enemies.filter((x) => x !== e); this.killEnemy(e); }
     }));
     const lastHit = Math.max(900, ...targets.map((e) => hitTime(e.x)));
@@ -2777,6 +2777,9 @@ export default class BattleScene extends Phaser.Scene {
       this.consumeIntro(ch);
       ch = null;
     }
+    // Ν2: τίποτα να ρωτηθεί εκτός από προπόνηση, αλλά υπάρχουν νέες λέξεις →
+    // ο Μάστερ Γου καίει νέο πάπυρο ΤΩΡΑ, όχι στο επόμενο λεβελ.
+    if ((!ch || ch.isPractice) && engine.hasFresh(this.profileId)) { this.openLevel(); return; }
     if (!ch) { this.showNoWords(); return; }
     this.startChallenge(ch);
   }
@@ -3281,6 +3284,71 @@ export default class BattleScene extends Phaser.Scene {
       blendMode: 'ADD', tint: [NUM.flameCore, e.fire || NUM.flame], emitting: false
     }).setDepth(15);
     hit.explode(16);
+    this.time.delayedCall(800, () => hit.destroy());
+  }
+
+  // Ν3 (19/09): «πρέπει να έχει ρεαλιστικές κινήσεις όταν τους χτυπάς… δεν
+  // γίνεται να περνάει ο ανεμοστρόβιλος… και να μην κουνιούνται και απλά να
+  // κάνουν μισό πόντο πίσω. Θέλει κάποια αντίδραση». Όποιος ΑΝΤΕΧΕΙ μια
+  // δύναμη ή τη Μεγάλη Τεχνική πετιέται ανάλογα με αυτό που τον χτύπησε:
+  //   tornado   — σηκώνεται ψηλά, κάνει μια πλήρη στροφή, πέφτει μακριά
+  //   wave      — το κύμα φωτιάς τον πετά πίσω με τούμπα
+  //   dragon    — τινάζεται πίσω και ψηλά
+  //   clones    — παραπατά πίσω από τις κόψεις
+  //   lightning — τρέμει από το ρεύμα και γλιστρά πίσω
+  //   volcano   — η λάβα τον έχει ήδη πετάξει (geyser)· εδώ λίγο πίσω
+  // Προσγείωση = σκόνη. Ο Μάστερ Γου αιωρείται: μόνο πίσω και ταλάντευση.
+  hurled(e, kind, i = 0) {
+    const K = {
+      tornado: { dx: 260, lift: 250, spin: 360, dur: 1000 },   // ψηλά: η τούμπα γίνεται στον αέρα
+      wave: { dx: 190, lift: 95, spin: -55, dur: 760 },
+      dragon: { dx: 210, lift: 80, spin: 45, dur: 700 },
+      clones: { dx: 130, lift: 30, spin: -28, dur: 440 },
+      lightning: { dx: 70, lift: 0, spin: 0, dur: 460, shake: true },
+      volcano: { dx: 60, lift: 0, spin: 0, dur: 420 }
+    }[kind] || { dx: 100, lift: 30, spin: 20, dur: 450 };
+    this.hitFlash(e);
+    if (e.hpGlow) {
+      const full = e.isMaster ? .34 : .20;
+      this.tweens.add({ targets: e.hpGlow, alpha: full * (e.hp / e.maxHp), duration: 400 });
+    }
+    const S = e.size || 1;
+    // η σειρά της γραμμής μένει: ο μπροστινός δεν περνά πίσω από τους άλλους
+    const cap = Math.min(W - 70, SPAWN_X + i * ENEMY_GAP);
+    const toX = Math.max(e.x, Math.min(cap, e.x + K.dx * (e.isMaster ? .45 : 1) / Math.max(.8, S)));
+    if (K.shake) {                                    // ρεύμα: τρέμει πριν γλιστρήσει
+      this.tweens.add({ targets: e, x: e.x + 9, duration: 38, yoyo: true, repeat: 6,
+        onComplete: () => e.scene && this.tweens.add({ targets: e, x: toX, duration: K.dur, ease: 'Quad.easeOut' }) });
+    } else {
+      this.tweens.add({ targets: e, x: toX, duration: K.dur, ease: 'Quad.easeOut' });
+    }
+    if (e.isMaster) {
+      this.tweens.add({ targets: e, scaleX: e.scaleX * 1.1, scaleY: e.scaleY * .9, duration: 110, yoyo: true });
+      return;
+    }
+    if (K.spin) {
+      this.tweens.add({ targets: e, angle: K.spin, duration: K.dur * .8, ease: 'Quad.easeOut',
+        onComplete: () => e.scene && this.tweens.add({ targets: e, angle: 0, duration: 180, onComplete: () => e.setAngle(0) }) });
+    }
+    if (K.lift && !e.airborne) {
+      e.airborne = true;
+      this.tweens.add({ targets: e, y: LINE_Y - K.lift, duration: K.dur * .45, ease: 'Quad.easeOut',
+        onComplete: () => e.scene && this.tweens.add({ targets: e, y: LINE_Y, duration: K.dur * .55, ease: 'Bounce.easeOut',
+          onComplete: () => {
+            e.airborne = false;
+            if (!e.scene) return;
+            e.setY(LINE_Y);
+            this.smokePuff(e.x, LINE_Y - 6, 10);            // σκόνη στην προσγείωση
+            audio.thud();
+          } }) });
+    } else if (!K.lift) {
+      this.tweens.add({ targets: e, angle: 14, duration: 90, yoyo: true, repeat: 1, onComplete: () => e.setAngle(0) });
+    }
+    const hit = this.add.particles(e.x, e.y - 44 * S, 'spark', {
+      speed: { min: 60, max: 200 }, scale: { start: .7, end: 0 }, alpha: { start: 1, end: 0 },
+      lifespan: { min: 300, max: 600 }, blendMode: 'ADD', tint: [NUM.flameCore, e.fire || NUM.flame], emitting: false
+    }).setDepth(15);
+    hit.explode(22);
     this.time.delayedCall(800, () => hit.destroy());
   }
 
@@ -4141,19 +4209,11 @@ export default class BattleScene extends Phaser.Scene {
   // Το ΑΠΟΤΕΛΕΣΜΑ κάθε δύναμης είναι διαφορετικό (HYPER-NOTE §8, journey.POWERS)
   applyPower(power) {
     const dmg = power === 'lightning' || power === 'dragon' ? 2 : 1;
-    [...this.enemies].forEach((e) => {
+    [...this.enemies].forEach((e, i) => {
       e.hp -= dmg;
-      if (e.hp > 0) this.flinchEnemy(e);
+      if (e.hp > 0) this.hurled(e, power, i);       // Ν3: αντίδραση ανάλογα με τη δύναμη
       else { this.enemies = this.enemies.filter((x) => x !== e); this.killEnemy(e); }
     });
-    if (power === 'tornado') {                         // παρασύρει: όλοι πίσω
-      this.enemies.forEach((e, i) => this.tweens.add({
-        targets: e, x: Math.max(e.x, SPAWN_X + i * ENEMY_GAP), duration: 520, ease: 'Quad.easeOut'
-      }));
-    }
-    if (power === 'clones') {                          // οι κόψεις τους σπρώχνουν λίγο πίσω
-      this.enemies.forEach((e) => this.tweens.add({ targets: e, x: e.x + KNOCKBACK * .7, duration: 260, ease: 'Quad.easeOut' }));
-    }
     if (power === 'volcano') this.enemies.forEach((e) => this.daze(e, DAZE_MS, 'stars'));
     if (power === 'lightning') this.enemies.forEach((e) => this.daze(e, DAZE_MS * .6, 'volts'));
     // Έπεσε ο Μάστερ Γου: οι φούσκες/τα πλακίδια φεύγουν ΤΩΡΑ, όχι μετά τη
