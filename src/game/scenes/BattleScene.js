@@ -78,6 +78,15 @@ const REWARD_MIN = .25;
 // Θ8 (18/09): λάθος με την ΠΡΩΤΗ → ο νίντζα ξαφνιάζεται και η φορτωμένη
 // μπάρα χάνει μεγάλο κομμάτι. Στη δεύτερη προσπάθεια δεν χάνει ξανά.
 const RAGE_STARTLE = 30;
+// Ο3 (19/09): «όταν κάνεις λάθος θέλω να μειώνεται η μπάρα… όταν είναι πλήρης
+// δεν κουνιόταν». ΚΑΘΕ λάθος τη ρίχνει: το πρώτο της λέξης RAGE_STARTLE, κάθε
+// επόμενο RAGE_SECOND.
+const RAGE_SECOND = 20;
+// Ο4 (19/09): «αν χάσεις ολόκληρη λέξη… να καταρρέουν και σε ένα βαθμό και
+// κάποιες φλόγες… όχι μεγάλη απώλεια αλλά να έχει νόημα. Αν σε προλάβουν… ακόμα
+// μεγαλύτερη η κατάρρευση και σίγουρα να αδειάζει όλη η μπάρα… και να χάνεται
+// ακόμα και η έτοιμη μυστική δύναμη». [ποσοστό πορτοφολιού, ελάχιστο, μέγιστο]
+const LOSS_WORD = [.02, 3, 10], LOSS_CAUGHT = [.05, 8, 30];
 
 // Δίχτυ ασφαλείας. Καμία σκηνή δεν κρατά νόμιμα το «απασχολημένη» πάνω από
 // λίγα δευτερόλεπτα: το πιο αργό animation (ο πάπυρος) τελειώνει πολύ πριν.
@@ -2134,8 +2143,10 @@ export default class BattleScene extends Phaser.Scene {
   animateMaster(time) {
     const m = this.master;
     if (!m || this.calm) return;
-    m.y = m.baseY + Math.sin(time * .0009) * 12;
-    m.angle = Math.sin(time * .0007) * 2.2;
+    // Ο2: joltY/tilt = η αντίδραση στο χτύπημα (flinchEnemy/hurled)· αλλιώς το
+    // αιώρημα ξαναέγραφε y/angle κάθε καρέ και ο Μάστερ Γου έμενε ατάραχος
+    m.y = m.baseY + Math.sin(time * .0009) * 12 + (m.joltY || 0);
+    m.angle = Math.sin(time * .0007) * 2.2 + (m.tilt || 0);
     // Οι τρίχες: κάθε σημείο κυματίζει πιο πολύ όσο απομακρύνεται από τη ρίζα
     const g = m.hairG;
     g.clear();
@@ -2524,12 +2535,14 @@ export default class BattleScene extends Phaser.Scene {
 
   // Θ8 + Κ1: το πρώτο λάθος της λέξης. Με την Κορδέλα της Ασπίδας, μία
   // φορά ανά κύμα η ασπίδα το σταματά: η μπάρα δεν πέφτει, ο νίντζα δεν ξαφνιάζεται.
+  // Ο3: η ασπίδα δεν ακυρώνει πια το λάθος — μισή πτώση, χωρίς ξάφνιασμα/φθορά.
   firstMiss() {
     if (shop.ribbonFx(this.gear).shield && this.shieldWave !== this.wave) {
       this.shieldWave = this.wave;
       this.sealRing(this.ninja.x, this.ninja.y - 70, NUM.spirit);
       audio.chime(2);
       this.flashHint(TXT.shielded);
+      this.addRage(-RAGE_STARTLE / 2);
       return;
     }
     this.addRage(-RAGE_STARTLE);
@@ -2680,7 +2693,8 @@ export default class BattleScene extends Phaser.Scene {
     // Λάθος σειρά: το πλακίδιο τινάζεται και σβήνει για λίγο. Κανένα
     // κόκκινο, και ΔΕΝ μπαίνει στην περγαμηνή — η λάθος μορφή δεν φαίνεται.
     const saved = !this.assemblyMiss && shop.robeFx(this.gear).keepCombo;   // Λ1
-    if (!this.assemblyMiss) this.firstMiss();   // Θ8
+    const firstTile = !this.assemblyMiss;
+    if (firstTile) this.firstMiss();   // Θ8
     this.assemblyMiss = got;
     if (!saved) this.combo = 0;
     this.maskDamage();
@@ -2690,6 +2704,7 @@ export default class BattleScene extends Phaser.Scene {
     // Και εδώ το λάθος το νιώθει ο νίντζα (Ζ2) — αλλά ένα χτύπημα τη φορά,
     // όσα πλακίδια κι αν πατηθούν στη σειρά.
     if (this.sceneMs >= this.nextAsmHurtAt) {
+      if (!firstTile) this.addRage(-RAGE_SECOND);   // Ο3 (ένα χτύπημα τη φορά, όχι ανά πλακίδιο)
       this.nextAsmHurtAt = this.sceneMs + 1400;
       const boss = this.enemies.find((e) => e.isMaster);
       const foe = boss || this.enemies.find((e) => !e.frozenUntil);
@@ -3029,6 +3044,7 @@ export default class BattleScene extends Phaser.Scene {
       // Θ8: ΜΟΝΟ το πρώτο λάθος της λέξης ξαφνιάζει και ρίχνει τη μπάρα
       const saved = !this.tries && shop.robeFx(this.gear).keepCombo;   // Λ1: Στολή του Ουρανού
       if (!this.tries) this.firstMiss();
+      else this.addRage(-RAGE_SECOND);       // Ο3: και το δεύτερο λάθος ρίχνει τη μπάρα
       this.maskDamage();                     // Ζ11: η μάσκα χάνει μία ζωή
       if (!saved) this.combo = 0;
       this.hardTargets.add(ch.targetId);
@@ -3283,6 +3299,7 @@ export default class BattleScene extends Phaser.Scene {
     if (e.head) {
       this.tweens.add({ targets: e.head, angle: 14, duration: 120, yoyo: true });
     }
+    if (e.isMaster) this.masterReels(e, { tilt: 16, lift: 22, dx: 40, dur: 420 });   // Ο2
     const hit = this.add.particles(e.x, e.y - 44, 'spark', {
       speed: { min: 40, max: 150 }, scale: { start: .6, end: 0 },
       alpha: { start: .9, end: 0 }, lifespan: { min: 260, max: 520 },
@@ -3320,16 +3337,17 @@ export default class BattleScene extends Phaser.Scene {
     const S = e.size || 1;
     // η σειρά της γραμμής μένει: ο μπροστινός δεν περνά πίσω από τους άλλους
     const cap = Math.min(W - 70, SPAWN_X + i * ENEMY_GAP);
-    const toX = Math.max(e.x, Math.min(cap, e.x + K.dx * (e.isMaster ? .45 : 1) / Math.max(.8, S)));
+    const toX = Math.max(e.x, Math.min(cap, e.x + K.dx / Math.max(.8, S)));
+    if (e.isMaster) {                                  // Ο2: αντιδρά όπως οι άλλοι (το σπρώξιμο στο masterReels)
+      this.tweens.add({ targets: e, scaleX: e.scaleX * 1.1, scaleY: e.scaleY * .9, duration: 110, yoyo: true });
+      this.masterReels(e, { tilt: K.spin || 10, lift: K.lift * .6, dx: K.dx * .45, dur: K.dur, shake: K.shake });
+      return;
+    }
     if (K.shake) {                                    // ρεύμα: τρέμει πριν γλιστρήσει
       this.tweens.add({ targets: e, x: e.x + 9, duration: 38, yoyo: true, repeat: 6,
         onComplete: () => e.scene && this.tweens.add({ targets: e, x: toX, duration: K.dur, ease: 'Quad.easeOut' }) });
     } else {
       this.tweens.add({ targets: e, x: toX, duration: K.dur, ease: 'Quad.easeOut' });
-    }
-    if (e.isMaster) {
-      this.tweens.add({ targets: e, scaleX: e.scaleX * 1.1, scaleY: e.scaleY * .9, duration: 110, yoyo: true });
-      return;
     }
     if (K.spin) {
       this.tweens.add({ targets: e, angle: K.spin, duration: K.dur * .8, ease: 'Quad.easeOut',
@@ -3355,6 +3373,35 @@ export default class BattleScene extends Phaser.Scene {
     }).setDepth(15);
     hit.explode(22);
     this.time.delayedCall(800, () => hit.destroy());
+  }
+
+  // Ο2 (19/09): «ο Μάστερ Γου όταν τον χτυπάς δεν αντιδρά όπως έκανες με τους
+  // κακούς». Αιωρείται, άρα η αντίδραση πάει στα joltY/tilt που προσθέτει το
+  // animateMaster: γέρνει πίσω (ή κάνει τούμπα στον ανεμοστρόβιλο), τινάζεται
+  // ψηλά, τα μάτια σβήνουν στιγμιαία, το χέρι πετιέται — και ξαναβρίσκει τη στάση του.
+  masterReels(m, { tilt = 14, lift = 20, dx = 0, dur = 420, shake = false }) {
+    if (!m || !m.scene) return;
+    this.tweens.killTweensOf(m, ['tilt', 'joltY']);
+    m.tilt = 0; m.joltY = 0;
+    const back = () => m.scene && this.tweens.add({ targets: m, tilt: 0, joltY: 0, duration: 380, ease: 'Back.easeOut' });
+    if (shake) {
+      this.tweens.add({ targets: m, tilt: 6, duration: 40, yoyo: true, repeat: 6, onComplete: back });
+    } else {
+      this.tweens.add({ targets: m, tilt, joltY: -lift, duration: dur * .45, ease: 'Quad.easeOut',
+        onComplete: () => { if (Math.abs(m.tilt) >= 300) m.tilt = 0; back(); } });   // πλήρης τούμπα: όχι ανάποδα πίσω
+    }
+    if (dx) {
+      const behind = this.enemies[this.enemies.indexOf(m) + 1];
+      const cap = behind ? behind.x - ENEMY_GAP * .7 : W - 70;
+      this.tweens.add({ targets: m, x: Math.max(m.x, Math.min(cap, m.x + dx)), duration: 260, ease: 'Quad.easeOut' });
+    }
+    if (m.eyes && !this.tweens.isTweening(m.eyes)) {
+      this.tweens.add({ targets: m.eyes, alpha: .25, duration: 90, yoyo: true, repeat: 1, onComplete: () => m.eyes.setAlpha(1) });
+    }
+    if (m.arm && !this.tweens.isTweening(m.arm)) {      // το χέρι πετιέται — όχι πάνω σε χτύπημά του
+      this.tweens.add({ targets: m.arm, y: -32, angle: -30, duration: 140, yoyo: true, ease: 'Quad.easeOut',
+        onComplete: () => m.arm.setY(-6).setAngle(0) });
+    }
   }
 
   // Λευκή λάμψη πάνω στο σώμα τη στιγμή του χτυπήματος: το μάτι τη διαβάζει
@@ -3423,6 +3470,32 @@ export default class BattleScene extends Phaser.Scene {
         }
       });
     }
+  }
+
+  // Ο4: φλόγες καταρρέουν από τον μετρητή — γκρίζα στάχτη που πέφτει, «−N».
+  // Ποτέ κάτω από το μηδέν, ποτέ κόκκινο.
+  loseSparks([pct, min, max]) {
+    const state = store.loadState();
+    const have = store.getSparks(state);
+    const n = Math.min(have, Math.max(min, Math.min(max, Math.round(have * pct))));
+    if (n <= 0) return;
+    const total = store.addSparks(state, -n);
+    const { x, y } = this.sparkIcon;
+    this.sparkLabel.setText(String(total));
+    this.tweens.add({ targets: [this.sparkIcon, this.sparkLabel], x: '+=7', duration: 45, yoyo: true, repeat: 4 });
+    const shown = Math.min(n, 10);
+    for (let i = 0; i < shown; i++) {
+      const s = this.add.image(x, y, 'spark').setScale(.9).setBlendMode(Phaser.BlendModes.ADD).setDepth(46);
+      this.time.delayedCall(120 + i * 70, () => s.scene && s.setTint(NUM.smoke).setBlendMode(Phaser.BlendModes.NORMAL));
+      this.tweens.add({ targets: s, x: x + Phaser.Math.Between(-90, 30), y: y + Phaser.Math.Between(140, 260),
+        angle: Phaser.Math.Between(-120, 120), scale: .35, alpha: 0,
+        duration: 900, delay: i * 70, ease: 'Quad.easeIn', onComplete: () => s.destroy() });
+    }
+    const t = this.add.text(x - 24, y + 38, `−${n}`, {
+      fontFamily: FONT.ui, fontSize: '34px', fontStyle: '700', color: HEX.parchment
+    }).setOrigin(.5).setDepth(47).setStroke('#1A1030', 6);
+    this.tweens.add({ targets: t, y: y + 90, alpha: 0, duration: 1300, delay: 250, onComplete: () => t.destroy() });
+    audio.fizzle();
   }
 
   // --------------------------------------------------------------- λάθος
@@ -3528,8 +3601,9 @@ export default class BattleScene extends Phaser.Scene {
 
   /**
    * Δεύτερη αστοχία: ο Μάστερ Γου αρπάζει ΟΛΗ τη λέξη και η μάχη συνεχίζει
-   * με άλλη. Καμία οθόνη σφάλματος, κανένα κόκκινο, καμία απώλεια σπίθας —
-   * η λέξη απλώς φεύγει, όπως έφυγε και το γράμμα (SPEC κεφ. 3).
+   * με άλλη. Καμία οθόνη σφάλματος, κανένα κόκκινο. Ο4 (19/09, ο Κοσμάς
+   * ανατρέπει το «καμία απώλεια σπίθας» του SPEC κεφ. 3): λίγες φλόγες
+   * καταρρέουν από τον μετρητή (LOSS_WORD) — μικρή απώλεια, με νόημα.
    *
    * Η λέξη ΑΛΛΑΖΕΙ επίτηδες: αν έμενε η ίδια με λιγότερες επιλογές, το
    * παιδί θα τη μάντευε με αποκλεισμό αντί να τη θυμηθεί.
@@ -3537,6 +3611,7 @@ export default class BattleScene extends Phaser.Scene {
   wordLost() {
     this.busy = true;
     this.clearOrbs();
+    this.loseSparks(LOSS_WORD);
     audio.poof();
     audio.roar(.55);
     const m = this.master;
@@ -3558,7 +3633,9 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // Ο νίντζα υποχωρεί σε ασφαλές σημείο και το κύμα ξαναρχίζει.
-  // Δεν χάνεται τίποτα — ούτε σπίθες, ούτε πρόοδος.
+  // Ο4 (19/09): «αν σε προλάβουν… ακόμα μεγαλύτερη η κατάρρευση… να αδειάζει όλη
+  // η μπάρα… και να χάνεται ακόμα και η έτοιμη μυστική δύναμη». Η πρόοδος των
+  // λέξεων δεν χάνεται ποτέ· χάνονται φλόγες (LOSS_CAUGHT) και όλη η μπάρα.
   //
   // ΠΡΟΣΟΧΗ (BRANCH-SCOPE §1): η ανασύνταξη ΔΕΝ αποκαλύπτει το σωστό γράφημα.
   // Πλέον μπορεί να συμβεί σκέτα από τον χρόνο, χωρίς κανένα λάθος του παιδιού
@@ -3572,6 +3649,8 @@ export default class BattleScene extends Phaser.Scene {
     this.pace(1, 0);
     this.ninja.frozen = true;
     audio.poof();
+    this.addRage(-RAGE_MAX);                 // Ο4: άδεια μπάρα — και η έτοιμη δύναμη χάνεται
+    this.loseSparks(LOSS_CAUGHT);
 
     const smokeAt = (x, y, n, life) => {
       const p = this.add.particles(x, y, 'puff', {

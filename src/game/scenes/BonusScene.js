@@ -10,11 +10,16 @@
 //
 // ΤΙ είναι: 75 δευτερόλεπτα, χωρίς εχθρούς — ο αντίπαλος είναι ο χρόνος.
 //   - λέξεις με κενό, όπως στη μάχη (ίδιο Learning Engine, πραγματική ανάκληση)
-//   - ΠΟΛΛΑΠΛΑΣΙΑΣΤΗΣ ×1 → ×5: κάθε σωστό τον ανεβάζει, κάθε λάθος τον μηδενίζει
-//   - πιο γρήγορη μπάρα ανταμοιβής από τη μάχη (γεμάτη ως 1,5 δευτ., κάτω στα 6)
+//   - ΦΟΡΤΙΣΗ ×1 → ×5: κάθε σωστό την ανεβάζει, κάθε λάθος τη μηδενίζει
+//     (αν η μπάρα κάτω από τη λέξη άδειασε πριν απαντήσει, το σωστό δεν φορτίζει)
 //   - από ×3 και πάνω οι φούσκες ΚΙΝΟΥΝΤΑΙ — πιο δύσκολο να τις πετύχεις
-//   - κάθε 6 σωστά: «Φλογοβροχή!» — φωτιές πέφτουν από ψηλά, τις πιάνει με άγγιγμα
-// Τίποτα δεν χάνεται: το λάθος κοστίζει μόνο τον πολλαπλασιαστή. Λάθος πλήρης
+//   - στο ×5: «Φλογοβροχή!» — φωτιές πέφτουν από ψηλά, τις πιάνει με άγγιγμα·
+//     μετά η φόρτιση ξαναρχίζει από ×1
+// Ο1 (19/09): «δίνει πιο λίγα points γιατί μαζεύει υπερβολικά πολλά… να παίρνει
+// πόντους μόνο από τη φλογοβολή… μέχρι να γίνει ×5 να μην του δίνεις πόντους
+// αλλά να τους μαζεύει με το δάχτυλο». Η σωστή λέξη ΔΕΝ δίνει φωτιές — μόνο
+// φορτίζει. Φωτιές δίνει μόνο η βροχή, 1 η καθεμία (η Στολή της Φωτιάς: πότε πότε 2).
+// Το λάθος κοστίζει μόνο τη φόρτιση. Λάθος πλήρης
 // μορφή λέξης δεν σχηματίζεται ποτέ (ARCHITECTURE §8.1).
 
 import { NUM, HEX, FONT } from '../../theme/palette.js';
@@ -29,7 +34,7 @@ import * as shop from '../shop.js';
 const W = 1280, H = 720;
 const RUN_MS = 75000;
 const FULL_MS = 1500, MIN_MS = 6000, K_MIN = .25;
-const BASE = 3, MULT_MAX = 5, RAIN_EVERY = 6, RAIN_MS = 6500;   // Ξ1: η βροχή κρατά περισσότερο
+const MULT_MAX = 5, RAIN_MS = 6500, RAIN_DROP_MS = 210;   // Ξ1: η βροχή κρατά περισσότερο · Ο1: πιο αραιή
 const VIOLET = 0x7B4FD6, TEAL = 0x3FD6C8, PINK = 0xE0679E;
 
 export default class BonusScene extends Phaser.Scene {
@@ -294,8 +299,6 @@ export default class BonusScene extends Phaser.Scene {
 
   hit(o) {
     this.busy = true;
-    const k = this.tries ? K_MIN : this.wordRewardK();
-    const n = Math.max(1, Math.round(BASE * this.mult * k * this.robeK));
     // Η σωστή λέξη ολόκληρη, ενωμένη (χωρίς το φάρδος της υποδοχής)
     this.wordParts.forEach((p) => p.destroy());
     const whole = this.add.text(W / 2, 168, this.current.text, { fontFamily: FONT.word, fontSize: '60px', color: '#FFE08A' })
@@ -304,18 +307,19 @@ export default class BonusScene extends Phaser.Scene {
     this.wordParts = [whole];
     this.orbs.forEach((x) => { if (x !== o && x.scene) { x.disableInteractive(); this.tweens.add({ targets: x, alpha: .2, duration: 160 }); } });
     this.tweens.add({ targets: o, scale: 1.3, alpha: 0, duration: 260, onComplete: () => o.destroy() });
-    this.burst(o.x, o.y, n);
     audio.chime(Math.min(this.mult - 1, 3));
-    if (!this.tries) {
+    // η μπάρα κάτω από τη λέξη: αν άδειασε (αργή απάντηση) η λέξη δεν φορτίζει
+    if (!this.tries && this.wordRewardK() > K_MIN) {
       this.mult = Math.min(MULT_MAX, this.mult + 1);
       this.streak += 1;
     }
+    this.chargeFx(o);                       // Ο1: η λέξη φορτίζει, δεν πληρώνει
     this.showMult();
-    const rain = this.streak > 0 && this.streak % RAIN_EVERY === 0 && !this.tries;
+    const rain = !this.tries && this.mult >= MULT_MAX;
     this.time.delayedCall(650, () => {
       this.wordParts.forEach((p) => p.destroy()); this.wordParts = [];
       this.current = null;
-      if (rain) this.fireRain(() => { this.busy = false; this.nextWord(); });
+      if (rain) this.fireRain(() => { this.mult = 1; this.showMult(); this.busy = false; this.nextWord(); });
       else { this.busy = false; this.nextWord(); }
     });
   }
@@ -346,6 +350,15 @@ export default class BonusScene extends Phaser.Scene {
     this.multText.setColor(this.mult >= 5 ? '#FFE08A' : this.mult >= 3 ? '#E0679E' : '#3FD6C8');
   }
 
+  // Ο1: η σωστή λέξη στέλνει σπίθες στον μετρητή φόρτισης (όχι στις φωτιές)
+  chargeFx(o) {
+    for (let i = 0; i < 6; i++) {
+      const s = this.add.image(o.x, o.y, 'spark').setScale(.8).setBlendMode(Phaser.BlendModes.ADD).setDepth(45).setTint(TEAL);
+      this.tweens.add({ targets: s, x: this.multText.x + Phaser.Math.Between(-20, 20), y: this.multText.y, scale: .3,
+        duration: 420, delay: i * 45, ease: 'Quad.easeIn', onComplete: () => s.destroy() });
+    }
+  }
+
   // Οι φωτιές πετούν ως τον μετρητή· κάθε μία γράφεται αμέσως (τίποτα δεν χάνεται)
   burst(x, y, n) {
     this.got += n;
@@ -363,7 +376,8 @@ export default class BonusScene extends Phaser.Scene {
     this.tweens.add({ targets: plus, y: y - 130, alpha: 0, duration: 900, onComplete: () => plus.destroy() });
   }
 
-  // Φλογοβροχή: φωτιές πέφτουν για λίγα δευτερόλεπτα, κάθε άγγιγμα = +2 (×στολή)
+  // Φλογοβροχή: φωτιές πέφτουν για λίγα δευτερόλεπτα, κάθε άγγιγμα = +1
+  // (Ο1· με τη Στολή της Φωτιάς ×1,25 = κάθε τέταρτη περίπου +2)
   fireRain(done) {
     this.raining = true;
     this.clearOrbs();
@@ -385,13 +399,13 @@ export default class BonusScene extends Phaser.Scene {
       f.on('pointerdown', () => {
         f.disableInteractive();
         this.tweens.killTweensOf(f);
-        this.burst(f.x, f.y, Math.max(1, Math.round(2 * this.robeK)));
+        this.burst(f.x, f.y, 1 + (Math.random() < this.robeK - 1 ? 1 : 0));
         f.destroy();
       });
       this.tweens.add({ targets: f, y: H + 60, duration: Phaser.Math.Between(1700, 2600), ease: 'Quad.easeIn', onComplete: () => f.destroy() });
       this.rain.push(f);
     };
-    const ev = this.time.addEvent({ delay: 170, repeat: Math.floor(RAIN_MS / 170), callback: drop });
+    const ev = this.time.addEvent({ delay: RAIN_DROP_MS, repeat: Math.floor(RAIN_MS / RAIN_DROP_MS), callback: drop });
     this.time.delayedCall(RAIN_MS + 400, () => {
       this.raining = false;
       ev.remove();
