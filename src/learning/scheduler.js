@@ -9,8 +9,17 @@ export function intervalMs(cfg, level) {
   return d[Math.min(level, d.length - 1)] * DAY_MS;
 }
 
+// Ο5 (19/09): «παίζει τόση ώρα και λέει ότι έχει κατοχυρώσει 0 λέξεις». Η
+// επανάληψη ερχόταν ΑΚΡΙΒΩΣ 24 ώρες μετά: αν χτες έπαιξε στις 19:00, σήμερα
+// στις 17:00 οι χθεσινές λέξεις δεν ήταν «έτοιμες» — έβγαιναν ως προπόνηση,
+// που δεν ανεβάζει επίπεδο, και καμία δεν κατοχυρωνόταν. Τώρα μετρά η
+// ΗΜΕΡΟΛΟΓΙΑΚΗ μέρα: ό,τι λήγει σήμερα (οποιαδήποτε ώρα) είναι έτοιμο από το πρωί.
 export function isDue(target, nowDate) {
-  return target.introduced && (!target.nextDueAt || new Date(target.nextDueAt) <= nowDate);
+  if (!target.introduced) return false;
+  if (!target.nextDueAt) return true;
+  const end = new Date(nowDate);
+  end.setHours(23, 59, 59, 999);
+  return new Date(target.nextDueAt) <= end;
 }
 
 // Όλα τα ζεύγη (λέξη, στόχος) ενός προφίλ. Οι αρχειοθετημένες λέξεις (Η4)
@@ -182,6 +191,14 @@ export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated
     // Το ενεργό σύνολο τελείωσε σε πρόσφατες λέξεις; Ψάξε σε ΟΛΕΣ όσες
     // χρωστάει, πριν δεχτείς εναλλαγή δύο λέξεων («τυρί μήλο τυρί μήλο»).
     if (!nonSame.length) nonSame = eligible.filter((x) => !recentWord(session, x.word.id));
+    // Ο5 (19/09): αν ΟΛΕΣ όσες χρωστάει είναι στις 4 τελευταίες, πριν έβγαινε
+    // ΠΡΟΠΟΝΗΣΗ — ξανά και ξανά, αφού η προπόνηση δεν ξεπληρώνει τίποτα. Με
+    // λίγες λέξεις (αρχή μέρας, λεβελ με 3 λέξεις) καμία ερώτηση δεν μετρούσε
+    // και καμία λέξη δεν ανέβαινε. Τώρα το παράθυρο στενεύει 3 → 2 → 1· σε
+    // προπόνηση πάει μόνο αν χρωστάει ΜΟΝΟ τη λέξη που μόλις παίχτηκε.
+    for (let k = RECENT - 1; !nonSame.length && k >= 1; k--) {
+      nonSame = eligible.filter((x) => !recentWord(session, x.word.id, k));
+    }
     if (!nonSame.length && cfg.practice_after_queue_empty) {
       const other = practicePick(pairs, cfg, session, { otherWordOnly: true, nowDate });
       if (other) return other;
@@ -211,8 +228,8 @@ export function selectNext(profileEntry, cfg, nowDate, session, { intro = 'gated
 
 // Οι λέξεις των τελευταίων ερωτήσεων (engine: session.recent, η πιο πρόσφατη πρώτη)
 const RECENT = 4;
-function recentWord(session, wordId) {
-  return (session.recent || [session.lastWordId]).slice(0, RECENT).includes(wordId);
+function recentWord(session, wordId, n = RECENT) {
+  return (session.recent || [session.lastWordId]).slice(0, n).includes(wordId);
 }
 
 function seenToday(target, nowDate) {

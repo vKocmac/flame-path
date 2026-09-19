@@ -376,8 +376,8 @@ export default class BonusScene extends Phaser.Scene {
     this.tweens.add({ targets: plus, y: y - 130, alpha: 0, duration: 900, onComplete: () => plus.destroy() });
   }
 
-  // Φλογοβροχή: φωτιές πέφτουν για λίγα δευτερόλεπτα, κάθε άγγιγμα = +1
-  // (Ο1· με τη Στολή της Φωτιάς ×1,25 = κάθε τέταρτη περίπου +2)
+  // Φλογοβροχή: φωτιές πέφτουν για λίγα δευτερόλεπτα, κάθε άγγιγμα = +2
+  // (Ο1 → Ο7 «τους διπλάσιους ανά φωτιά»· με τη Στολή της Φωτιάς πότε πότε +3)
   fireRain(done) {
     this.raining = true;
     this.clearOrbs();
@@ -399,7 +399,7 @@ export default class BonusScene extends Phaser.Scene {
       f.on('pointerdown', () => {
         f.disableInteractive();
         this.tweens.killTweensOf(f);
-        this.burst(f.x, f.y, 1 + (Math.random() < this.robeK - 1 ? 1 : 0));
+        this.burst(f.x, f.y, 2 + (Math.random() < this.robeK - 1 ? 1 : 0));   // Ο7: διπλάσιες
         f.destroy();
       });
       this.tweens.add({ targets: f, y: H + 60, duration: Phaser.Math.Between(1700, 2600), ease: 'Quad.easeIn', onComplete: () => f.destroy() });

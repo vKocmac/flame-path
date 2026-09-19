@@ -234,13 +234,13 @@ export function reportResult(r) {
   }
 
   // Η μέρα (Θ3): σωστές απαντήσεις, λέξεις που μόλις κατακτήθηκαν, σερί
-  let daily = null;
+  let daily = null, learned = false;
   if (served.type !== 'intro') {
-    const learned = !wasMastered && isMastered(word, cfg.mastery_level ?? 2);
+    learned = !wasMastered && isMastered(word, cfg.mastery_level ?? 2);
     daily = recordAnswer(p, word.id, !!r.correct, learned, new Date(at));
   }
 
   word.updatedAt = at;
   store.saveState(state);
-  return { ok: true, daily };
+  return { ok: true, daily, learned: learned ? word.text : null };
 }

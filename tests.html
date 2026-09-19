@@ -1104,6 +1104,38 @@ await test('Φωνή: κάθε ατάκα του Μάστερ Γου έχει τ
   eq(missing, [], 'λείπουν ηχογραφήσεις');
 });
 
+// ------------------------------------ Ο5 (19/09): «0 λέξεις κατοχυρωμένες»
+
+await test('Ο5: η επανάληψη έρχεται με ΗΜΕΡΟΛΟΓΙΑΚΗ μέρα — όχι μετά από ακριβές 24ωρο', async () => {
+  // λήγει αργότερα ΣΗΜΕΡΑ (π.χ. χτες έπαιξε πιο αργά) → ρωτιέται κανονικά από τώρα
+  const later = new Date(fakeNow.getTime() + 60000);
+  later.setHours(23, 0, 0, 0);
+  const { pid } = seed([{ text: 'λιμάνι', targets: [iT({ level: 1, introduced: true, due: later.toISOString() })] }]);
+  engine.resetSession();
+  const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });
+  eq(!!ch && !ch.isPractice, true, 'κανονική ερώτηση, όχι προπόνηση');
+  engine.reportResult({ challengeId: ch.challengeId, wordId: ch.wordId, targetId: ch.targetId,
+    profileId: pid, type: ch.type, correct: true, durationMs: 1000 });
+  const t = store.activeProfile(store.loadState()).words[0].targets[0];
+  eq(t.level, 2, 'ανέβηκε στο επίπεδο κατάκτησης');
+});
+
+await test('Ο5: λίγες ληξιπρόθεσμες λέξεις — όχι ατελείωτη προπόνηση', async () => {
+  const { pid } = seed([
+    { text: 'λιμάνι', targets: [iT({ level: 0, introduced: true, due: PAST })] },
+    { text: 'πιπέρι', targets: [iT({ level: 0, introduced: true, due: PAST })] },
+    { text: 'χιόνι', targets: [iT({ level: 0, introduced: true, due: PAST })] },
+    { text: 'μύτη', targets: [iT({ g: 'υ', level: 4, introduced: true, due: FUTURE })] }   // για προπόνηση
+  ]);
+  engine.resetSession();
+  const kinds = [];
+  for (let i = 0; i < 6; i++) {
+    const ch = engine.getNextChallenge(pid, { types: ['gap'], intro: 'never' });   // χωρίς αναφορά: μένουν ληξιπρόθεσμες
+    kinds.push(ch.isPractice ? 'P' : 'Q');
+  }
+  eq(kinds.filter((k) => k === 'Q').length >= 5, true, `κανονικές ερωτήσεις (${kinds.join('')})`);
+});
+
 // --- Επαναφορά πραγματικών δεδομένων ---
 if (BACKUP === null) localStorage.removeItem('flame.state.v1');
 else localStorage.setItem('flame.state.v1', BACKUP);

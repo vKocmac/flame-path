@@ -77,7 +77,11 @@ export default class ProgressScene extends Phaser.Scene {
     }).setOrigin(0, .5);
     name.setShadow(0, 0, HEX.flame, 12, false, true);
     const roads = (who.profile.journey && who.profile.journey.cycle) || 0;
-    this.add.text(x + 170, y + 82, TXT.progLearned(learned) + (roads ? ` · ${TXT.progRoads(roads)}` : ''), {
+    // Ο6: όσες βρήκε σωστά μία μέρα και κλειδώνουν αν τις βρει και σε άλλη
+    const ripening = who.words.filter((wd) => !wd.archived && wd.targets.length
+      && wd.targets.every((t) => t.level >= 1) && wd.targets.some((t) => t.level < journey.MASTERY_LEVEL)).length;
+    this.add.text(x + 170, y + 82, TXT.progLearned(learned) + (ripening ? ` · ${TXT.progRipening(ripening)}` : '')
+      + (roads ? ` · ${TXT.progRoads(roads)}` : ''), {
       fontFamily: FONT.ui, fontSize: '21px', color: HEX.parchment
     }).setOrigin(0, .5);
 
@@ -227,6 +231,10 @@ export default class ProgressScene extends Phaser.Scene {
     if (more > 0) {
       this.add.text(x + w - 24, y + 22, `+${more}`, { fontFamily: FONT.ui, fontSize: '18px', color: HEX.smoke }).setOrigin(1, .5);
     }
+    // Ο6: τι σημαίνουν οι κουκκίδες
+    this.add.text(x + w - (more > 0 ? 70 : 24), y + 22, TXT.progWallHow, {
+      fontFamily: FONT.ui, fontSize: '15px', color: HEX.smoke
+    }).setOrigin(1, .5);
   }
 
   // Επόμενο ξεκλείδωμα στον Πάγκο: η επόμενη δύναμη ή όπλο που δεν έχει

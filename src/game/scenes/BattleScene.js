@@ -2418,6 +2418,7 @@ export default class BattleScene extends Phaser.Scene {
       opened = store.portalGrant(store.loadState()) || opened;
     }
     this.drawPortalButton();
+    if (res && res.learned) this.time.delayedCall(700, () => this.showLearned(res.learned));   // Ο6
     if (opened) this.time.delayedCall(res && res.daily && res.daily.goalJustMet ? 3400 : 700, () => this.portalOpened());
     const b = journey.beltOf(store.activeProfile(store.loadState()));
     if (b > this.belt) {
@@ -2425,6 +2426,29 @@ export default class BattleScene extends Phaser.Scene {
       store.raiseBelt(store.loadState(), b);
       this.time.delayedCall(res && res.daily && res.daily.goalJustMet ? 3600 : 900, () => this.showBeltUp(b));
     }
+  }
+
+  // Ο6 (19/09): «δεν έχω καταλάβει πώς θα αλλάξει ζώνη ή πώς θα βλέπει κάποια
+  // πρόοδο». Τη στιγμή που μια λέξη κατοχυρώνεται (σωστή σε δεύτερη μέρα) το
+  // λέει: χρυσή πλακέτα με τη λέξη, πάνω δεξιά, χωρίς να σταματά η μάχη.
+  showLearned(text) {
+    audio.chime(3);
+    const c = this.add.container(W - 230, 128).setDepth(49).setAlpha(0);
+    const bg = this.add.graphics();
+    bg.fillStyle(NUM.night, .92);
+    bg.fillRoundedRect(-200, -40, 400, 80, 22);
+    bg.lineStyle(3, NUM.lantern, .95);
+    bg.strokeRoundedRect(-200, -40, 400, 80, 22);
+    const t1 = this.add.text(0, -14, text, {
+      fontFamily: FONT.word, fontSize: '30px', fontStyle: '700', color: HEX.flameCore
+    }).setOrigin(.5);
+    t1.setShadow(0, 0, HEX.flame, 12, false, true);
+    const t2 = this.add.text(0, 20, TXT.wordLearned, {
+      fontFamily: FONT.ui, fontSize: '19px', color: HEX.lantern
+    }).setOrigin(.5);
+    c.add([bg, t1, t2]);
+    this.tweens.add({ targets: c, alpha: 1, y: 140, duration: 300, ease: 'Back.easeOut', hold: 1900, yoyo: true,
+      onComplete: () => c.destroy() });
   }
 
   // Θ3: «Οι λέξεις της μέρας!» + οι φλόγες του σερί

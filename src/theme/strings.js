@@ -142,6 +142,9 @@ export const TXT = {
   progStreak: 'Σερί',
   progBest: 'καλύτερο',
   progLearned: (n) => `Λέξεις που έμαθες: ${n}`,   // το κεφαλαίο «Έ» δεν έχει τόνο στη Comfortaa
+  progRipening: (n) => `ωριμάζουν ${n}`,             // Ο6: σωστές μία μέρα, περιμένουν τη δεύτερη
+  progWallHow: 'κλειδώνει όταν τη βρεις σωστά 2 μέρες',
+  wordLearned: 'κατοχυρώθηκε! ✦ μετράει για ζώνη',
   progNextBelt: (n, belt) => `ακόμα ${n} ${n === 1 ? 'λέξη' : 'λέξεις'} για ${belt}`,
   progTopBelt: 'Η πιο δυνατή ζώνη!',
   progWeek: 'Η εβδομάδα σου',
